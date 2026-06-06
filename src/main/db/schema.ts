@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { blob, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 /**
  * A managed dev project. The core entity: identity (name/description), a bit of
@@ -92,9 +92,39 @@ export const projectActions = sqliteTable('project_actions', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
 
+/**
+ * Generic encrypted key/value store. `value` holds Electron `safeStorage`
+ * ciphertext (OS keychain-backed) — never plaintext. The secrets service is the
+ * only thing that reads/writes this; entities reference a secret by its `key`
+ * (e.g. a GitHub token under `github:token:<owner>`).
+ */
+export const secrets = sqliteTable('secrets', {
+  key: text('key').primaryKey(),
+  value: blob('value', { mode: 'buffer' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
+/**
+ * A linked GitHub owner (your personal account or an org). A fine-grained PAT
+ * is bound to a single owner, so we hold one row — and one token — per owner.
+ * Metadata only: the token lives in {@link secrets} under `github:token:<owner>`.
+ * `login`/`name`/`avatarUrl` are the authenticated viewer (GET /user), for display.
+ */
+export const githubAccounts = sqliteTable('github_accounts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  // The user or org login the token grants access to (the secret's lookup key).
+  owner: text('owner').notNull().unique(),
+  login: text('login').notNull(),
+  name: text('name'),
+  avatarUrl: text('avatar_url'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
 export type ProjectAction = typeof projectActions.$inferSelect
 export type NewProjectAction = typeof projectActions.$inferInsert
 export type ActionGroup = typeof actionGroups.$inferSelect
 export type NewActionGroup = typeof actionGroups.$inferInsert
+export type GithubAccount = typeof githubAccounts.$inferSelect
+export type NewGithubAccount = typeof githubAccounts.$inferInsert

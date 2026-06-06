@@ -7,3 +7,6 @@ type RouterOutputs = inferRouterOutputs<AppRouter>
 export type ProjectWithActions = RouterOutputs['projects']['list'][number]
 export type ProjectActionRow = ProjectWithActions['actions'][number]
 export type ActionGroupRow = ProjectWithActions['groups'][number]
+
+/** A linked GitHub owner, as returned by `github.listAccounts`. */
+export type GithubAccountRow = RouterOutputs['github']['listAccounts'][number]

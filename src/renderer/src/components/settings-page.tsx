@@ -1,5 +1,4 @@
 import {
-  IconBrandGithub,
   IconInfoCircle,
   IconPalette,
   IconPlug,
@@ -9,7 +8,7 @@ import {
 } from '@tabler/icons-react'
 import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
+import { GitHubIntegration } from '@/components/github-integration'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -66,27 +65,7 @@ function IntegrationsPanel(): ReactElement {
       title="Integrations"
       description="Connect external services so Polaris can pull in your work."
     >
-      <Card>
-        <CardHeader className="flex-row items-center gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-muted text-foreground">
-            <IconBrandGithub className="size-5" />
-          </span>
-          <div className="grid flex-1 gap-0.5">
-            <CardTitle className="flex items-center gap-2 text-base">
-              GitHub
-              <Badge variant="secondary" size="sm">
-                Coming soon
-              </Badge>
-            </CardTitle>
-            <CardDescription>
-              Link your account to surface repositories, issues, and pull requests.
-            </CardDescription>
-          </div>
-          <Button variant="outline" size="sm" disabled>
-            Connect
-          </Button>
-        </CardHeader>
-      </Card>
+      <GitHubIntegration />
     </PanelPlaceholder>
   )
 }
