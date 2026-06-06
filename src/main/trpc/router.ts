@@ -1,9 +1,11 @@
 import { router } from '.'
 import { actionsRouter } from './routers/actions'
+import { groupsRouter } from './routers/groups'
 import { projectsRouter } from './routers/projects'
 
 export const appRouter = router({
   projects: projectsRouter,
+  groups: groupsRouter,
   actions: actionsRouter
 })
 

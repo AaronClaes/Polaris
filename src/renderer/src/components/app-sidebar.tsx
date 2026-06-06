@@ -1,6 +1,5 @@
-import { IconExternalLink, IconPlus, IconTerminal2 } from '@tabler/icons-react'
+import { IconPlus } from '@tabler/icons-react'
 import { Link, useParams } from '@tanstack/react-router'
-import type { inferRouterOutputs } from '@trpc/server'
 import type { ReactElement } from 'react'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { ProjectIcon } from '@/components/project-icon'
@@ -17,10 +16,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem
 } from '@/components/ui/sidebar'
+import { getIcon } from '@/lib/icons'
+import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
-import type { AppRouter } from '../../../main/trpc/router'
-
-type ProjectWithActions = inferRouterOutputs<AppRouter>['projects']['list'][number]
 
 function ProjectRow({
   project,
@@ -30,7 +28,27 @@ function ProjectRow({
   isActive: boolean
 }): ReactElement {
   const runAction = trpc.actions.run.useMutation()
-  const firstAction = project.actions[0]
+  const runGroup = trpc.groups.run.useMutation()
+
+  const firstGroup = project.groups[0]
+  const firstLooseAction = project.actions.find((a) => a.groupId == null)
+
+  // Quick-launch the first top-level item: a group (run all) or a loose action.
+  const quick = firstGroup
+    ? {
+        Icon: getIcon(firstGroup.icon).Icon,
+        title: `Run group: ${firstGroup.name}`,
+        pending: runGroup.isPending && runGroup.variables?.groupId === firstGroup.id,
+        run: () => runGroup.mutate({ groupId: firstGroup.id })
+      }
+    : firstLooseAction
+      ? {
+          Icon: getIcon(firstLooseAction.icon).Icon,
+          title: `Run: ${firstLooseAction.label}`,
+          pending: runAction.isPending && runAction.variables?.id === firstLooseAction.id,
+          run: () => runAction.mutate({ id: firstLooseAction.id })
+        }
+      : null
 
   return (
     <SidebarMenuItem>
@@ -42,14 +60,14 @@ function ProjectRow({
         <span>{project.name}</span>
       </SidebarMenuButton>
 
-      {firstAction && (
+      {quick && (
         <SidebarMenuAction
-          title={`Run: ${firstAction.label}`}
-          aria-label={`Run ${firstAction.label}`}
-          disabled={runAction.isPending && runAction.variables?.id === firstAction.id}
-          onClick={() => runAction.mutate({ id: firstAction.id })}
+          title={quick.title}
+          aria-label={quick.title}
+          disabled={quick.pending}
+          onClick={quick.run}
         >
-          {firstAction.type === 'link' ? <IconExternalLink /> : <IconTerminal2 />}
+          <quick.Icon />
         </SidebarMenuAction>
       )}
     </SidebarMenuItem>

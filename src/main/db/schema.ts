@@ -22,6 +22,25 @@ export const projects = sqliteTable('projects', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
 
+/**
+ * A named container for actions within a project (e.g. "Dev environment"). Lets
+ * several actions be launched together while still being launchable on their
+ * own. Carries just a name + a Tabler icon key; deleting a group ungroups its
+ * actions rather than deleting them (see `projectActions.groupId`).
+ */
+export const actionGroups = sqliteTable('action_groups', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  // Tabler icon key (see renderer `icons.ts` registry).
+  icon: text('icon').notNull().default('stack'),
+  // Manual ordering of groups within a project.
+  sortOrder: integer('sort_order').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
 /** Action kinds. Extend this tuple (and the `config` union below + the main-side
  * runner + the renderer form) to add new action types. */
 export const ACTION_TYPES = ['link', 'command'] as const
@@ -53,11 +72,18 @@ export const projectActions = sqliteTable('project_actions', {
   projectId: integer('project_id')
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade' }),
+  // Optional group membership. Ungrouped (loose) actions have a null groupId.
+  // `set null` on delete: removing a group ungroups its actions, never deletes.
+  groupId: integer('group_id').references(() => actionGroups.id, {
+    onDelete: 'set null'
+  }),
   type: text('type', { enum: ACTION_TYPES }).notNull(),
   label: text('label').notNull(),
+  // Tabler icon key (see renderer `icons.ts` registry).
+  icon: text('icon').notNull().default('bolt'),
   // Type-specific payload; shape is keyed by `type` (see ActionConfig).
   config: text('config', { mode: 'json' }).notNull().$type<ActionConfig>(),
-  // Manual ordering within a project's action list.
+  // Manual ordering within the action's container (its group, or the loose pool).
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
@@ -66,3 +92,5 @@ export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
 export type ProjectAction = typeof projectActions.$inferSelect
 export type NewProjectAction = typeof projectActions.$inferInsert
+export type ActionGroup = typeof actionGroups.$inferSelect
+export type NewActionGroup = typeof actionGroups.$inferInsert

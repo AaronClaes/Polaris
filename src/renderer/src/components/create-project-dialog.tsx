@@ -18,7 +18,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { DEFAULT_COLOR_KEY } from '@/lib/colors'
-import { DEFAULT_ICON_KEY } from '@/lib/project-icons'
+import { DEFAULT_ICON_KEY } from '@/lib/icons'
 import { trpc } from '@/lib/trpc'
 
 const EMPTY_FORM = {

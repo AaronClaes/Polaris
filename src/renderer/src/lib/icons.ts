@@ -24,6 +24,7 @@ import {
   IconHome,
   IconKey,
   IconLayoutDashboard,
+  IconLink,
   IconMail,
   IconMessageCircle,
   IconNote,
@@ -33,6 +34,7 @@ import {
   IconServer,
   IconSettings,
   IconShoppingCart,
+  IconStack2,
   IconStar,
   IconTerminal2,
   IconUsers,
@@ -41,25 +43,28 @@ import {
 } from '@tabler/icons-react'
 
 /**
- * Curated subset of Tabler icons projects can pick from. A project stores the
- * `key`; lookups resolve to the component. This is a deliberately small,
- * good-looking starter set — a full searchable picker can come later.
+ * Curated subset of Tabler icons that projects, action groups, and actions can
+ * all pick from. The entity stores the `key`; lookups resolve to the component.
+ * A deliberately small, good-looking starter set — a full searchable picker can
+ * come later.
  */
-export interface ProjectIcon {
+export interface IconOption {
   key: string
   label: string
   Icon: TablerIcon
 }
 
-export const PROJECT_ICONS: readonly ProjectIcon[] = [
+export const ICONS: readonly IconOption[] = [
   { key: 'folder', label: 'Folder', Icon: IconFolder },
   { key: 'rocket', label: 'Rocket', Icon: IconRocket },
   { key: 'code', label: 'Code', Icon: IconCode },
   { key: 'terminal', label: 'Terminal', Icon: IconTerminal2 },
+  { key: 'link', label: 'Link', Icon: IconLink },
   { key: 'world', label: 'World', Icon: IconWorld },
   { key: 'github', label: 'GitHub', Icon: IconBrandGithub },
   { key: 'database', label: 'Database', Icon: IconDatabase },
   { key: 'server', label: 'Server', Icon: IconServer },
+  { key: 'stack', label: 'Stack', Icon: IconStack2 },
   { key: 'box', label: 'Box', Icon: IconBox },
   { key: 'bolt', label: 'Bolt', Icon: IconBolt },
   { key: 'star', label: 'Star', Icon: IconStar },
@@ -93,10 +98,12 @@ export const PROJECT_ICONS: readonly ProjectIcon[] = [
 ]
 
 export const DEFAULT_ICON_KEY = 'folder'
+/** Default glyph for a freshly created action group. */
+export const DEFAULT_GROUP_ICON_KEY = 'stack'
 
-const ICONS_BY_KEY = new Map(PROJECT_ICONS.map((icon) => [icon.key, icon]))
+const ICONS_BY_KEY = new Map(ICONS.map((icon) => [icon.key, icon]))
 
 /** Resolve an icon key, falling back to the default for unknown keys. */
-export function getProjectIcon(key: string): ProjectIcon {
-  return ICONS_BY_KEY.get(key) ?? ICONS_BY_KEY.get(DEFAULT_ICON_KEY) ?? PROJECT_ICONS[0]
+export function getIcon(key: string): IconOption {
+  return ICONS_BY_KEY.get(key) ?? ICONS_BY_KEY.get(DEFAULT_ICON_KEY) ?? ICONS[0]
 }

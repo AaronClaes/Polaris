@@ -1,6 +1,12 @@
 import { asc, desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { type ProjectAction, projectActions, projects } from '../../db/schema'
+import {
+  type ActionGroup,
+  actionGroups,
+  type ProjectAction,
+  projectActions,
+  projects
+} from '../../db/schema'
 import { publicProcedure, router } from '..'
 
 // Optional free-text field — trims and collapses empty strings to null.
@@ -23,8 +29,10 @@ export const updateProjectInput = createProjectInput.partial().extend({
 })
 
 export const projectsRouter = router({
-  // Projects newest-first, each with its actions in manual sort order. Actions
-  // are fetched in one pass and grouped in memory to avoid an N+1 per project.
+  // Projects newest-first, each with its action groups and actions in manual
+  // sort order. Groups and actions are each fetched in one pass and bucketed in
+  // memory to avoid an N+1 per project. Actions carry their own `groupId`, so
+  // the renderer splits them into per-group and loose (ungrouped) lists.
   list: publicProcedure.query(({ ctx }) => {
     const rows = ctx.db.select().from(projects).orderBy(desc(projects.createdAt)).all()
     const actions = ctx.db
@@ -32,17 +40,30 @@ export const projectsRouter = router({
       .from(projectActions)
       .orderBy(asc(projectActions.sortOrder), asc(projectActions.id))
       .all()
+    const groups = ctx.db
+      .select()
+      .from(actionGroups)
+      .orderBy(asc(actionGroups.sortOrder), asc(actionGroups.id))
+      .all()
 
-    const byProject = new Map<number, ProjectAction[]>()
+    const actionsByProject = new Map<number, ProjectAction[]>()
     for (const action of actions) {
-      const list = byProject.get(action.projectId)
+      const list = actionsByProject.get(action.projectId)
       if (list) list.push(action)
-      else byProject.set(action.projectId, [action])
+      else actionsByProject.set(action.projectId, [action])
+    }
+
+    const groupsByProject = new Map<number, ActionGroup[]>()
+    for (const group of groups) {
+      const list = groupsByProject.get(group.projectId)
+      if (list) list.push(group)
+      else groupsByProject.set(group.projectId, [group])
     }
 
     return rows.map((project) => ({
       ...project,
-      actions: byProject.get(project.id) ?? []
+      groups: groupsByProject.get(project.id) ?? [],
+      actions: actionsByProject.get(project.id) ?? []
     }))
   }),
 

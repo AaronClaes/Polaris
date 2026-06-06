@@ -2,7 +2,7 @@ import { IconSelector } from '@tabler/icons-react'
 import { type ReactElement, useState } from 'react'
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover'
 import { selectTriggerIconClassName, selectTriggerVariants } from '@/components/ui/select'
-import { getProjectIcon, PROJECT_ICONS } from '@/lib/project-icons'
+import { getIcon, ICONS } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 
 interface IconPickerProps {
@@ -13,7 +13,7 @@ interface IconPickerProps {
 /** Trigger that opens a popover grid of the curated Tabler icons. */
 export function IconPicker({ value, onChange }: IconPickerProps): ReactElement {
   const [open, setOpen] = useState(false)
-  const current = getProjectIcon(value)
+  const current = getIcon(value)
   const CurrentIcon = current.Icon
 
   return (
@@ -27,7 +27,7 @@ export function IconPicker({ value, onChange }: IconPickerProps): ReactElement {
       </PopoverTrigger>
       <PopoverPopup className="w-72" align="start">
         <div className="grid grid-cols-6 gap-1">
-          {PROJECT_ICONS.map(({ key, label, Icon }) => (
+          {ICONS.map(({ key, label, Icon }) => (
             <button
               key={key}
               type="button"

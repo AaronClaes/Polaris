@@ -1,5 +1,6 @@
 import { IconPlus } from '@tabler/icons-react'
 import { type FormEvent, type ReactElement, useId, useState } from 'react'
+import { IconPicker } from '@/components/icon-picker'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -15,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
+import type { ActionGroupRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import type { ActionType } from '../../../main/db/schema'
 
@@ -22,6 +24,12 @@ interface AddActionDialogProps {
   projectId: number
   /** Project default path — shown as the cwd placeholder for command actions. */
   projectPath: string | null
+  /** Groups the action can be filed under. */
+  groups: ActionGroupRow[]
+  /** Preselect a target group (e.g. when adding from within a group section). */
+  defaultGroupId?: number | null
+  /** Custom trigger; defaults to an outline "Add action" button. */
+  trigger?: ReactElement
 }
 
 const ACTION_TYPE_LABELS: Record<ActionType, string> = {
@@ -29,27 +37,54 @@ const ACTION_TYPE_LABELS: Record<ActionType, string> = {
   link: 'Open a link'
 }
 
+/** Sensible default icon for a freshly chosen action type. */
+const DEFAULT_ICON_FOR_TYPE: Record<ActionType, string> = {
+  command: 'terminal',
+  link: 'link'
+}
+
+const NO_GROUP = 'none'
 const EMPTY = { label: '', url: '', command: '', cwd: '' }
 
 /** Dialog + form to add a link or command action to a project. */
-export function AddActionDialog({ projectId, projectPath }: AddActionDialogProps): ReactElement {
+export function AddActionDialog({
+  projectId,
+  projectPath,
+  groups,
+  defaultGroupId = null,
+  trigger
+}: AddActionDialogProps): ReactElement {
   const utils = trpc.useUtils()
   const [open, setOpen] = useState(false)
   const [type, setType] = useState<ActionType>('command')
+  const [icon, setIcon] = useState(DEFAULT_ICON_FOR_TYPE.command)
+  const [groupValue, setGroupValue] = useState(defaultGroupId ? String(defaultGroupId) : NO_GROUP)
   const [form, setForm] = useState(EMPTY)
   const labelId = useId()
   const urlId = useId()
   const commandId = useId()
   const cwdId = useId()
 
+  const reset = (): void => {
+    setType('command')
+    setIcon(DEFAULT_ICON_FOR_TYPE.command)
+    setGroupValue(defaultGroupId ? String(defaultGroupId) : NO_GROUP)
+    setForm(EMPTY)
+  }
+
   const create = trpc.actions.create.useMutation({
     onSuccess: () => {
       utils.projects.list.invalidate()
-      setForm(EMPTY)
-      setType('command')
+      reset()
       setOpen(false)
     }
   })
+
+  // Switching type swaps to that type's default glyph; the user can still pick.
+  const handleTypeChange = (next: ActionType): void => {
+    setType(next)
+    setIcon(DEFAULT_ICON_FOR_TYPE[next])
+  }
 
   const set =
     (key: keyof typeof EMPTY) =>
@@ -63,18 +98,23 @@ export function AddActionDialog({ projectId, projectPath }: AddActionDialogProps
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault()
     if (!canSubmit) return
+    const groupId = groupValue === NO_GROUP ? null : Number(groupValue)
     if (type === 'link') {
       create.mutate({
         projectId,
+        groupId,
         type: 'link',
         label: form.label,
+        icon,
         config: { url: form.url.trim() }
       })
     } else {
       create.mutate({
         projectId,
+        groupId,
         type: 'command',
         label: form.label,
+        icon,
         config: {
           command: form.command.trim(),
           cwd: form.cwd.trim() || undefined
@@ -83,12 +123,23 @@ export function AddActionDialog({ projectId, projectPath }: AddActionDialogProps
     }
   }
 
+  const groupTriggerLabel =
+    groupValue === NO_GROUP
+      ? 'No group'
+      : (groups.find((g) => String(g.id) === groupValue)?.name ?? 'No group')
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size="sm" />}>
-        <IconPlus />
-        Add action
-      </DialogTrigger>
+      <DialogTrigger
+        render={
+          trigger ?? (
+            <Button variant="outline" size="sm">
+              <IconPlus />
+              Add action
+            </Button>
+          )
+        }
+      />
       <DialogPopup className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add action</DialogTitle>
@@ -98,15 +149,21 @@ export function AddActionDialog({ projectId, projectPath }: AddActionDialogProps
         </DialogHeader>
         <form className="contents" onSubmit={handleSubmit}>
           <DialogPanel className="grid gap-4">
-            <div className="grid gap-1.5">
-              <Label>Type</Label>
-              <Select value={type} onValueChange={(next) => setType(next as ActionType)}>
-                <SelectTrigger>{ACTION_TYPE_LABELS[type]}</SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value="command">{ACTION_TYPE_LABELS.command}</SelectItem>
-                  <SelectItem value="link">{ACTION_TYPE_LABELS.link}</SelectItem>
-                </SelectPopup>
-              </Select>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label>Type</Label>
+                <Select value={type} onValueChange={(next) => handleTypeChange(next as ActionType)}>
+                  <SelectTrigger>{ACTION_TYPE_LABELS[type]}</SelectTrigger>
+                  <SelectPopup>
+                    <SelectItem value="command">{ACTION_TYPE_LABELS.command}</SelectItem>
+                    <SelectItem value="link">{ACTION_TYPE_LABELS.link}</SelectItem>
+                  </SelectPopup>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Icon</Label>
+                <IconPicker value={icon} onChange={setIcon} />
+              </div>
             </div>
 
             <div className="grid gap-1.5">
@@ -155,6 +212,24 @@ export function AddActionDialog({ projectId, projectPath }: AddActionDialogProps
                 </div>
               </>
             )}
+
+            <div className="grid gap-1.5">
+              <Label>Group (optional)</Label>
+              <Select
+                value={groupValue}
+                onValueChange={(value) => setGroupValue(value ?? NO_GROUP)}
+              >
+                <SelectTrigger>{groupTriggerLabel}</SelectTrigger>
+                <SelectPopup>
+                  <SelectItem value={NO_GROUP}>No group</SelectItem>
+                  {groups.map((group) => (
+                    <SelectItem key={group.id} value={String(group.id)}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </div>
 
             {create.error && (
               <p className="text-destructive-foreground text-sm">{create.error.message}</p>

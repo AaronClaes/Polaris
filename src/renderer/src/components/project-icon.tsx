@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { getColor } from '@/lib/colors'
-import { getProjectIcon } from '@/lib/project-icons'
+import { getIcon } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 
 interface ProjectIconProps {
@@ -13,7 +13,7 @@ interface ProjectIconProps {
 
 /** A project's icon rendered as a color-tinted chip (tinted backdrop + glyph). */
 export function ProjectIcon({ icon, color, size = 20, className }: ProjectIconProps): ReactElement {
-  const { Icon } = getProjectIcon(icon)
+  const { Icon } = getIcon(icon)
   const { hex } = getColor(color)
   return (
     <span

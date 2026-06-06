@@ -1,23 +1,39 @@
-import { IconArrowUpRight, IconExternalLink, IconTerminal2 } from '@tabler/icons-react'
+import { IconArrowUpRight } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
-import type { inferRouterOutputs } from '@trpc/server'
-import { type ReactElement, useState } from 'react'
+import { type ReactElement, useMemo, useState } from 'react'
+import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { getIcon } from '@/lib/icons'
+import type { ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
-import type { AppRouter } from '../../../main/trpc/router'
 
-type ProjectWithActions = inferRouterOutputs<AppRouter>['projects']['list'][number]
-
-/** A launch tile: project identity, an open button, and its launchable actions. */
+/** A launch tile: project identity, an open button, its groups and actions. */
 export function ProjectCard({ project }: { project: ProjectWithActions }): ReactElement {
   const [runError, setRunError] = useState<string | null>(null)
+
+  const looseActions = useMemo(
+    () => project.actions.filter((a) => a.groupId == null),
+    [project.actions]
+  )
+  const membersByGroup = useMemo(() => {
+    const map = new Map<number, ProjectActionRow[]>()
+    for (const action of project.actions) {
+      if (action.groupId == null) continue
+      const list = map.get(action.groupId)
+      if (list) list.push(action)
+      else map.set(action.groupId, [action])
+    }
+    return map
+  }, [project.actions])
 
   const runAction = trpc.actions.run.useMutation({
     onSuccess: (result) => setRunError(result.ok ? null : (result.error ?? 'Action failed')),
     onError: (error) => setRunError(error.message)
   })
+
+  const hasLaunchers = project.groups.length > 0 || looseActions.length > 0
 
   return (
     <Card className="gap-0 p-4">
@@ -41,20 +57,31 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
         </Button>
       </div>
 
-      {project.actions.length > 0 && (
+      {hasLaunchers && (
         <div className="mt-4 flex flex-wrap gap-1.5">
-          {project.actions.map((action) => (
-            <Button
-              key={action.id}
-              variant="outline"
-              size="sm"
-              loading={runAction.isPending && runAction.variables?.id === action.id}
-              onClick={() => runAction.mutate({ id: action.id })}
-            >
-              {action.type === 'link' ? <IconExternalLink /> : <IconTerminal2 />}
-              {action.label}
-            </Button>
+          {project.groups.map((group) => (
+            <GroupLauncher
+              key={group.id}
+              group={group}
+              actions={membersByGroup.get(group.id) ?? []}
+              onError={setRunError}
+            />
           ))}
+          {looseActions.map((action) => {
+            const Icon = getIcon(action.icon).Icon
+            return (
+              <Button
+                key={action.id}
+                variant="outline"
+                size="sm"
+                loading={runAction.isPending && runAction.variables?.id === action.id}
+                onClick={() => runAction.mutate({ id: action.id })}
+              >
+                <Icon />
+                {action.label}
+              </Button>
+            )
+          })}
         </div>
       )}
 
