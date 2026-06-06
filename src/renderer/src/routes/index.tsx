@@ -1,9 +1,9 @@
 import { createRoute } from '@tanstack/react-router'
 import { Dashboard } from '@/components/dashboard'
-import { rootRoute } from './__root'
+import { shellRoute } from './shell'
 
 export const indexRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => shellRoute,
   path: '/',
   component: Dashboard
 })

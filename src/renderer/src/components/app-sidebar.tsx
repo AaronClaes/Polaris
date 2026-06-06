@@ -1,9 +1,10 @@
-import { IconPlus } from '@tabler/icons-react'
+import { IconPlus, IconSelector, IconSettings } from '@tabler/icons-react'
 import { Link, useParams } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { ProjectIcon } from '@/components/project-icon'
 import { Button } from '@/components/ui/button'
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import {
   Sidebar,
   SidebarContent,
@@ -78,6 +79,21 @@ function ProjectRow({
   )
 }
 
+/** Avatar + identity block, shared by the footer trigger and the account menu. */
+function AccountInfo(): ReactElement {
+  return (
+    <>
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground text-xs">
+        AC
+      </span>
+      <div className="flex min-w-0 flex-col text-left">
+        <span className="truncate font-medium text-sm">Account</span>
+        <span className="truncate text-muted-foreground text-xs">Local</span>
+      </div>
+    </>
+  )
+}
+
 /** Left app shell: app name + create, the project list, and an account stub. */
 export function AppSidebar(): ReactElement {
   const params = useParams({ strict: false }) as { projectId?: string }
@@ -125,15 +141,22 @@ export function AppSidebar(): ReactElement {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="cursor-default">
-              <span className="flex size-7 items-center justify-center rounded-full bg-primary font-medium text-primary-foreground text-xs">
-                AC
-              </span>
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate font-medium text-sm">Account</span>
-                <span className="truncate text-muted-foreground text-xs">Local</span>
-              </div>
-            </SidebarMenuButton>
+            <Menu>
+              <MenuTrigger render={<SidebarMenuButton size="lg" />}>
+                <AccountInfo />
+                <IconSelector className="ml-auto size-4 shrink-0 text-muted-foreground" />
+              </MenuTrigger>
+              <MenuPopup side="right" align="end" sideOffset={12} className="min-w-56">
+                <div className="flex items-center gap-2 px-2 py-1.5">
+                  <AccountInfo />
+                </div>
+                <MenuSeparator />
+                <MenuItem render={<Link to="/settings" />}>
+                  <IconSettings />
+                  Settings
+                </MenuItem>
+              </MenuPopup>
+            </Menu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

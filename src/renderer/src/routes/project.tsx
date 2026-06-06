@@ -2,7 +2,7 @@ import { createRoute } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
 import { ProjectDetail } from '@/components/project-detail'
 import { trpc } from '@/lib/trpc'
-import { rootRoute } from './__root'
+import { shellRoute } from './shell'
 
 function CenteredMessage({ children }: { children: string }): ReactElement {
   return (
@@ -23,7 +23,7 @@ function ProjectDetailPage(): ReactElement {
 }
 
 export const projectRoute = createRoute({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => shellRoute,
   path: '/projects/$projectId',
   component: ProjectDetailPage
 })
