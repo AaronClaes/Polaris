@@ -16,6 +16,7 @@ import { AddActionDialog } from '@/components/add-action-dialog'
 import { GroupDialog } from '@/components/group-dialog'
 import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
+import { ProjectIssues } from '@/components/project-issues'
 import { ProjectRepos } from '@/components/project-repos'
 import { ReorderableActions } from '@/components/reorderable-actions'
 import {
@@ -558,6 +559,9 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
           <TabsTab value="actions" className="grow-0">
             Actions
           </TabsTab>
+          <TabsTab value="issues" className="grow-0">
+            Issues
+          </TabsTab>
           <TabsTab value="settings" className="grow-0">
             Settings
           </TabsTab>
@@ -570,6 +574,10 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
             looseActions={looseActions}
             onError={setRunError}
           />
+        </TabsPanel>
+
+        <TabsPanel value="issues" className="pt-5">
+          <ProjectIssues project={project} />
         </TabsPanel>
 
         <TabsPanel value="settings" className="pt-5">

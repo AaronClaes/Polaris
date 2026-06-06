@@ -161,3 +161,161 @@ export async function listReposForOwner(owner: string, login: string): Promise<G
 
   return (await fetchAllPages(url, token)).map(mapRepo)
 }
+
+const GRAPHQL_URL = 'https://api.github.com/graphql'
+
+/**
+ * POST a GraphQL query and unwrap `data`, turning HTTP and GraphQL-level errors
+ * into a single user-facing throw. The whole query fails if any field is
+ * inaccessible, so callers scope one query per repo and treat a throw as "this
+ * repo failed" rather than aborting the rest.
+ */
+async function graphql<T>(
+  token: string,
+  query: string,
+  variables: Record<string, unknown>
+): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(GRAPHQL_URL, {
+      method: 'POST',
+      headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables })
+    })
+  } catch {
+    throw new Error('Could not reach GitHub. Check your connection and try again.')
+  }
+  if (res.status === 401) {
+    throw new Error('GitHub rejected the stored token (401). Re-link this account.')
+  }
+  if (!res.ok) {
+    throw new Error(`GitHub returned ${res.status} ${res.statusText}.`)
+  }
+
+  const body = (await res.json()) as {
+    data?: T
+    errors?: { message: string }[]
+  }
+  if (body.errors?.length) throw new Error(body.errors[0].message)
+  if (!body.data) throw new Error('GitHub returned no data.')
+  return body.data
+}
+
+/** An open issue, normalized for the renderer. `linkedPr` reflects the GitHub
+ * "Development" link (a PR referencing the issue with a closing keyword). */
+export interface GitHubIssue {
+  id: string
+  number: number
+  title: string
+  url: string
+  updatedAt: string
+  assignees: { login: string; avatarUrl: string }[]
+  labels: { name: string; color: string }[]
+  type: { name: string; color: string } | null
+  linkedPr: { number: number; url: string; state: string } | null
+}
+
+// `repository.issues` returns issues only (never PRs), unlike the REST endpoint.
+// Issue Types are GA — `issueType` needs no preview header and is null on
+// personal repos. `closedByPullRequestsReferences` is the linked-PR signal.
+const ISSUES_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) {
+    issues(first: 100, after: $cursor, states: [OPEN], orderBy: { field: UPDATED_AT, direction: DESC }) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        number
+        title
+        url
+        updatedAt
+        assignees(first: 10) { nodes { login avatarUrl } }
+        labels(first: 20) { nodes { name color } }
+        issueType { name color }
+        closedByPullRequestsReferences(first: 1, includeClosedPrs: true) {
+          totalCount
+          nodes { number url state }
+        }
+      }
+    }
+  }
+}`
+
+interface RawIssue {
+  number: number
+  title: string
+  url: string
+  updatedAt: string
+  assignees: { nodes: { login: string; avatarUrl: string }[] }
+  labels: { nodes: { name: string; color: string }[] }
+  issueType: { name: string; color: string } | null
+  closedByPullRequestsReferences: {
+    totalCount: number
+    nodes: { number: number; url: string; state: string }[]
+  }
+}
+
+interface IssuesResponse {
+  repository: {
+    issues: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null }
+      nodes: RawIssue[]
+    }
+  } | null
+}
+
+function mapIssue(owner: string, name: string, raw: RawIssue): GitHubIssue {
+  const pr = raw.closedByPullRequestsReferences
+  return {
+    id: `${owner}/${name}#${raw.number}`,
+    number: raw.number,
+    title: raw.title,
+    url: raw.url,
+    updatedAt: raw.updatedAt,
+    assignees: raw.assignees.nodes.map((a) => ({
+      login: a.login,
+      avatarUrl: a.avatarUrl
+    })),
+    labels: raw.labels.nodes.map((l) => ({ name: l.name, color: l.color })),
+    type: raw.issueType ? { name: raw.issueType.name, color: raw.issueType.color } : null,
+    linkedPr:
+      pr.totalCount > 0 && pr.nodes[0]
+        ? {
+            number: pr.nodes[0].number,
+            url: pr.nodes[0].url,
+            state: pr.nodes[0].state
+          }
+        : null
+  }
+}
+
+/**
+ * List a repo's OPEN issues via GraphQL, paginating until exhausted (or capped).
+ * Throws if the token can't see the repo so the caller can flag it per-repo. The
+ * token must be the repo owner's — fine-grained PATs can only reach their own
+ * resource owner's repositories.
+ */
+export async function listIssuesForRepo(
+  owner: string,
+  name: string,
+  token: string
+): Promise<GitHubIssue[]> {
+  const out: GitHubIssue[] = []
+  let cursor: string | null = null
+  let pages = 0
+
+  do {
+    const data = await graphql<IssuesResponse>(token, ISSUES_QUERY, {
+      owner,
+      name,
+      cursor
+    })
+    if (!data.repository) {
+      throw new Error(`Can't access ${owner}/${name} with the linked token.`)
+    }
+    const conn = data.repository.issues
+    for (const node of conn.nodes) out.push(mapIssue(owner, name, node))
+    cursor = conn.pageInfo.hasNextPage ? conn.pageInfo.endCursor : null
+    pages++
+  } while (cursor && pages < MAX_PAGES)
+
+  return out
+}
