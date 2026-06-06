@@ -36,6 +36,8 @@ export const actionGroups = sqliteTable('action_groups', {
   name: text('name').notNull(),
   // Tabler icon key (see renderer `icons.ts` registry).
   icon: text('icon').notNull().default('stack'),
+  // Hidden from the dashboard launch grid; still shown/usable in the project view.
+  hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
   // Manual ordering of groups within a project.
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
@@ -81,6 +83,8 @@ export const projectActions = sqliteTable('project_actions', {
   label: text('label').notNull(),
   // Tabler icon key (see renderer `icons.ts` registry).
   icon: text('icon').notNull().default('bolt'),
+  // Hidden from the dashboard launch grid; still shown/usable in the project view.
+  hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
   // Type-specific payload; shape is keyed by `type` (see ActionConfig).
   config: text('config', { mode: 'json' }).notNull().$type<ActionConfig>(),
   // Manual ordering within the action's container (its group, or the loose pool).

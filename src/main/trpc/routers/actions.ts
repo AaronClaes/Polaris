@@ -107,6 +107,46 @@ export const actionsRouter = router({
         .get()
     }),
 
+  // Toggle whether an action shows on the dashboard launch grid. It stays fully
+  // available in the project view either way.
+  setHidden: publicProcedure
+    .input(z.object({ id: z.number().int(), hidden: z.boolean() }))
+    .mutation(({ ctx, input }) => {
+      return ctx.db
+        .update(projectActions)
+        .set({ hidden: input.hidden })
+        .where(eq(projectActions.id, input.id))
+        .returning()
+        .get()
+    }),
+
+  // Persist a drag reorder: write each action's container (groupId) and
+  // position (sortOrder) in one transaction. The renderer sends the full
+  // post-drag arrangement, so this is an idempotent overwrite.
+  reorder: publicProcedure
+    .input(
+      z.object({
+        items: z.array(
+          z.object({
+            id: z.number().int(),
+            groupId: z.number().int().nullable(),
+            sortOrder: z.number().int()
+          })
+        )
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      ctx.db.transaction((tx) => {
+        for (const item of input.items) {
+          tx.update(projectActions)
+            .set({ groupId: item.groupId, sortOrder: item.sortOrder })
+            .where(eq(projectActions.id, item.id))
+            .run()
+        }
+      })
+      return { ok: true }
+    }),
+
   delete: publicProcedure.input(z.object({ id: z.number().int() })).mutation(({ ctx, input }) => {
     ctx.db.delete(projectActions).where(eq(projectActions.id, input.id)).run()
     return { id: input.id }

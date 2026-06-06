@@ -1,5 +1,5 @@
 import { IconFolderPlus } from '@tabler/icons-react'
-import { type FormEvent, type ReactElement, useId, useState } from 'react'
+import { type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from 'react'
 import { IconPicker } from '@/components/icon-picker'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,27 +23,44 @@ interface GroupDialogProps {
   projectId: number
   /** When provided, the dialog edits this group instead of creating one. */
   group?: ActionGroupRow
-  /** Custom trigger; defaults to an outline "New group" button. */
+  /** Controlled open state. When provided, no trigger is rendered. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Trigger element (uncontrolled mode only); defaults to a "New group" button. */
   trigger?: ReactElement
 }
 
 /** Dialog + form to create or edit an action group (name + icon). */
-export function GroupDialog({ projectId, group, trigger }: GroupDialogProps): ReactElement {
+export function GroupDialog({
+  projectId,
+  group,
+  open: openProp,
+  onOpenChange,
+  trigger
+}: GroupDialogProps): ReactElement {
   const isEdit = group != null
+  const isControlled = openProp !== undefined
   const utils = trpc.useUtils()
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = isControlled ? openProp : internalOpen
+  const setOpen = (next: boolean): void => {
+    if (isControlled) onOpenChange?.(next)
+    else setInternalOpen(next)
+  }
+
   const [name, setName] = useState(group?.name ?? '')
   const [icon, setIcon] = useState(group?.icon ?? DEFAULT_GROUP_ICON_KEY)
   const nameId = useId()
 
-  // Reset to the group's current values (or empty) each time the dialog opens.
-  const handleOpenChange = (next: boolean): void => {
-    if (next) {
+  // Seed the form from the group (or empty) each time the dialog opens.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (open && !wasOpen.current) {
       setName(group?.name ?? '')
       setIcon(group?.icon ?? DEFAULT_GROUP_ICON_KEY)
     }
-    setOpen(next)
-  }
+    wasOpen.current = open
+  }, [open, group])
 
   const onSuccess = (): void => {
     utils.projects.list.invalidate()
@@ -62,17 +79,19 @@ export function GroupDialog({ projectId, group, trigger }: GroupDialogProps): Re
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger
-        render={
-          trigger ?? (
-            <Button variant="outline" size="sm">
-              <IconFolderPlus />
-              New group
-            </Button>
-          )
-        }
-      />
+    <Dialog open={open} onOpenChange={setOpen}>
+      {!isControlled && (
+        <DialogTrigger
+          render={
+            trigger ?? (
+              <Button variant="outline" size="sm">
+                <IconFolderPlus />
+                New group
+              </Button>
+            )
+          }
+        />
+      )}
       <DialogPopup className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>{isEdit ? 'Edit group' : 'New group'}</DialogTitle>

@@ -30,8 +30,12 @@ function ProjectRow({
   const runAction = trpc.actions.run.useMutation()
   const runGroup = trpc.groups.run.useMutation()
 
-  const firstGroup = project.groups[0]
-  const firstLooseAction = project.actions.find((a) => a.groupId == null)
+  // Mirror the dashboard's visibility: skip hidden groups/actions (and empty
+  // groups) when picking the quick-launch target.
+  const firstGroup = project.groups.find(
+    (g) => !g.hidden && project.actions.some((a) => a.groupId === g.id)
+  )
+  const firstLooseAction = project.actions.find((a) => a.groupId == null && !a.hidden)
 
   // Quick-launch the first top-level item: a group (run all) or a loose action.
   const quick = firstGroup

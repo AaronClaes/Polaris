@@ -36,7 +36,8 @@ export const groupsRouter = router({
       z.object({
         id: z.number().int(),
         name: name.optional(),
-        icon: icon.optional()
+        icon: icon.optional(),
+        hidden: z.boolean().optional()
       })
     )
     .mutation(({ ctx, input }) => {
@@ -55,6 +56,25 @@ export const groupsRouter = router({
     ctx.db.delete(actionGroups).where(eq(actionGroups.id, input.id)).run()
     return { id: input.id }
   }),
+
+  // Persist a drag reorder of the project's groups in one transaction.
+  reorder: publicProcedure
+    .input(
+      z.object({
+        items: z.array(z.object({ id: z.number().int(), sortOrder: z.number().int() }))
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      ctx.db.transaction((tx) => {
+        for (const item of input.items) {
+          tx.update(actionGroups)
+            .set({ sortOrder: item.sortOrder })
+            .where(eq(actionGroups.id, item.id))
+            .run()
+        }
+      })
+      return { ok: true }
+    }),
 
   // Launch every action in the group at once. Each runs independently; results
   // are aggregated so the UI can report partial failure.

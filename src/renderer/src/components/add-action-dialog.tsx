@@ -28,7 +28,10 @@ interface AddActionDialogProps {
   groups: ActionGroupRow[]
   /** Preselect a target group (e.g. when adding from within a group section). */
   defaultGroupId?: number | null
-  /** Custom trigger; defaults to an outline "Add action" button. */
+  /** Controlled open state. When provided, no trigger is rendered. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Custom trigger (uncontrolled mode only); defaults to an "Add action" button. */
   trigger?: ReactElement
 }
 
@@ -52,10 +55,18 @@ export function AddActionDialog({
   projectPath,
   groups,
   defaultGroupId = null,
+  open: openProp,
+  onOpenChange,
   trigger
 }: AddActionDialogProps): ReactElement {
   const utils = trpc.useUtils()
-  const [open, setOpen] = useState(false)
+  const isControlled = openProp !== undefined
+  const [internalOpen, setInternalOpen] = useState(false)
+  const open = isControlled ? openProp : internalOpen
+  const setOpen = (next: boolean): void => {
+    if (isControlled) onOpenChange?.(next)
+    else setInternalOpen(next)
+  }
   const [type, setType] = useState<ActionType>('command')
   const [icon, setIcon] = useState(DEFAULT_ICON_FOR_TYPE.command)
   const [groupValue, setGroupValue] = useState(defaultGroupId ? String(defaultGroupId) : NO_GROUP)
@@ -130,16 +141,18 @@ export function AddActionDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          trigger ?? (
-            <Button variant="outline" size="sm">
-              <IconPlus />
-              Add action
-            </Button>
-          )
-        }
-      />
+      {!isControlled && (
+        <DialogTrigger
+          render={
+            trigger ?? (
+              <Button variant="outline" size="sm">
+                <IconPlus />
+                Add action
+              </Button>
+            )
+          }
+        />
+      )}
       <DialogPopup className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Add action</DialogTitle>

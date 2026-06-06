@@ -13,8 +13,9 @@ import { trpc } from '@/lib/trpc'
 export function ProjectCard({ project }: { project: ProjectWithActions }): ReactElement {
   const [runError, setRunError] = useState<string | null>(null)
 
+  // Only non-hidden items appear on the dashboard.
   const looseActions = useMemo(
-    () => project.actions.filter((a) => a.groupId == null),
+    () => project.actions.filter((a) => a.groupId == null && !a.hidden),
     [project.actions]
   )
   const membersByGroup = useMemo(() => {
@@ -27,13 +28,25 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
     }
     return map
   }, [project.actions])
+  // A group shows when it isn't hidden and isn't empty; its launcher lists only
+  // visible members (Run all still launches the whole group).
+  const visibleGroups = useMemo(
+    () =>
+      project.groups
+        .filter((g) => !g.hidden && (membersByGroup.get(g.id)?.length ?? 0) > 0)
+        .map((g) => ({
+          group: g,
+          visibleMembers: (membersByGroup.get(g.id) ?? []).filter((m) => !m.hidden)
+        })),
+    [project.groups, membersByGroup]
+  )
 
   const runAction = trpc.actions.run.useMutation({
     onSuccess: (result) => setRunError(result.ok ? null : (result.error ?? 'Action failed')),
     onError: (error) => setRunError(error.message)
   })
 
-  const hasLaunchers = project.groups.length > 0 || looseActions.length > 0
+  const hasLaunchers = visibleGroups.length > 0 || looseActions.length > 0
 
   return (
     <Card className="gap-0 p-4">
@@ -59,11 +72,11 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
 
       {hasLaunchers && (
         <div className="mt-4 flex flex-wrap gap-1.5">
-          {project.groups.map((group) => (
+          {visibleGroups.map(({ group, visibleMembers }) => (
             <GroupLauncher
               key={group.id}
               group={group}
-              actions={membersByGroup.get(group.id) ?? []}
+              actions={visibleMembers}
               onError={setRunError}
             />
           ))}

@@ -51,7 +51,6 @@ export function GroupLauncher({
         size="sm"
         className="rounded-r-none"
         loading={runGroup.isPending}
-        disabled={actions.length === 0}
         onClick={() => runGroup.mutate({ groupId: group.id })}
       >
         <GroupIcon />
@@ -73,7 +72,7 @@ export function GroupLauncher({
         </MenuTrigger>
         <MenuPopup align="end" className="min-w-44">
           {actions.length === 0 ? (
-            <MenuItem disabled>No actions in this group</MenuItem>
+            <MenuItem disabled>All actions are hidden</MenuItem>
           ) : (
             actions.map((action) => {
               const ActionIcon = getIcon(action.icon).Icon
