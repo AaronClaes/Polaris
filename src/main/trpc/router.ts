@@ -1,10 +1,10 @@
 import { router } from '.'
+import { actionsRouter } from './routers/actions'
 import { projectsRouter } from './routers/projects'
-import { systemRouter } from './routers/system'
 
 export const appRouter = router({
   projects: projectsRouter,
-  system: systemRouter
+  actions: actionsRouter
 })
 
 // Consumed type-only by the renderer for a fully typed IPC client.

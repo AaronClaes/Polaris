@@ -404,6 +404,17 @@
   --sidebar-ring: var(--color-neutral-400);
 }
 
+@layer utilities {
+  /* Electron window dragging: the title bar drags the window; interactive
+     controls inside it must opt back out with `.no-drag`. */
+  .drag-region {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

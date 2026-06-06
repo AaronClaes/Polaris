@@ -10,6 +10,9 @@ const dbPath = process.env.POLARIS_DB_PATH ?? join(app.getPath('userData'), 'pol
 
 const sqlite = new Database(dbPath)
 sqlite.pragma('journal_mode = WAL')
+// Off by default in SQLite; required for `onDelete: 'cascade'` FKs (e.g. a
+// project's actions) to actually cascade at runtime.
+sqlite.pragma('foreign_keys = ON')
 
 export const db = drizzle(sqlite, { schema })
 export type DB = typeof db
