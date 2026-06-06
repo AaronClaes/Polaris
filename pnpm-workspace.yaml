@@ -1,0 +1,14 @@
+# pnpm 11 gates dependency build scripts here.
+# - electron: downloads the Electron runtime binary
+# - esbuild: installs its platform binary
+# - better-sqlite3: FALSE on purpose. Its own prebuild-install fetches a binary
+#   for plain Node's ABI, which Electron can't load. We skip it and let the
+#   `postinstall` script force a from-source rebuild against Electron's ABI
+#   instead (deterministic regardless of pnpm's build-script ordering).
+# - electron-winstaller / sharp: Windows-only / unused transitive — skipped.
+allowBuilds:
+  electron: true
+  esbuild: true
+  better-sqlite3: false
+  electron-winstaller: false
+  sharp: false
