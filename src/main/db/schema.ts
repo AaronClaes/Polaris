@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { blob, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { blob, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 
 /**
  * A managed dev project. The core entity: identity (name/description), a bit of
@@ -120,8 +120,42 @@ export const githubAccounts = sqliteTable('github_accounts', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
 
+/**
+ * A GitHub repository linked to a project. A project can link several (e.g. a
+ * frontend and a backend repo). We keep a small display snapshot — the GitHub
+ * numeric `repoId` for stable identity, plus name/description/visibility/url —
+ * so the linked list renders without an API round-trip; data views refresh it.
+ * `owner` doubles as the token lookup key (the token lives under
+ * `github:token:<owner>` in {@link secrets}). Unique per (project, owner, name).
+ */
+export const projectRepos = sqliteTable(
+  'project_repos',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    // GitHub's stable numeric repo id; survives renames, used to dedupe.
+    repoId: integer('repo_id').notNull(),
+    // Owner login (user or org) — also the secrets key for routing API calls.
+    owner: text('owner').notNull(),
+    // Repository name without the owner prefix.
+    name: text('name').notNull(),
+    private: integer('private', { mode: 'boolean' }).notNull().default(false),
+    description: text('description'),
+    url: text('url').notNull(),
+    defaultBranch: text('default_branch'),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+  },
+  (table) => [
+    unique('project_repos_project_owner_name_unique').on(table.projectId, table.owner, table.name)
+  ]
+)
+
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
+export type ProjectRepo = typeof projectRepos.$inferSelect
+export type NewProjectRepo = typeof projectRepos.$inferInsert
 export type ProjectAction = typeof projectActions.$inferSelect
 export type NewProjectAction = typeof projectActions.$inferInsert
 export type ActionGroup = typeof actionGroups.$inferSelect

@@ -4,7 +4,9 @@ import {
   type ActionGroup,
   actionGroups,
   type ProjectAction,
+  type ProjectRepo,
   projectActions,
+  projectRepos,
   projects
 } from '../../db/schema'
 import { publicProcedure, router } from '..'
@@ -29,10 +31,10 @@ export const updateProjectInput = createProjectInput.partial().extend({
 })
 
 export const projectsRouter = router({
-  // Projects newest-first, each with its action groups and actions in manual
-  // sort order. Groups and actions are each fetched in one pass and bucketed in
-  // memory to avoid an N+1 per project. Actions carry their own `groupId`, so
-  // the renderer splits them into per-group and loose (ungrouped) lists.
+  // Projects newest-first, each with its action groups, actions, and linked
+  // GitHub repos. Each child set is fetched in one pass and bucketed in memory
+  // to avoid an N+1 per project. Actions carry their own `groupId`, so the
+  // renderer splits them into per-group and loose (ungrouped) lists.
   list: publicProcedure.query(({ ctx }) => {
     const rows = ctx.db.select().from(projects).orderBy(desc(projects.createdAt)).all()
     const actions = ctx.db
@@ -44,6 +46,11 @@ export const projectsRouter = router({
       .select()
       .from(actionGroups)
       .orderBy(asc(actionGroups.sortOrder), asc(actionGroups.id))
+      .all()
+    const repos = ctx.db
+      .select()
+      .from(projectRepos)
+      .orderBy(asc(projectRepos.owner), asc(projectRepos.name))
       .all()
 
     const actionsByProject = new Map<number, ProjectAction[]>()
@@ -60,10 +67,18 @@ export const projectsRouter = router({
       else groupsByProject.set(group.projectId, [group])
     }
 
+    const reposByProject = new Map<number, ProjectRepo[]>()
+    for (const repo of repos) {
+      const list = reposByProject.get(repo.projectId)
+      if (list) list.push(repo)
+      else reposByProject.set(repo.projectId, [repo])
+    }
+
     return rows.map((project) => ({
       ...project,
       groups: groupsByProject.get(project.id) ?? [],
-      actions: actionsByProject.get(project.id) ?? []
+      actions: actionsByProject.get(project.id) ?? [],
+      repos: reposByProject.get(project.id) ?? []
     }))
   }),
 

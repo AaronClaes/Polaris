@@ -1,6 +1,5 @@
 import {
   IconArrowsSort,
-  IconBrandGithub,
   IconCheck,
   IconDots,
   IconEye,
@@ -17,6 +16,7 @@ import { AddActionDialog } from '@/components/add-action-dialog'
 import { GroupDialog } from '@/components/group-dialog'
 import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
+import { ProjectRepos } from '@/components/project-repos'
 import { ReorderableActions } from '@/components/reorderable-actions'
 import {
   AlertDialog,
@@ -443,7 +443,7 @@ function ActionsTab({
   )
 }
 
-/** Project settings (the Settings tab): repositories (next) + a danger zone. */
+/** Project settings (the Settings tab): linked repositories + a danger zone. */
 function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement {
   const utils = trpc.useUtils()
   const navigate = useNavigate()
@@ -456,20 +456,7 @@ function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="rounded-xl border border-border border-dashed p-6">
-        <div className="flex items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-muted text-foreground">
-            <IconBrandGithub className="size-5" />
-          </span>
-          <div className="min-w-0">
-            <h3 className="font-medium text-sm">Repositories</h3>
-            <p className="mt-0.5 text-muted-foreground text-sm">
-              Link GitHub repositories to this project to see issues, PRs, and what needs your
-              attention. Coming next.
-            </p>
-          </div>
-        </div>
-      </div>
+      <ProjectRepos project={project} />
 
       <section className="flex flex-col gap-2">
         <h3 className="font-medium text-destructive-foreground text-sm">Danger zone</h3>
