@@ -1,5 +1,6 @@
 import {
   IconArrowsSort,
+  IconBrandGithub,
   IconCheck,
   IconDots,
   IconEye,
@@ -14,8 +15,19 @@ import { useNavigate } from '@tanstack/react-router'
 import { type ReactElement, useMemo, useState } from 'react'
 import { AddActionDialog } from '@/components/add-action-dialog'
 import { GroupDialog } from '@/components/group-dialog'
+import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
 import { ReorderableActions } from '@/components/reorderable-actions'
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogPopup,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import {
   Menu,
@@ -26,6 +38,7 @@ import {
   MenuSeparator,
   MenuTrigger
 } from '@/components/ui/menu'
+import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -35,6 +48,57 @@ function actionTarget(action: ProjectActionRow): string {
   return action.type === 'link'
     ? (action.config as LinkActionConfig).url
     : (action.config as CommandActionConfig).command
+}
+
+/**
+ * The project's launch bar: group split-buttons + loose-action buttons, like the
+ * dashboard card — but here it shows everything, hidden items included (hidden
+ * only governs the dashboard). Empty groups are skipped (nothing to run).
+ */
+function LauncherRow({
+  project,
+  membersByGroup,
+  looseActions,
+  onError
+}: {
+  project: ProjectWithActions
+  membersByGroup: Map<number, ProjectActionRow[]>
+  looseActions: ProjectActionRow[]
+  onError: (message: string | null) => void
+}): ReactElement | null {
+  const runAction = trpc.actions.run.useMutation({
+    onSuccess: (res) => onError(res.ok ? null : (res.error ?? 'Action failed')),
+    onError: (error) => onError(error.message)
+  })
+
+  const groupsWithMembers = project.groups
+    .map((group) => ({ group, members: membersByGroup.get(group.id) ?? [] }))
+    .filter((g) => g.members.length > 0)
+
+  if (groupsWithMembers.length === 0 && looseActions.length === 0) return null
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {groupsWithMembers.map(({ group, members }) => (
+        <GroupLauncher key={group.id} group={group} actions={members} onError={onError} />
+      ))}
+      {looseActions.map((action) => {
+        const Icon = getIcon(action.icon).Icon
+        return (
+          <Button
+            key={action.id}
+            variant="outline"
+            size="sm"
+            loading={runAction.isPending && runAction.variables?.id === action.id}
+            onClick={() => runAction.mutate({ id: action.id })}
+          >
+            <Icon />
+            {action.label}
+          </Button>
+        )
+      })}
+    </div>
+  )
 }
 
 /** One action: chosen icon, label, target, a Run button and a move/delete menu. */
@@ -274,11 +338,185 @@ function GroupSection({
   )
 }
 
-export function ProjectDetail({ project }: { project: ProjectWithActions }): ReactElement {
-  const navigate = useNavigate()
+/** The action-management surface (the Actions tab): toolbar + groups + loose actions. */
+function ActionsTab({
+  project,
+  membersByGroup,
+  looseActions,
+  onError
+}: {
+  project: ProjectWithActions
+  membersByGroup: Map<number, ProjectActionRow[]>
+  looseActions: ProjectActionRow[]
+  onError: (message: string | null) => void
+}): ReactElement {
   const utils = trpc.useUtils()
-  const [runError, setRunError] = useState<string | null>(null)
   const [reordering, setReordering] = useState(false)
+
+  const isEmpty = project.groups.length === 0 && looseActions.length === 0
+  // Reordering is only meaningful with groups (move in/out, reorder them) or
+  // more than one loose action to shuffle.
+  const canReorder = project.groups.length > 0 || project.actions.length > 1
+
+  const exitReorder = (): void => {
+    // Re-sync the rest of the app (sidebar, dashboard) with the new order.
+    utils.projects.list.invalidate()
+    setReordering(false)
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-end gap-2">
+        {reordering ? (
+          <Button variant="outline" size="sm" onClick={exitReorder}>
+            <IconCheck />
+            Done
+          </Button>
+        ) : (
+          <>
+            {canReorder && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onError(null)
+                  setReordering(true)
+                }}
+              >
+                <IconArrowsSort />
+                Reorder
+              </Button>
+            )}
+            <GroupDialog projectId={project.id} />
+            <AddActionDialog
+              projectId={project.id}
+              projectPath={project.path}
+              groups={project.groups}
+            />
+          </>
+        )}
+      </div>
+
+      {reordering ? (
+        <ReorderableActions project={project} />
+      ) : isEmpty ? (
+        <p className="rounded-lg border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-sm">
+          No actions yet. Add a link to open, a command to run, or a group to launch several at
+          once.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {project.groups.map((group) => (
+            <GroupSection
+              key={group.id}
+              project={project}
+              group={group}
+              members={membersByGroup.get(group.id) ?? []}
+              onError={onError}
+            />
+          ))}
+
+          {looseActions.length > 0 && (
+            <div className="rounded-xl border border-border">
+              <div className="flex items-center gap-2 border-border border-b px-3 py-2">
+                <span className="text-muted-foreground">
+                  <IconInbox size={18} />
+                </span>
+                <span className="truncate font-medium text-sm">Ungrouped</span>
+                <span className="text-muted-foreground text-xs">{looseActions.length}</span>
+              </div>
+              <div className="divide-y divide-border">
+                {looseActions.map((action) => (
+                  <ActionRow
+                    key={action.id}
+                    action={action}
+                    groups={project.groups}
+                    onError={onError}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Project settings (the Settings tab): repositories (next) + a danger zone. */
+function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement {
+  const utils = trpc.useUtils()
+  const navigate = useNavigate()
+  const deleteProject = trpc.projects.delete.useMutation({
+    onSuccess: () => {
+      utils.projects.list.invalidate()
+      navigate({ to: '/' })
+    }
+  })
+
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="rounded-xl border border-border border-dashed p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-muted text-foreground">
+            <IconBrandGithub className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="font-medium text-sm">Repositories</h3>
+            <p className="mt-0.5 text-muted-foreground text-sm">
+              Link GitHub repositories to this project to see issues, PRs, and what needs your
+              attention. Coming next.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <section className="flex flex-col gap-2">
+        <h3 className="font-medium text-destructive-foreground text-sm">Danger zone</h3>
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-destructive/36 px-4 py-3">
+          <div className="min-w-0">
+            <p className="font-medium text-sm">Delete this project</p>
+            <p className="text-muted-foreground text-sm">
+              Permanently removes the project and all its actions. This can't be undone.
+            </p>
+          </div>
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button variant="destructive-outline" size="sm" className="shrink-0">
+                  <IconTrash />
+                  Delete project
+                </Button>
+              }
+            />
+            <AlertDialogPopup>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete “{project.name}”?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently removes the project and all its actions and groups. This can't be
+                  undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogClose render={<Button variant="ghost" />}>Cancel</AlertDialogClose>
+                <Button
+                  variant="destructive"
+                  loading={deleteProject.isPending}
+                  onClick={() => deleteProject.mutate({ id: project.id })}
+                >
+                  Delete project
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogPopup>
+          </AlertDialog>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+export function ProjectDetail({ project }: { project: ProjectWithActions }): ReactElement {
+  const [runError, setRunError] = useState<string | null>(null)
 
   const looseActions = useMemo(
     () => project.actions.filter((a) => a.groupId == null),
@@ -295,26 +533,8 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
     return map
   }, [project.actions])
 
-  const deleteProject = trpc.projects.delete.useMutation({
-    onSuccess: () => {
-      utils.projects.list.invalidate()
-      navigate({ to: '/' })
-    }
-  })
-
-  const isEmpty = project.groups.length === 0 && looseActions.length === 0
-  // Reordering is only meaningful with groups (move in/out, reorder them) or
-  // more than one loose action to shuffle.
-  const canReorder = project.groups.length > 0 || project.actions.length > 1
-
-  const exitReorder = (): void => {
-    // Re-sync the rest of the app (sidebar, dashboard) with the new order.
-    utils.projects.list.invalidate()
-    setReordering(false)
-  }
-
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-8 px-8 py-10">
+    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
       <header className="flex items-start gap-4">
         <ProjectIcon icon={project.icon} color={project.color} size={30} className="size-14" />
         <div className="min-w-0 flex-1">
@@ -331,99 +551,44 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
             </p>
           )}
         </div>
-        <Button
-          variant="destructive-outline"
-          size="sm"
-          loading={deleteProject.isPending}
-          onClick={() => deleteProject.mutate({ id: project.id })}
-        >
-          <IconTrash />
-          Delete
-        </Button>
       </header>
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium text-sm">Actions</h2>
-          {reordering ? (
-            <Button variant="outline" size="sm" onClick={exitReorder}>
-              <IconCheck />
-              Done
-            </Button>
-          ) : (
-            <div className="flex items-center gap-2">
-              {canReorder && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setRunError(null)
-                    setReordering(true)
-                  }}
-                >
-                  <IconArrowsSort />
-                  Reorder
-                </Button>
-              )}
-              <GroupDialog projectId={project.id} />
-              <AddActionDialog
-                projectId={project.id}
-                projectPath={project.path}
-                groups={project.groups}
-              />
-            </div>
-          )}
-        </div>
+      <LauncherRow
+        project={project}
+        membersByGroup={membersByGroup}
+        looseActions={looseActions}
+        onError={setRunError}
+      />
 
-        {runError && (
-          <p className="rounded-lg border border-destructive/36 bg-destructive/8 px-3 py-2 text-destructive-foreground text-sm">
-            {runError}
-          </p>
-        )}
+      {runError && (
+        <p className="rounded-lg border border-destructive/36 bg-destructive/8 px-3 py-2 text-destructive-foreground text-sm">
+          {runError}
+        </p>
+      )}
 
-        {reordering ? (
-          <ReorderableActions project={project} />
-        ) : isEmpty ? (
-          <p className="rounded-lg border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-sm">
-            No actions yet. Add a link to open, a command to run, or a group to launch several at
-            once.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {project.groups.map((group) => (
-              <GroupSection
-                key={group.id}
-                project={project}
-                group={group}
-                members={membersByGroup.get(group.id) ?? []}
-                onError={setRunError}
-              />
-            ))}
+      <Tabs defaultValue="actions">
+        <TabsList variant="underline" className="w-full justify-start border-border border-b">
+          <TabsTab value="actions" className="grow-0">
+            Actions
+          </TabsTab>
+          <TabsTab value="settings" className="grow-0">
+            Settings
+          </TabsTab>
+        </TabsList>
 
-            {looseActions.length > 0 && (
-              <div className="rounded-xl border border-border">
-                <div className="flex items-center gap-2 border-border border-b px-3 py-2">
-                  <span className="text-muted-foreground">
-                    <IconInbox size={18} />
-                  </span>
-                  <span className="truncate font-medium text-sm">Ungrouped</span>
-                  <span className="text-muted-foreground text-xs">{looseActions.length}</span>
-                </div>
-                <div className="divide-y divide-border">
-                  {looseActions.map((action) => (
-                    <ActionRow
-                      key={action.id}
-                      action={action}
-                      groups={project.groups}
-                      onError={setRunError}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
+        <TabsPanel value="actions" className="pt-5">
+          <ActionsTab
+            project={project}
+            membersByGroup={membersByGroup}
+            looseActions={looseActions}
+            onError={setRunError}
+          />
+        </TabsPanel>
+
+        <TabsPanel value="settings" className="pt-5">
+          <SettingsTab project={project} />
+        </TabsPanel>
+      </Tabs>
     </div>
   )
 }
