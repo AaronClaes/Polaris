@@ -1,17 +1,17 @@
-import { IconPlus, IconSelector, IconSettings } from '@tabler/icons-react'
-import { Link, useParams } from '@tanstack/react-router'
+import { IconLayoutDashboard, IconPlus, IconSelector, IconSettings } from '@tabler/icons-react'
+import { Link, useLocation, useParams } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { ProjectIcon } from '@/components/project-icon'
-import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupAction,
   SidebarGroupContent,
-  SidebarHeader,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
   SidebarMenuButton,
@@ -94,32 +94,38 @@ function AccountInfo(): ReactElement {
   )
 }
 
-/** Left app shell: app name + create, the project list, and an account stub. */
+/** Left app shell: top-level nav (Dashboard), the project list, and an account stub. */
 export function AppSidebar(): ReactElement {
   const params = useParams({ strict: false }) as { projectId?: string }
+  const pathname = useLocation({ select: (location) => location.pathname })
   const projectsQuery = trpc.projects.list.useQuery()
   const projects = projectsQuery.data ?? []
 
   return (
     <Sidebar collapsible="none" className="border-sidebar-border border-r">
-      <SidebarHeader className="flex-row items-center justify-between px-3 py-2.5">
-        <Link
-          to="/"
-          className="-mx-1 rounded px-1 py-0.5 font-heading font-semibold text-sm tracking-tight transition-colors hover:bg-sidebar-accent"
-        >
-          Polaris
-        </Link>
-        <CreateProjectDialog
-          trigger={
-            <Button variant="ghost" size="icon-sm" aria-label="New project" title="New project">
-              <IconPlus />
-            </Button>
-          }
-        />
-      </SidebarHeader>
-
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={pathname === '/'} render={<Link to="/" />}>
+                  <IconLayoutDashboard />
+                  <span>Dashboard</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Projects</SidebarGroupLabel>
+          <CreateProjectDialog
+            trigger={
+              <SidebarGroupAction aria-label="New project" title="New project">
+                <IconPlus />
+              </SidebarGroupAction>
+            }
+          />
           <SidebarGroupContent>
             {projects.length === 0 ? (
               <p className="px-2 py-1.5 text-muted-foreground text-xs">No projects yet.</p>
