@@ -6,7 +6,7 @@ import {
   IconSparkles
 } from '@tabler/icons-react'
 import { createColumnHelper } from '@tanstack/react-table'
-import { type ComponentType, type ReactElement, useMemo } from 'react'
+import { type ComponentType, type ReactElement, useMemo, useState } from 'react'
 import {
   CollapsibleSection,
   DataTable,
@@ -140,6 +140,20 @@ const ISSUE_COLUMNS = [
   })
 ]
 
+/** Case-insensitive substring match across an issue's user-visible fields, for
+ * the client-side search box. `query` is expected already lower-cased. */
+function issueMatches(issue: IssueRow, query: string): boolean {
+  return (
+    issue.title.toLowerCase().includes(query) ||
+    `#${issue.number}`.includes(query) ||
+    `${issue.repo.owner}/${issue.repo.name}`.toLowerCase().includes(query) ||
+    (issue.author?.login.toLowerCase().includes(query) ?? false) ||
+    issue.assignees.some((person) => person.login.toLowerCase().includes(query)) ||
+    issue.labels.some((label) => label.name.toLowerCase().includes(query)) ||
+    (issue.type?.name.toLowerCase().includes(query) ?? false)
+  )
+}
+
 /** The issues surface for a set of repos: a toolbar + the three assignment
  * sections. Repo-list-driven so a future global inbox can reuse it as-is. */
 function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): ReactElement {
@@ -147,31 +161,41 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
     { repos },
     { enabled: repos.length > 0, staleTime: 60_000 }
   )
+  const [query, setQuery] = useState('')
 
   const buckets = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
     const mine: IssueRow[] = []
     const unassigned: IssueRow[] = []
     const others: IssueRow[] = []
     for (const issue of issuesQuery.data?.issues ?? []) {
+      if (normalized && !issueMatches(issue, normalized)) continue
       if (issue.bucket === 'mine') mine.push(issue)
       else if (issue.bucket === 'unassigned') unassigned.push(issue)
       else others.push(issue)
     }
     return { mine, unassigned, others }
-  }, [issuesQuery.data])
+  }, [issuesQuery.data, query])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.mine },
     { title: 'Unassigned', rows: buckets.unassigned },
     { title: 'Assigned to others', rows: buckets.others }
   ]
+  // While searching, hide empty buckets so the matches stand out.
+  const isSearching = query.trim().length > 0
+  const visibleSections = isSearching
+    ? sections.filter((section) => section.rows.length > 0)
+    : sections
 
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
-        description="Open issues across this project's repositories."
         isFetching={issuesQuery.isFetching}
         onRefresh={() => issuesQuery.refetch()}
+        searchValue={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search issues…"
       />
       <FailuresBanner failures={issuesQuery.data?.errors ?? []} />
       <QueryBoundary
@@ -180,21 +204,25 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
         errorMessage={issuesQuery.error?.message}
         loadingLabel="Loading issues…"
       >
-        <div className="flex flex-col gap-4">
-          {sections.map((section) => (
-            <CollapsibleSection
-              key={section.title}
-              title={section.title}
-              count={section.rows.length}
-            >
-              {section.rows.length === 0 ? (
-                <EmptyHint>No issues.</EmptyHint>
-              ) : (
-                <DataTable rows={section.rows} columns={ISSUE_COLUMNS} />
-              )}
-            </CollapsibleSection>
-          ))}
-        </div>
+        {isSearching && visibleSections.length === 0 ? (
+          <EmptyHint>No issues match “{query.trim()}”.</EmptyHint>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {visibleSections.map((section) => (
+              <CollapsibleSection
+                key={section.title}
+                title={section.title}
+                count={section.rows.length}
+              >
+                {section.rows.length === 0 ? (
+                  <EmptyHint>No issues.</EmptyHint>
+                ) : (
+                  <DataTable rows={section.rows} columns={ISSUE_COLUMNS} />
+                )}
+              </CollapsibleSection>
+            ))}
+          </div>
+        )}
       </QueryBoundary>
     </div>
   )

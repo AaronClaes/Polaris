@@ -7,7 +7,7 @@ import {
   IconX
 } from '@tabler/icons-react'
 import { createColumnHelper } from '@tanstack/react-table'
-import { type ReactElement, useMemo } from 'react'
+import { type ReactElement, useMemo, useState } from 'react'
 import {
   CollapsibleSection,
   DataTable,
@@ -152,6 +152,19 @@ const PULL_COLUMNS = [
   })
 ]
 
+/** Case-insensitive substring match across a PR's user-visible fields, for the
+ * client-side search box. `query` is expected already lower-cased. */
+function pullMatches(pull: PullRequestRow, query: string): boolean {
+  return (
+    pull.title.toLowerCase().includes(query) ||
+    `#${pull.number}`.includes(query) ||
+    `${pull.repo.owner}/${pull.repo.name}`.toLowerCase().includes(query) ||
+    (pull.author?.login.toLowerCase().includes(query) ?? false) ||
+    pull.assignees.some((person) => person.login.toLowerCase().includes(query)) ||
+    pull.reviewers.some((person) => person.login.toLowerCase().includes(query))
+  )
+}
+
 /** The PR surface for a set of repos: a toolbar + the three sections. Repo-list-
  * driven so a future global inbox can reuse it as-is. */
 function PullsView({ repos }: { repos: { owner: string; name: string }[] }): ReactElement {
@@ -159,31 +172,41 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
     { repos },
     { enabled: repos.length > 0, staleTime: 60_000 }
   )
+  const [query, setQuery] = useState('')
 
   const buckets = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
     const assigned: PullRequestRow[] = []
     const review: PullRequestRow[] = []
     const other: PullRequestRow[] = []
     for (const pull of pullsQuery.data?.pulls ?? []) {
+      if (normalized && !pullMatches(pull, normalized)) continue
       if (pull.bucket === 'assigned') assigned.push(pull)
       else if (pull.bucket === 'review') review.push(pull)
       else other.push(pull)
     }
     return { assigned, review, other }
-  }, [pullsQuery.data])
+  }, [pullsQuery.data, query])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.assigned },
     { title: 'Needs my review', rows: buckets.review },
     { title: 'Other pull requests', rows: buckets.other }
   ]
+  // While searching, hide empty buckets so the matches stand out.
+  const isSearching = query.trim().length > 0
+  const visibleSections = isSearching
+    ? sections.filter((section) => section.rows.length > 0)
+    : sections
 
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
-        description="Open pull requests across this project's repositories."
         isFetching={pullsQuery.isFetching}
         onRefresh={() => pullsQuery.refetch()}
+        searchValue={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="Search pull requests…"
       />
       <FailuresBanner failures={pullsQuery.data?.errors ?? []} />
       <QueryBoundary
@@ -192,21 +215,25 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
         errorMessage={pullsQuery.error?.message}
         loadingLabel="Loading pull requests…"
       >
-        <div className="flex flex-col gap-4">
-          {sections.map((section) => (
-            <CollapsibleSection
-              key={section.title}
-              title={section.title}
-              count={section.rows.length}
-            >
-              {section.rows.length === 0 ? (
-                <EmptyHint>No pull requests.</EmptyHint>
-              ) : (
-                <DataTable rows={section.rows} columns={PULL_COLUMNS} />
-              )}
-            </CollapsibleSection>
-          ))}
-        </div>
+        {isSearching && visibleSections.length === 0 ? (
+          <EmptyHint>No pull requests match “{query.trim()}”.</EmptyHint>
+        ) : (
+          <div className="flex flex-col gap-4">
+            {visibleSections.map((section) => (
+              <CollapsibleSection
+                key={section.title}
+                title={section.title}
+                count={section.rows.length}
+              >
+                {section.rows.length === 0 ? (
+                  <EmptyHint>No pull requests.</EmptyHint>
+                ) : (
+                  <DataTable rows={section.rows} columns={PULL_COLUMNS} />
+                )}
+              </CollapsibleSection>
+            ))}
+          </div>
+        )}
       </QueryBoundary>
     </div>
   )

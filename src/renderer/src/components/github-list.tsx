@@ -1,4 +1,4 @@
-import { IconChevronDown, IconExternalLink, IconRefresh } from '@tabler/icons-react'
+import { IconChevronDown, IconExternalLink, IconRefresh, IconSearch } from '@tabler/icons-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -9,6 +9,7 @@ import {
 import { type ReactElement, type ReactNode, useState } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Table,
@@ -223,19 +224,35 @@ export function EmptyHint({ children }: { children: ReactNode }): ReactElement {
   return <p className="px-3 py-4 text-center text-muted-foreground text-xs">{children}</p>
 }
 
-/** Toolbar: a one-line description + a manual refresh button. */
+/** Toolbar: a client-side search box on the left, a manual refresh button on
+ * the right. The search filters the already-loaded rows (no requery). */
 export function ListToolbar({
-  description,
   isFetching,
-  onRefresh
+  onRefresh,
+  searchValue,
+  onSearchChange,
+  searchPlaceholder = 'Search…'
 }: {
-  description: string
   isFetching: boolean
   onRefresh: () => void
+  searchValue: string
+  onSearchChange: (value: string) => void
+  searchPlaceholder?: string
 }): ReactElement {
   return (
-    <div className="flex items-center justify-between gap-2">
-      <p className="text-muted-foreground text-sm">{description}</p>
+    <div className="flex items-center justify-between gap-3">
+      <InputGroup className="w-64">
+        <InputGroupAddon>
+          <IconSearch />
+        </InputGroupAddon>
+        <InputGroupInput
+          type="search"
+          size="sm"
+          placeholder={searchPlaceholder}
+          value={searchValue}
+          onChange={(event) => onSearchChange(event.currentTarget.value)}
+        />
+      </InputGroup>
       <Button variant="ghost" size="sm" loading={isFetching} onClick={onRefresh}>
         <IconRefresh />
         Refresh
