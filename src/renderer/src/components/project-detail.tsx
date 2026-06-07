@@ -17,6 +17,7 @@ import { GroupDialog } from '@/components/group-dialog'
 import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
 import { ProjectIssues } from '@/components/project-issues'
+import { ProjectPulls } from '@/components/project-pulls'
 import { ProjectRepos } from '@/components/project-repos'
 import { ReorderableActions } from '@/components/reorderable-actions'
 import {
@@ -522,7 +523,7 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
   }, [project.actions])
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-8 py-10">
+    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
       <header className="flex items-start gap-4">
         <ProjectIcon icon={project.icon} color={project.color} size={30} className="size-14" />
         <div className="min-w-0 flex-1">
@@ -562,6 +563,9 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
           <TabsTab value="issues" className="grow-0">
             Issues
           </TabsTab>
+          <TabsTab value="pulls" className="grow-0">
+            Pull requests
+          </TabsTab>
           <TabsTab value="settings" className="grow-0">
             Settings
           </TabsTab>
@@ -578,6 +582,10 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
 
         <TabsPanel value="issues" className="pt-5">
           <ProjectIssues project={project} />
+        </TabsPanel>
+
+        <TabsPanel value="pulls" className="pt-5">
+          <ProjectPulls project={project} />
         </TabsPanel>
 
         <TabsPanel value="settings" className="pt-5">

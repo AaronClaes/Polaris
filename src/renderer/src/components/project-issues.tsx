@@ -1,26 +1,29 @@
 import {
-  IconChevronDown,
-  IconExternalLink,
+  IconBug,
+  IconCircleCheck,
+  IconCircleDot,
   IconGitPullRequest,
-  IconRefresh
+  IconSparkles
 } from '@tabler/icons-react'
+import { createColumnHelper } from '@tanstack/react-table'
+import { type ComponentType, type ReactElement, useMemo } from 'react'
 import {
-  createColumnHelper,
-  flexRender,
-  getCoreRowModel,
-  useReactTable
-} from '@tanstack/react-table'
-import { type ReactElement, useMemo, useState } from 'react'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+  CollapsibleSection,
+  DataTable,
+  EmptyHint,
+  FailuresBanner,
+  ListToolbar,
+  OpenButton,
+  QueryBoundary,
+  TitleCell,
+  UserAvatars
+} from '@/components/github-list'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
-import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import type { IssueRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
-import { cn } from '@/lib/utils'
 
-// GitHub's IssueTypeColor enum → a representative hex for the badge dot.
+// GitHub's IssueTypeColor enum → a representative hex for the type icon.
 const TYPE_COLORS: Record<string, string> = {
   BLUE: '#0969da',
   GRAY: '#59636e',
@@ -32,20 +35,32 @@ const TYPE_COLORS: Record<string, string> = {
   YELLOW: '#9a6700'
 }
 
-function AssigneeAvatars({ assignees }: { assignees: IssueRow['assignees'] }): ReactElement | null {
-  if (assignees.length === 0) return null
-  const shown = assignees.slice(0, 3)
-  const extra = assignees.length - shown.length
+// GitHub's built-in issue types (Task / Bug / Feature) → an icon. Custom org
+// types fall back to a generic marker.
+const TYPE_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  bug: IconBug,
+  feature: IconSparkles,
+  task: IconCircleCheck
+}
+
+/** The issue type as a colored icon, with a tooltip naming it (Task / Bug /
+ * Feature / …). When no type is set, falls back to GitHub's standard open-issue
+ * marker: a green circle-dot. */
+function IssueTypeIcon({ type }: { type: IssueRow['type'] }): ReactElement {
+  const Icon = type ? (TYPE_ICONS[type.name.toLowerCase()] ?? IconCircleDot) : IconCircleDot
+  const color = type ? (TYPE_COLORS[type.color] ?? TYPE_COLORS.GRAY) : TYPE_COLORS.GREEN
+  const label = type ? type.name : 'Issue'
   return (
-    <div className="flex items-center -space-x-1.5">
-      {shown.map((person) => (
-        <Avatar key={person.login} className="size-6 ring-2 ring-background" title={person.login}>
-          <AvatarImage src={person.avatarUrl} alt={person.login} />
-          <AvatarFallback>{person.login.slice(0, 2).toUpperCase()}</AvatarFallback>
-        </Avatar>
-      ))}
-      {extra > 0 && <span className="pl-2.5 text-muted-foreground text-xs">+{extra}</span>}
-    </div>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex shrink-0" style={{ color }}>
+            <Icon className="size-4" />
+          </span>
+        }
+      />
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
   )
 }
 
@@ -72,46 +87,39 @@ const columnHelper = createColumnHelper<IssueRow>()
 // seam for future sort / filter / show-hide controls.
 const ISSUE_COLUMNS = [
   columnHelper.accessor('title', {
-    header: 'Title',
+    header: 'Issue',
     cell: (cell) => (
-      <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-2">
-          <span className="max-w-md truncate font-medium">{cell.getValue()}</span>
-          <span className="shrink-0 text-muted-foreground text-xs">
-            #{cell.row.original.number}
-          </span>
-        </div>
-        <span className="truncate text-muted-foreground text-xs">
-          {cell.row.original.repo.owner}/{cell.row.original.repo.name}
-        </span>
-      </div>
+      <TitleCell
+        title={cell.getValue()}
+        number={cell.row.original.number}
+        owner={cell.row.original.repo.owner}
+        name={cell.row.original.repo.name}
+        leading={<IssueTypeIcon type={cell.row.original.type} />}
+      />
     )
-  }),
-  columnHelper.accessor('type', {
-    header: 'Type',
-    cell: (cell) => {
-      const type = cell.getValue()
-      if (!type) return null
-      return (
-        <Badge variant="outline" size="sm" className="gap-1 font-normal">
-          <span
-            className="size-2 rounded-full"
-            style={{
-              backgroundColor: TYPE_COLORS[type.color] ?? TYPE_COLORS.GRAY
-            }}
-          />
-          {type.name}
-        </Badge>
-      )
-    }
   }),
   columnHelper.accessor('labels', {
     header: 'Labels',
+    meta: { width: '14rem' },
     cell: (cell) => <LabelChips labels={cell.getValue()} />
+  }),
+  columnHelper.accessor('author', {
+    header: 'Author',
+    meta: { width: '4.5rem' },
+    cell: (cell) => {
+      const author = cell.getValue()
+      return <UserAvatars users={author ? [author] : []} />
+    }
+  }),
+  columnHelper.accessor('assignees', {
+    header: 'Assignees',
+    meta: { width: '6rem' },
+    cell: (cell) => <UserAvatars users={cell.getValue()} />
   }),
   columnHelper.accessor((row) => row.linkedPr, {
     id: 'pr',
     header: 'PR',
+    meta: { width: '3.5rem' },
     cell: (cell) => {
       const pr = cell.getValue()
       if (!pr) return null
@@ -125,83 +133,12 @@ const ISSUE_COLUMNS = [
       )
     }
   }),
-  columnHelper.accessor('assignees', {
-    header: 'Assignees',
-    cell: (cell) => <AssigneeAvatars assignees={cell.getValue()} />
-  }),
   columnHelper.display({
     id: 'open',
-    cell: (cell) => (
-      <div className="flex justify-end">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Open on GitHub"
-          title="Open on GitHub"
-          onClick={() => window.open(cell.row.original.url, '_blank')}
-        >
-          <IconExternalLink />
-        </Button>
-      </div>
-    )
+    meta: { width: '3.5rem' },
+    cell: (cell) => <OpenButton url={cell.row.original.url} />
   })
 ]
-
-/** One section's table. Each section is its own table instance so it can sort
- * and filter independently once those controls land. */
-function IssuesTable({ rows }: { rows: IssueRow[] }): ReactElement {
-  const table = useReactTable({
-    data: rows,
-    columns: ISSUE_COLUMNS,
-    getCoreRowModel: getCoreRowModel()
-  })
-
-  return (
-    <Table>
-      <TableBody>
-        {table.getRowModel().rows.map((row) => (
-          <TableRow key={row.id}>
-            {row.getVisibleCells().map((cell) => (
-              <TableCell key={cell.id}>
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  )
-}
-
-/** A collapsible, titled section wrapping one bucket's table (or an empty hint). */
-function IssuesSection({ title, rows }: { title: string; rows: IssueRow[] }): ReactElement {
-  const [open, setOpen] = useState(true)
-
-  return (
-    <section className="overflow-hidden rounded-xl border border-border">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className={cn(
-          'flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50',
-          open && 'border-border border-b'
-        )}
-      >
-        <IconChevronDown
-          className={cn('size-4 text-muted-foreground transition-transform', !open && '-rotate-90')}
-        />
-        <span className="font-medium text-sm">{title}</span>
-        <span className="text-muted-foreground text-xs">{rows.length}</span>
-      </button>
-      {open &&
-        (rows.length === 0 ? (
-          <p className="px-3 py-4 text-center text-muted-foreground text-xs">No issues.</p>
-        ) : (
-          <IssuesTable rows={rows} />
-        ))}
-    </section>
-  )
-}
 
 /** The issues surface for a set of repos: a toolbar + the three assignment
  * sections. Repo-list-driven so a future global inbox can reuse it as-is. */
@@ -223,51 +160,42 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
     return { mine, unassigned, others }
   }, [issuesQuery.data])
 
-  const failures = issuesQuery.data?.errors ?? []
+  const sections = [
+    { title: 'Assigned to me', rows: buckets.mine },
+    { title: 'Unassigned', rows: buckets.unassigned },
+    { title: 'Assigned to others', rows: buckets.others }
+  ]
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-muted-foreground text-sm">
-          Open issues across this project's repositories.
-        </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          loading={issuesQuery.isFetching}
-          onClick={() => issuesQuery.refetch()}
-        >
-          <IconRefresh />
-          Refresh
-        </Button>
-      </div>
-
-      {failures.length > 0 && (
-        <div className="rounded-lg border border-destructive/36 bg-destructive/8 px-3 py-2 text-destructive-foreground text-xs">
-          {failures.map((failure) => (
-            <p key={failure.repo}>
-              <span className="font-medium">{failure.repo}</span>: {failure.message}
-            </p>
+      <ListToolbar
+        description="Open issues across this project's repositories."
+        isFetching={issuesQuery.isFetching}
+        onRefresh={() => issuesQuery.refetch()}
+      />
+      <FailuresBanner failures={issuesQuery.data?.errors ?? []} />
+      <QueryBoundary
+        isLoading={issuesQuery.isLoading}
+        isError={issuesQuery.isError}
+        errorMessage={issuesQuery.error?.message}
+        loadingLabel="Loading issues…"
+      >
+        <div className="flex flex-col gap-4">
+          {sections.map((section) => (
+            <CollapsibleSection
+              key={section.title}
+              title={section.title}
+              count={section.rows.length}
+            >
+              {section.rows.length === 0 ? (
+                <EmptyHint>No issues.</EmptyHint>
+              ) : (
+                <DataTable rows={section.rows} columns={ISSUE_COLUMNS} />
+              )}
+            </CollapsibleSection>
           ))}
         </div>
-      )}
-
-      {issuesQuery.isLoading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground text-sm">
-          <Spinner className="size-4" />
-          Loading issues…
-        </div>
-      ) : issuesQuery.isError ? (
-        <p className="rounded-lg border border-destructive/36 bg-destructive/8 px-3 py-2 text-destructive-foreground text-sm">
-          Couldn't load issues. {issuesQuery.error.message}
-        </p>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <IssuesSection title="Assigned to me" rows={buckets.mine} />
-          <IssuesSection title="Unassigned" rows={buckets.unassigned} />
-          <IssuesSection title="Assigned to others" rows={buckets.others} />
-        </div>
-      )}
+      </QueryBoundary>
     </div>
   )
 }

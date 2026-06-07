@@ -5,9 +5,11 @@ import {
   deleteToken,
   fetchViewer,
   type GitHubIssue,
+  type GitHubPullRequest,
   type GitHubRepo,
   getToken,
   listIssuesForRepo,
+  listPullRequestsForRepo,
   listReposForOwner,
   storeToken
 } from '../../services/github'
@@ -17,10 +19,20 @@ import { publicProcedure, router } from '..'
 const owner = z.string().trim().min(1, 'An account or organization is required')
 const token = z.string().trim().min(1, 'A token is required')
 
+const reposInput = z.object({
+  repos: z.array(z.object({ owner: z.string().min(1), name: z.string().min(1) }))
+})
+
 type IssueBucket = 'mine' | 'unassigned' | 'others'
 type IssueRow = GitHubIssue & {
   repo: { owner: string; name: string }
   bucket: IssueBucket
+}
+
+type PullBucket = 'assigned' | 'review' | 'other'
+type PullRow = GitHubPullRequest & {
+  repo: { owner: string; name: string }
+  bucket: PullBucket
 }
 
 // Match a repo's owner to a linked account by owner OR login, case-insensitively,
@@ -158,55 +170,85 @@ export const githubRouter = router({
   // global inbox over every repo. Each repo is routed through its owner's token
   // (fine-grained PATs only reach their own owner); per-repo failures are
   // collected rather than thrown so one bad repo doesn't blank the view.
-  listIssues: publicProcedure
-    .input(
-      z.object({
-        repos: z.array(
-          z.object({
-            owner: z.string().min(1),
-            name: z.string().min(1)
-          })
-        )
-      })
-    )
-    .query(async ({ ctx, input }) => {
-      const accounts = ctx.db.select().from(githubAccounts).all()
-      const viewerLogins = new Set(accounts.map((a) => a.login.toLowerCase()))
+  listIssues: publicProcedure.input(reposInput).query(async ({ ctx, input }) => {
+    const accounts = ctx.db.select().from(githubAccounts).all()
+    const viewerLogins = new Set(accounts.map((a) => a.login.toLowerCase()))
 
-      const issues: IssueRow[] = []
-      const errors: { repo: string; message: string }[] = []
+    const issues: IssueRow[] = []
+    const errors: { repo: string; message: string }[] = []
 
-      for (const repo of input.repos) {
-        const repoToken = resolveRepoToken(accounts, repo.owner)
-        if (!repoToken) {
-          errors.push({
-            repo: `${repo.owner}/${repo.name}`,
-            message: `No linked token for ${repo.owner}.`
-          })
-          continue
-        }
-        try {
-          for (const issue of await listIssuesForRepo(repo.owner, repo.name, repoToken)) {
-            const mine = issue.assignees.some((a) => viewerLogins.has(a.login.toLowerCase()))
-            const bucket: IssueBucket = mine
-              ? 'mine'
-              : issue.assignees.length === 0
-                ? 'unassigned'
-                : 'others'
-            issues.push({
-              ...issue,
-              repo: { owner: repo.owner, name: repo.name },
-              bucket
-            })
-          }
-        } catch (err) {
-          errors.push({
-            repo: `${repo.owner}/${repo.name}`,
-            message: err instanceof Error ? err.message : 'Failed to load issues.'
-          })
-        }
+    for (const repo of input.repos) {
+      const repoToken = resolveRepoToken(accounts, repo.owner)
+      if (!repoToken) {
+        errors.push({
+          repo: `${repo.owner}/${repo.name}`,
+          message: `No linked token for ${repo.owner}.`
+        })
+        continue
       }
+      try {
+        for (const issue of await listIssuesForRepo(repo.owner, repo.name, repoToken)) {
+          const mine = issue.assignees.some((a) => viewerLogins.has(a.login.toLowerCase()))
+          const bucket: IssueBucket = mine
+            ? 'mine'
+            : issue.assignees.length === 0
+              ? 'unassigned'
+              : 'others'
+          issues.push({
+            ...issue,
+            repo: { owner: repo.owner, name: repo.name },
+            bucket
+          })
+        }
+      } catch (err) {
+        errors.push({
+          repo: `${repo.owner}/${repo.name}`,
+          message: err instanceof Error ? err.message : 'Failed to load issues.'
+        })
+      }
+    }
 
-      return { issues, errors }
-    })
+    return { issues, errors }
+  }),
+
+  // Open pull requests across the given repos, bucketed by what they need from
+  // you: assigned to you, awaiting your review (a pending review request), or
+  // other. Same per-repo token routing and error collection as listIssues.
+  listPullRequests: publicProcedure.input(reposInput).query(async ({ ctx, input }) => {
+    const accounts = ctx.db.select().from(githubAccounts).all()
+    const viewerLogins = new Set(accounts.map((a) => a.login.toLowerCase()))
+
+    const pulls: PullRow[] = []
+    const errors: { repo: string; message: string }[] = []
+
+    for (const repo of input.repos) {
+      const repoToken = resolveRepoToken(accounts, repo.owner)
+      if (!repoToken) {
+        errors.push({
+          repo: `${repo.owner}/${repo.name}`,
+          message: `No linked token for ${repo.owner}.`
+        })
+        continue
+      }
+      try {
+        for (const pull of await listPullRequestsForRepo(repo.owner, repo.name, repoToken)) {
+          const assigned = pull.assignees.some((a) => viewerLogins.has(a.login.toLowerCase()))
+          const needsReview = pull.reviewers.some((r) => viewerLogins.has(r.login.toLowerCase()))
+          const bucket: PullBucket = assigned ? 'assigned' : needsReview ? 'review' : 'other'
+          pulls.push({
+            ...pull,
+            repo: { owner: repo.owner, name: repo.name },
+            bucket
+          })
+        }
+      } catch (err) {
+        errors.push({
+          repo: `${repo.owner}/${repo.name}`,
+          message: err instanceof Error ? err.message : 'Failed to load pull requests.'
+        })
+      }
+    }
+
+    return { pulls, errors }
+  })
 })

@@ -16,3 +16,5 @@ export type GithubAccountRow = RouterOutputs['github']['listAccounts'][number]
 export type GithubRepoRow = RouterOutputs['github']['listRepos']['repos'][number]
 /** An open issue (with its assignment bucket), as returned by `github.listIssues`. */
 export type IssueRow = RouterOutputs['github']['listIssues']['issues'][number]
+/** An open pull request (with its bucket), as returned by `github.listPullRequests`. */
+export type PullRequestRow = RouterOutputs['github']['listPullRequests']['pulls'][number]
