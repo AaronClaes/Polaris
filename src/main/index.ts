@@ -1,15 +1,11 @@
 import { join } from 'node:path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { app, BrowserWindow, globalShortcut, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { createIPCHandler } from 'electron-trpc-experimental/main'
 import icon from '../../resources/icon.png?asset'
 import { runMigrations } from './db/migrate'
 import { createContext } from './trpc'
 import { appRouter } from './trpc/router'
-
-// OS-global shortcut to summon the command palette. Kept off Cmd+K (too common)
-// — the renderer also binds a local Cmd+K when focused.
-const COMMAND_PALETTE_SHORTCUT = 'CommandOrControl+Shift+P'
 
 let mainWindow: BrowserWindow | null = null
 let ipcHandler: ReturnType<typeof createIPCHandler> | null = null
@@ -56,15 +52,6 @@ function createWindow(): void {
   }
 }
 
-function registerGlobalShortcuts(): void {
-  globalShortcut.register(COMMAND_PALETTE_SHORTCUT, () => {
-    if (!mainWindow) return
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-    mainWindow.webContents.send('command-palette:toggle')
-  })
-}
-
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.aaronclaes.polaris')
 
@@ -76,15 +63,10 @@ app.whenReady().then(() => {
   runMigrations()
 
   createWindow()
-  registerGlobalShortcuts()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
-
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
 })
 
 app.on('window-all-closed', () => {

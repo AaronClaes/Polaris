@@ -1,5 +1,5 @@
 import { electronAPI } from '@electron-toolkit/preload'
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge } from 'electron'
 import { exposeElectronTRPC } from 'electron-trpc-experimental/preload'
 
 // Expose the electron-trpc bridge (window.electronTRPC) the renderer link reads.
@@ -7,15 +7,9 @@ process.once('loaded', () => {
   exposeElectronTRPC()
 })
 
-// Polaris-specific renderer API.
-const api = {
-  /** Subscribe to the global command-palette toggle. Returns an unsubscribe. */
-  onCommandPalette(callback: () => void): () => void {
-    const listener = (): void => callback()
-    ipcRenderer.on('command-palette:toggle', listener)
-    return () => ipcRenderer.removeListener('command-palette:toggle', listener)
-  }
-}
+// Polaris-specific renderer API. Empty for now — add methods here as the
+// renderer needs to talk to the main process outside of tRPC.
+const api = {}
 
 export type PolarisApi = typeof api
 

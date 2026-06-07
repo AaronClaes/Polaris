@@ -17,10 +17,7 @@ export function CommandPalette(): ReactElement {
   const setOpen = useUiStore((s) => s.setCommandPaletteOpen)
   const toggle = useUiStore((s) => s.toggleCommandPalette)
 
-  // OS-global shortcut, pushed from the main process (Cmd/Ctrl+Shift+P).
-  useEffect(() => window.api.onCommandPalette(toggle), [toggle])
-
-  // Local Cmd/Ctrl+K when the window is focused.
+  // Cmd/Ctrl+K opens the palette when the window is focused.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
