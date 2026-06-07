@@ -50,7 +50,7 @@ export function GroupLauncher({
       <Button
         variant="outline"
         size="sm"
-        className="rounded-r-none"
+        className="rounded-r-none before:rounded-r-none"
         loading={runGroup.isPending}
         onClick={() => runGroup.mutate({ groupId: group.id })}
       >
@@ -63,7 +63,7 @@ export function GroupLauncher({
             <Button
               variant="outline"
               size="icon-sm"
-              className="-ml-px rounded-l-none"
+              className="-ml-px rounded-l-none before:rounded-l-none"
               aria-label={`${group.name} actions`}
               title={`${group.name} actions`}
             />
