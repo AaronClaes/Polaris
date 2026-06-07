@@ -1,8 +1,9 @@
 import {
-  IconInfoCircle,
-  IconPalette,
+  IconDeviceLaptop,
+  IconMoon,
   IconPlug,
   IconSettings,
+  IconSun,
   IconX,
   type TablerIcon
 } from '@tabler/icons-react'
@@ -10,7 +11,9 @@ import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { GitHubIntegration } from '@/components/github-integration'
 import { Button } from '@/components/ui/button'
-import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { type Theme, useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
 interface SettingsSection {
@@ -41,20 +44,51 @@ function PanelPlaceholder({
   )
 }
 
+/** The theme options, in display order, with their segmented-control glyph. */
+const THEME_OPTIONS: { value: Theme; label: string; Icon: TablerIcon }[] = [
+  { value: 'light', label: 'Light', Icon: IconSun },
+  { value: 'dark', label: 'Dark', Icon: IconMoon },
+  { value: 'auto', label: 'Auto', Icon: IconDeviceLaptop }
+]
+
+/** Segmented Light / Dark / Auto picker, bound to the global theme store. */
+function ThemeToggle(): ReactElement {
+  const [theme, setTheme] = useTheme()
+  return (
+    <ToggleGroup
+      variant="outline"
+      value={[theme]}
+      // Ignore the empty array (clicking the active item) so one is always set.
+      onValueChange={(next) => {
+        if (next[0]) setTheme(next[0] as Theme)
+      }}
+      aria-label="Theme"
+    >
+      {THEME_OPTIONS.map(({ value, label, Icon }) => (
+        <ToggleGroupItem key={value} value={value}>
+          <Icon />
+          {label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  )
+}
+
 function GeneralPanel(): ReactElement {
   return (
-    <PanelPlaceholder
-      title="General"
-      description="App-wide preferences. Nothing to configure here just yet."
-    >
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="text-base">Coming soon</CardTitle>
-          <CardDescription>
-            Startup behavior, default project, and other general options will live here.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+    <PanelPlaceholder title="General" description="App-wide preferences.">
+      <section className="grid gap-3">
+        <h3 className="font-medium text-sm">Appearance</h3>
+        <Card>
+          <CardContent className="flex items-center justify-between gap-4">
+            <div className="grid gap-0.5">
+              <CardTitle className="text-sm">Theme</CardTitle>
+              <CardDescription>Auto follows your system setting.</CardDescription>
+            </div>
+            <ThemeToggle />
+          </CardContent>
+        </Card>
+      </section>
     </PanelPlaceholder>
   )
 }
@@ -70,35 +104,6 @@ function IntegrationsPanel(): ReactElement {
   )
 }
 
-function AppearancePanel(): ReactElement {
-  return (
-    <PanelPlaceholder
-      title="Appearance"
-      description="Theme and display options. Placeholder for now."
-    >
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="text-base">Coming soon</CardTitle>
-          <CardDescription>Light/dark theme and accent color will live here.</CardDescription>
-        </CardHeader>
-      </Card>
-    </PanelPlaceholder>
-  )
-}
-
-function AboutPanel(): ReactElement {
-  return (
-    <PanelPlaceholder title="About" description="Polaris — your personal command center.">
-      <Card className="border-dashed">
-        <CardHeader>
-          <CardTitle className="text-base">Polaris</CardTitle>
-          <CardDescription>Version and build details will appear here.</CardDescription>
-        </CardHeader>
-      </Card>
-    </PanelPlaceholder>
-  )
-}
-
 const SECTIONS: SettingsSection[] = [
   { id: 'general', label: 'General', Icon: IconSettings, render: GeneralPanel },
   {
@@ -106,14 +111,7 @@ const SECTIONS: SettingsSection[] = [
     label: 'Integrations',
     Icon: IconPlug,
     render: IntegrationsPanel
-  },
-  {
-    id: 'appearance',
-    label: 'Appearance',
-    Icon: IconPalette,
-    render: AppearancePanel
-  },
-  { id: 'about', label: 'About', Icon: IconInfoCircle, render: AboutPanel }
+  }
 ]
 
 /**

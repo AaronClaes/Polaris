@@ -6,7 +6,11 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { persister, queryClient } from '@/lib/query-client'
 import { router } from '@/lib/router'
+import { initTheme } from '@/lib/theme'
 import { trpc, trpcClient } from '@/lib/trpc'
+
+// Apply the saved theme before first paint so there's no flash of the wrong one.
+initTheme()
 
 const rootElement = document.getElementById('root')
 if (!rootElement) throw new Error('Root element #root not found')
