@@ -580,11 +580,11 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
           />
         </TabsPanel>
 
-        <TabsPanel value="issues" className="pt-5">
+        <TabsPanel value="issues" className="pt-5" keepMounted>
           <ProjectIssues project={project} />
         </TabsPanel>
 
-        <TabsPanel value="pulls" className="pt-5">
+        <TabsPanel value="pulls" className="pt-5" keepMounted>
           <ProjectPulls project={project} />
         </TabsPanel>
 

@@ -7,7 +7,7 @@ import {
   IconX
 } from '@tabler/icons-react'
 import { createColumnHelper } from '@tanstack/react-table'
-import { type ReactElement, useMemo, useState } from 'react'
+import { memo, type ReactElement, useDeferredValue, useMemo, useState } from 'react'
 import {
   CollapsibleSection,
   DataTable,
@@ -17,6 +17,7 @@ import {
   OpenButton,
   QueryBoundary,
   TitleCell,
+  UserAvatar,
   UserAvatars
 } from '@/components/github-list'
 import { Badge } from '@/components/ui/badge'
@@ -27,7 +28,11 @@ import { cn } from '@/lib/utils'
 /** Rolled-up GitHub Actions status as a leading icon, with a per-workflow
  * tooltip. Renders nothing when there's no run data (or the token lacks the
  * Actions read scope) — see the service note on fine-grained PAT permissions. */
-function CheckStatusIcon({ checks }: { checks: PullRequestRow['checks'] }): ReactElement | null {
+const CheckStatusIcon = memo(function CheckStatusIcon({
+  checks
+}: {
+  checks: PullRequestRow['checks']
+}): ReactElement | null {
   let Icon = IconCircleCheckFilled
   let tooltip = ''
   let color = 'text-success-foreground'
@@ -54,11 +59,11 @@ function CheckStatusIcon({ checks }: { checks: PullRequestRow['checks'] }): Reac
       <Icon className="size-4" />
     </span>
   )
-}
+})
 
 /** A danger marker shown beside the PR number only when the branch has merge
  * conflicts. MERGEABLE / UNKNOWN (not yet computed) render nothing. */
-function ConflictMarker({
+const ConflictMarker = memo(function ConflictMarker({
   mergeable
 }: {
   mergeable: PullRequestRow['mergeable']
@@ -69,11 +74,15 @@ function ConflictMarker({
       <IconGitPullRequestConflict className="size-4" />
     </span>
   )
-}
+})
 
 /** Counts of submitted reviews (approvals / changes requested), plus a draft tag.
  * Pending reviewers live in their own column. Renders nothing when there's none. */
-function ReviewSummary({ pull }: { pull: PullRequestRow }): ReactElement | null {
+const ReviewSummary = memo(function ReviewSummary({
+  pull
+}: {
+  pull: PullRequestRow
+}): ReactElement | null {
   const { approved, changesRequested } = pull.reviewSummary
   if (!pull.isDraft && approved === 0 && changesRequested === 0) return null
   return (
@@ -103,7 +112,7 @@ function ReviewSummary({ pull }: { pull: PullRequestRow }): ReactElement | null 
       )}
     </div>
   )
-}
+})
 
 const columnHelper = createColumnHelper<PullRequestRow>()
 
@@ -132,7 +141,7 @@ const PULL_COLUMNS = [
     meta: { width: '4.5rem' },
     cell: (cell) => {
       const author = cell.getValue()
-      return <UserAvatars users={author ? [author] : []} />
+      return author ? <UserAvatar user={author} /> : null
     }
   }),
   columnHelper.accessor('assignees', {
@@ -173,9 +182,12 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
     { enabled: repos.length > 0, staleTime: 60_000 }
   )
   const [query, setQuery] = useState('')
+  // The input stays bound to `query` (instant feedback); filtering + rendering
+  // run against the deferred value so a keystroke never blocks on the tables.
+  const deferredQuery = useDeferredValue(query)
 
   const buckets = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
+    const normalized = deferredQuery.trim().toLowerCase()
     const assigned: PullRequestRow[] = []
     const review: PullRequestRow[] = []
     const other: PullRequestRow[] = []
@@ -186,7 +198,7 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
       else other.push(pull)
     }
     return { assigned, review, other }
-  }, [pullsQuery.data, query])
+  }, [pullsQuery.data, deferredQuery])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.assigned },
@@ -194,7 +206,7 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
     { title: 'Other pull requests', rows: buckets.other }
   ]
   // While searching, hide empty buckets so the matches stand out.
-  const isSearching = query.trim().length > 0
+  const isSearching = deferredQuery.trim().length > 0
   const visibleSections = isSearching
     ? sections.filter((section) => section.rows.length > 0)
     : sections
@@ -216,7 +228,7 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
         loadingLabel="Loading pull requests…"
       >
         {isSearching && visibleSections.length === 0 ? (
-          <EmptyHint>No pull requests match “{query.trim()}”.</EmptyHint>
+          <EmptyHint>No pull requests match “{deferredQuery.trim()}”.</EmptyHint>
         ) : (
           <div className="flex flex-col gap-4">
             {visibleSections.map((section) => (

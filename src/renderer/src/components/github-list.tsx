@@ -6,9 +6,10 @@ import {
   type TableOptions,
   useReactTable
 } from '@tanstack/react-table'
-import { type ReactElement, type ReactNode, useState } from 'react'
+import { memo, type ReactElement, type ReactNode } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Spinner } from '@/components/ui/spinner'
 import {
@@ -21,7 +22,6 @@ import {
 } from '@/components/ui/table'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatAbsolute, formatRelative } from '@/lib/relative-time'
-import { cn } from '@/lib/utils'
 
 declare module '@tanstack/react-table' {
   // Per-column CSS width for the fixed table layout. Omit to let the column
@@ -33,8 +33,9 @@ declare module '@tanstack/react-table' {
 
 type GitHubUser = { login: string; avatarUrl: string | null }
 
-/** A single avatar that reveals the user's login on hover. */
-function UserAvatar({ user }: { user: GitHubUser }): ReactElement {
+/** A single avatar that reveals the user's login on hover. Memoized so a search
+ * re-render skips rows whose user object is unchanged. */
+export const UserAvatar = memo(function UserAvatar({ user }: { user: GitHubUser }): ReactElement {
   return (
     <Tooltip>
       <TooltipTrigger
@@ -48,10 +49,14 @@ function UserAvatar({ user }: { user: GitHubUser }): ReactElement {
       <TooltipPopup>{user.login}</TooltipPopup>
     </Tooltip>
   )
-}
+})
 
 /** Stacked avatars for a set of GitHub users (assignees, reviewers, …). */
-export function UserAvatars({ users }: { users: GitHubUser[] }): ReactElement | null {
+export const UserAvatars = memo(function UserAvatars({
+  users
+}: {
+  users: GitHubUser[]
+}): ReactElement | null {
   if (users.length === 0) return null
   const shown = users.slice(0, 3)
   const extra = users.length - shown.length
@@ -63,7 +68,7 @@ export function UserAvatars({ users }: { users: GitHubUser[] }): ReactElement | 
       {extra > 0 && <span className="pl-2.5 text-muted-foreground text-xs">+{extra}</span>}
     </div>
   )
-}
+})
 
 /** The title cell shared by issues and PRs: title + number, repo underneath.
  * `leading` renders a status icon to the left (e.g. PR CI status); `trailing`
@@ -187,7 +192,9 @@ export function DataTable<T>({
   )
 }
 
-/** A titled, collapsible box. Body (a table or empty hint) is only mounted while open. */
+/** A titled, collapsible box built on the vendored Collapsible. `keepMounted`
+ * keeps the body in the DOM while collapsed, so toggling is a show/hide rather
+ * than a table remount; the section starts open, so its rows mount once up front. */
 export function CollapsibleSection({
   title,
   count,
@@ -197,25 +204,18 @@ export function CollapsibleSection({
   count: number
   children: ReactNode
 }): ReactElement {
-  const [open, setOpen] = useState(true)
   return (
-    <section className="overflow-hidden rounded-xl border border-border">
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className={cn(
-          'flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50',
-          open && 'border-border border-b'
-        )}
-      >
-        <IconChevronDown
-          className={cn('size-4 text-muted-foreground transition-transform', !open && '-rotate-90')}
-        />
+    <Collapsible
+      defaultOpen
+      render={<section className="overflow-hidden rounded-xl border border-border" />}
+    >
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50 data-panel-open:border-border data-panel-open:border-b">
+        <IconChevronDown className="-rotate-90 size-4 text-muted-foreground transition-transform group-data-panel-open:rotate-0" />
         <span className="font-medium text-sm">{title}</span>
         <span className="text-muted-foreground text-xs">{count}</span>
-      </button>
-      {open && children}
-    </section>
+      </CollapsibleTrigger>
+      <CollapsiblePanel keepMounted>{children}</CollapsiblePanel>
+    </Collapsible>
   )
 }
 

@@ -6,7 +6,14 @@ import {
   IconSparkles
 } from '@tabler/icons-react'
 import { createColumnHelper } from '@tanstack/react-table'
-import { type ComponentType, type ReactElement, useMemo, useState } from 'react'
+import {
+  type ComponentType,
+  memo,
+  type ReactElement,
+  useDeferredValue,
+  useMemo,
+  useState
+} from 'react'
 import {
   CollapsibleSection,
   DataTable,
@@ -16,6 +23,7 @@ import {
   OpenButton,
   QueryBoundary,
   TitleCell,
+  UserAvatar,
   UserAvatars
 } from '@/components/github-list'
 import { Badge } from '@/components/ui/badge'
@@ -45,8 +53,12 @@ const TYPE_ICONS: Record<string, ComponentType<{ className?: string }>> = {
 
 /** The issue type as a colored icon, with a tooltip naming it (Task / Bug /
  * Feature / …). When no type is set, falls back to GitHub's standard open-issue
- * marker: a green circle-dot. */
-function IssueTypeIcon({ type }: { type: IssueRow['type'] }): ReactElement {
+ * marker: a green circle-dot. Memoized so a search re-render skips unchanged rows. */
+const IssueTypeIcon = memo(function IssueTypeIcon({
+  type
+}: {
+  type: IssueRow['type']
+}): ReactElement {
   const Icon = type ? (TYPE_ICONS[type.name.toLowerCase()] ?? IconCircleDot) : IconCircleDot
   const color = type ? (TYPE_COLORS[type.color] ?? TYPE_COLORS.GRAY) : TYPE_COLORS.GREEN
   const label = type ? type.name : 'Issue'
@@ -62,9 +74,13 @@ function IssueTypeIcon({ type }: { type: IssueRow['type'] }): ReactElement {
       <TooltipPopup>{label}</TooltipPopup>
     </Tooltip>
   )
-}
+})
 
-function LabelChips({ labels }: { labels: IssueRow['labels'] }): ReactElement | null {
+const LabelChips = memo(function LabelChips({
+  labels
+}: {
+  labels: IssueRow['labels']
+}): ReactElement | null {
   if (labels.length === 0) return null
   const shown = labels.slice(0, 3)
   const extra = labels.length - shown.length
@@ -79,7 +95,7 @@ function LabelChips({ labels }: { labels: IssueRow['labels'] }): ReactElement | 
       {extra > 0 && <span className="text-muted-foreground text-xs">+{extra}</span>}
     </div>
   )
-}
+})
 
 const columnHelper = createColumnHelper<IssueRow>()
 
@@ -108,7 +124,7 @@ const ISSUE_COLUMNS = [
     meta: { width: '4.5rem' },
     cell: (cell) => {
       const author = cell.getValue()
-      return <UserAvatars users={author ? [author] : []} />
+      return author ? <UserAvatar user={author} /> : null
     }
   }),
   columnHelper.accessor('assignees', {
@@ -162,9 +178,12 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
     { enabled: repos.length > 0, staleTime: 60_000 }
   )
   const [query, setQuery] = useState('')
+  // The input stays bound to `query` (instant feedback); filtering + rendering
+  // run against the deferred value so a keystroke never blocks on the tables.
+  const deferredQuery = useDeferredValue(query)
 
   const buckets = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
+    const normalized = deferredQuery.trim().toLowerCase()
     const mine: IssueRow[] = []
     const unassigned: IssueRow[] = []
     const others: IssueRow[] = []
@@ -175,7 +194,7 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
       else others.push(issue)
     }
     return { mine, unassigned, others }
-  }, [issuesQuery.data, query])
+  }, [issuesQuery.data, deferredQuery])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.mine },
@@ -183,7 +202,7 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
     { title: 'Assigned to others', rows: buckets.others }
   ]
   // While searching, hide empty buckets so the matches stand out.
-  const isSearching = query.trim().length > 0
+  const isSearching = deferredQuery.trim().length > 0
   const visibleSections = isSearching
     ? sections.filter((section) => section.rows.length > 0)
     : sections
@@ -205,7 +224,7 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
         loadingLabel="Loading issues…"
       >
         {isSearching && visibleSections.length === 0 ? (
-          <EmptyHint>No issues match “{query.trim()}”.</EmptyHint>
+          <EmptyHint>No issues match “{deferredQuery.trim()}”.</EmptyHint>
         ) : (
           <div className="flex flex-col gap-4">
             {visibleSections.map((section) => (
