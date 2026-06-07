@@ -88,7 +88,7 @@ function AddTokenDialog({ trigger }: { trigger: ReactElement }): ReactElement {
                 required
               />
               <p className="text-muted-foreground text-xs">
-                Read-only is enough — grant Contents, Issues, Pull requests and Metadata (read).{' '}
+                Read-only is enough — grant Metadata, Issues, Pull requests and Actions (read).{' '}
                 <a
                   className="inline-flex items-center gap-0.5 text-foreground underline underline-offset-4"
                   href={TOKEN_HELP_URL}
