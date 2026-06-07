@@ -131,7 +131,7 @@ function AccountRow({ account }: { account: GithubAccountRow }): ReactElement {
         <span className="truncate text-muted-foreground text-xs">Signed in as {account.login}</span>
       </div>
       <Button
-        variant="ghost"
+        variant="destructive-outline"
         size="icon-sm"
         aria-label={`Disconnect ${account.owner}`}
         title={`Disconnect ${account.owner}`}

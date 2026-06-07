@@ -4,7 +4,7 @@ import {
   IconExternalLink,
   IconLock,
   IconPlus,
-  IconX
+  IconTrash
 } from '@tabler/icons-react'
 import { useNavigate } from '@tanstack/react-router'
 import { type ReactElement, useMemo, useState } from 'react'
@@ -58,14 +58,14 @@ function LinkedRepoRow({
         )}
       </div>
       <Button
-        variant="ghost"
+        variant="destructive-outline"
         size="icon-sm"
         aria-label={`Unlink ${repo.owner}/${repo.name}`}
         title="Unlink repository"
         loading={unlinking}
         onClick={onUnlink}
       >
-        <IconX />
+        <IconTrash />
       </Button>
     </li>
   )
