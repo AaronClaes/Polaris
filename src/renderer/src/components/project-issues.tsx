@@ -5,11 +5,12 @@ import {
   IconGitPullRequest,
   IconSparkles
 } from '@tabler/icons-react'
-import { createColumnHelper } from '@tanstack/react-table'
+import { createColumnHelper, type TableOptions } from '@tanstack/react-table'
 import {
   type ComponentType,
   memo,
   type ReactElement,
+  type ReactNode,
   useDeferredValue,
   useMemo,
   useState
@@ -100,8 +101,9 @@ const LabelChips = memo(function LabelChips({
 const columnHelper = createColumnHelper<IssueRow>()
 
 // Defined once and shared by every section's table — the column model is the
-// seam for future sort / filter / show-hide controls.
-const ISSUE_COLUMNS = [
+// seam for future sort / filter / show-hide controls. Exported so the global
+// issues view can prepend a Project column to it.
+export const ISSUE_COLUMNS = [
   columnHelper.accessor('title', {
     header: 'Issue',
     cell: (cell) => (
@@ -171,8 +173,20 @@ function issueMatches(issue: IssueRow, query: string): boolean {
 }
 
 /** The issues surface for a set of repos: a toolbar + the three assignment
- * sections. Repo-list-driven so a future global inbox can reuse it as-is. */
-function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): ReactElement {
+ * sections. Repo-list-driven and parametrized so the global issues view reuses
+ * it as-is — passing a Project-prefixed `columns`, a `toolbarFilter` control,
+ * and a `rowFilter` that hides deselected projects. */
+export function IssuesView({
+  repos,
+  columns = ISSUE_COLUMNS,
+  toolbarFilter,
+  rowFilter
+}: {
+  repos: { owner: string; name: string }[]
+  columns?: TableOptions<IssueRow>['columns']
+  toolbarFilter?: ReactNode
+  rowFilter?: (issue: IssueRow) => boolean
+}): ReactElement {
   const { issues, errors, isLoading, isError, errorMessage, isFetching, refetch } =
     useRepoIssues(repos)
   const [query, setQuery] = useState('')
@@ -186,13 +200,14 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
     const unassigned: IssueRow[] = []
     const others: IssueRow[] = []
     for (const issue of issues) {
+      if (rowFilter && !rowFilter(issue)) continue
       if (normalized && !issueMatches(issue, normalized)) continue
       if (issue.bucket === 'mine') mine.push(issue)
       else if (issue.bucket === 'unassigned') unassigned.push(issue)
       else others.push(issue)
     }
     return { mine, unassigned, others }
-  }, [issues, deferredQuery])
+  }, [issues, deferredQuery, rowFilter])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.mine },
@@ -213,6 +228,7 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
         searchValue={query}
         onSearchChange={setQuery}
         searchPlaceholder="Search issues…"
+        filter={toolbarFilter}
       />
       <FailuresBanner failures={errors} />
       <QueryBoundary
@@ -234,7 +250,7 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
                 {section.rows.length === 0 ? (
                   <EmptyHint>No issues.</EmptyHint>
                 ) : (
-                  <DataTable rows={section.rows} columns={ISSUE_COLUMNS} />
+                  <DataTable rows={section.rows} columns={columns} />
                 )}
               </CollapsibleSection>
             ))}

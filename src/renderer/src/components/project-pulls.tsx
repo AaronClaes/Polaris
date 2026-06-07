@@ -6,8 +6,8 @@ import {
   IconGitPullRequestConflict,
   IconX
 } from '@tabler/icons-react'
-import { createColumnHelper } from '@tanstack/react-table'
-import { memo, type ReactElement, useDeferredValue, useMemo, useState } from 'react'
+import { createColumnHelper, type TableOptions } from '@tanstack/react-table'
+import { memo, type ReactElement, type ReactNode, useDeferredValue, useMemo, useState } from 'react'
 import {
   CollapsibleSection,
   DataTable,
@@ -116,7 +116,8 @@ const ReviewSummary = memo(function ReviewSummary({
 
 const columnHelper = createColumnHelper<PullRequestRow>()
 
-const PULL_COLUMNS = [
+// Exported so the global pull requests view can prepend a Project column.
+export const PULL_COLUMNS = [
   columnHelper.accessor('title', {
     header: 'Pull request',
     cell: (cell) => (
@@ -175,8 +176,20 @@ function pullMatches(pull: PullRequestRow, query: string): boolean {
 }
 
 /** The PR surface for a set of repos: a toolbar + the three sections. Repo-list-
- * driven so a future global inbox can reuse it as-is. */
-function PullsView({ repos }: { repos: { owner: string; name: string }[] }): ReactElement {
+ * driven and parametrized so the global pull requests view reuses it as-is —
+ * passing a Project-prefixed `columns`, a `toolbarFilter` control, and a
+ * `rowFilter` that hides deselected projects. */
+export function PullsView({
+  repos,
+  columns = PULL_COLUMNS,
+  toolbarFilter,
+  rowFilter
+}: {
+  repos: { owner: string; name: string }[]
+  columns?: TableOptions<PullRequestRow>['columns']
+  toolbarFilter?: ReactNode
+  rowFilter?: (pull: PullRequestRow) => boolean
+}): ReactElement {
   const { pulls, errors, isLoading, isError, errorMessage, isFetching, refetch } =
     useRepoPulls(repos)
   const [query, setQuery] = useState('')
@@ -190,13 +203,14 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
     const review: PullRequestRow[] = []
     const other: PullRequestRow[] = []
     for (const pull of pulls) {
+      if (rowFilter && !rowFilter(pull)) continue
       if (normalized && !pullMatches(pull, normalized)) continue
       if (pull.bucket === 'assigned') assigned.push(pull)
       else if (pull.bucket === 'review') review.push(pull)
       else other.push(pull)
     }
     return { assigned, review, other }
-  }, [pulls, deferredQuery])
+  }, [pulls, deferredQuery, rowFilter])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.assigned },
@@ -217,6 +231,7 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
         searchValue={query}
         onSearchChange={setQuery}
         searchPlaceholder="Search pull requests…"
+        filter={toolbarFilter}
       />
       <FailuresBanner failures={errors} />
       <QueryBoundary
@@ -238,7 +253,7 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
                 {section.rows.length === 0 ? (
                   <EmptyHint>No pull requests.</EmptyHint>
                 ) : (
-                  <DataTable rows={section.rows} columns={PULL_COLUMNS} />
+                  <DataTable rows={section.rows} columns={columns} />
                 )}
               </CollapsibleSection>
             ))}

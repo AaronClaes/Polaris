@@ -225,34 +225,41 @@ export function EmptyHint({ children }: { children: ReactNode }): ReactElement {
 }
 
 /** Toolbar: a client-side search box on the left, a manual refresh button on
- * the right. The search filters the already-loaded rows (no requery). */
+ * the right. The search filters the already-loaded rows (no requery). `filter`
+ * is an optional control rendered beside the search box (e.g. the global views'
+ * project filter). */
 export function ListToolbar({
   isFetching,
   onRefresh,
   searchValue,
   onSearchChange,
-  searchPlaceholder = 'Search…'
+  searchPlaceholder = 'Search…',
+  filter
 }: {
   isFetching: boolean
   onRefresh: () => void
   searchValue: string
   onSearchChange: (value: string) => void
   searchPlaceholder?: string
+  filter?: ReactNode
 }): ReactElement {
   return (
     <div className="flex items-center justify-between gap-3">
-      <InputGroup className="w-64">
-        <InputGroupAddon>
-          <IconSearch />
-        </InputGroupAddon>
-        <InputGroupInput
-          type="search"
-          size="sm"
-          placeholder={searchPlaceholder}
-          value={searchValue}
-          onChange={(event) => onSearchChange(event.currentTarget.value)}
-        />
-      </InputGroup>
+      <div className="flex items-center gap-2">
+        <InputGroup className="w-64">
+          <InputGroupAddon>
+            <IconSearch />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            size="sm"
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onChange={(event) => onSearchChange(event.currentTarget.value)}
+          />
+        </InputGroup>
+        {filter}
+      </div>
       <Button variant="ghost" size="sm" loading={isFetching} onClick={onRefresh}>
         <IconRefresh />
         Refresh

@@ -1,12 +1,14 @@
 import { createHashHistory, createRouter } from '@tanstack/react-router'
 import { rootRoute } from '@/routes/__root'
 import { indexRoute } from '@/routes/index'
+import { issuesRoute } from '@/routes/issues'
 import { projectRoute } from '@/routes/project'
+import { pullsRoute } from '@/routes/pulls'
 import { settingsRoute } from '@/routes/settings'
 import { shellRoute } from '@/routes/shell'
 
 const routeTree = rootRoute.addChildren([
-  shellRoute.addChildren([indexRoute, projectRoute]),
+  shellRoute.addChildren([indexRoute, issuesRoute, pullsRoute, projectRoute]),
   settingsRoute
 ])
 

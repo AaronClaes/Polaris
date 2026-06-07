@@ -1,6 +1,13 @@
-import { IconLayoutDashboard, IconPlus, IconSelector, IconSettings } from '@tabler/icons-react'
+import {
+  IconCircleDot,
+  IconGitPullRequest,
+  IconLayoutDashboard,
+  IconPlus,
+  IconSelector,
+  IconSettings
+} from '@tabler/icons-react'
 import { Link, useLocation, useParams } from '@tanstack/react-router'
-import type { ReactElement } from 'react'
+import { type ReactElement, useMemo } from 'react'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { ProjectIcon } from '@/components/project-icon'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -14,9 +21,11 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuAction,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem
 } from '@/components/ui/sidebar'
+import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -101,6 +110,23 @@ export function AppSidebar(): ReactElement {
   const projectsQuery = trpc.projects.list.useQuery()
   const projects = projectsQuery.data ?? []
 
+  // Deduped union of every linked repo → total issue/PR counts for the nav
+  // badges. Reads the same per-repo cache the views use, so it adds no fetch.
+  const allRepos = useMemo(() => {
+    const seen = new Set<string>()
+    const repos: { owner: string; name: string }[] = []
+    for (const project of projects) {
+      for (const repo of project.repos) {
+        const key = `${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        repos.push({ owner: repo.owner, name: repo.name })
+      }
+    }
+    return repos
+  }, [projects])
+  const counts = useRepoCounts(allRepos)
+
   return (
     <Sidebar collapsible="none" className="border-sidebar-border border-r">
       <SidebarContent>
@@ -112,6 +138,20 @@ export function AppSidebar(): ReactElement {
                   <IconLayoutDashboard />
                   <span>Dashboard</span>
                 </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={pathname === '/issues'} render={<Link to="/issues" />}>
+                  <IconCircleDot />
+                  <span>Issues</span>
+                </SidebarMenuButton>
+                {counts.issuesLoaded && <SidebarMenuBadge>{counts.issues}</SidebarMenuBadge>}
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={pathname === '/pulls'} render={<Link to="/pulls" />}>
+                  <IconGitPullRequest />
+                  <span>Pull requests</span>
+                </SidebarMenuButton>
+                {counts.pullsLoaded && <SidebarMenuBadge>{counts.pulls}</SidebarMenuBadge>}
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
