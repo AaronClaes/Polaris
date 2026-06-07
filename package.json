@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Polaris — a personal command center for managing dev projects",
   "main": "./out/main/index.js",
-  "author": "aaron.claes@flux.be",
+  "author": "Aaron Claes",
   "type": "commonjs",
   "scripts": {
     "dev": "electron-vite dev",

@@ -64,7 +64,7 @@ function AddTokenDialog({ trigger }: { trigger: ReactElement }): ReactElement {
               <Label htmlFor={ownerId}>Account or organization</Label>
               <Input
                 id={ownerId}
-                placeholder="e.g. aaronclaes or flux"
+                placeholder="e.g. aaronclaes"
                 value={owner}
                 onChange={(e) => setOwner(e.target.value)}
                 autoComplete="off"
