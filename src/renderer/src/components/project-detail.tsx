@@ -107,13 +107,17 @@ function LauncherRow({
 function ActionRow({
   action,
   groups,
+  projectPath,
   onError
 }: {
   action: ProjectActionRow
   groups: ActionGroupRow[]
+  /** Project default path — the cwd placeholder when editing a command action. */
+  projectPath: string | null
   onError: (message: string | null) => void
 }): ReactElement {
   const utils = trpc.useUtils()
+  const [editOpen, setEditOpen] = useState(false)
 
   const runAction = trpc.actions.run.useMutation({
     onSuccess: (res) => onError(res.ok ? null : (res.error ?? 'Action failed')),
@@ -172,6 +176,11 @@ function ActionRow({
           <IconDots />
         </MenuTrigger>
         <MenuPopup align="end" className="min-w-44">
+          <MenuItem onClick={() => setEditOpen(true)}>
+            <IconPencil />
+            Edit
+          </MenuItem>
+          <MenuSeparator />
           {hasMove && (
             <>
               <MenuGroup>
@@ -209,6 +218,15 @@ function ActionRow({
           </MenuItem>
         </MenuPopup>
       </Menu>
+
+      <AddActionDialog
+        projectId={action.projectId}
+        projectPath={projectPath}
+        groups={groups}
+        action={action}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
     </div>
   )
 }
@@ -331,7 +349,13 @@ function GroupSection({
       ) : (
         <div className="divide-y divide-border">
           {members.map((action) => (
-            <ActionRow key={action.id} action={action} groups={project.groups} onError={onError} />
+            <ActionRow
+              key={action.id}
+              action={action}
+              groups={project.groups}
+              projectPath={project.path}
+              onError={onError}
+            />
           ))}
         </div>
       )}
@@ -432,6 +456,7 @@ function ActionsTab({
                     key={action.id}
                     action={action}
                     groups={project.groups}
+                    projectPath={project.path}
                     onError={onError}
                   />
                 ))}

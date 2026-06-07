@@ -46,6 +46,15 @@ const createActionInput = z.discriminatedUnion('type', [
   })
 ])
 
+// Edit input: same per-type config shapes as create, keyed by `type` so the
+// payload validates against its variant. The type can't be changed (it's only
+// here to pick the config shape) and group membership moves via setGroup, so
+// the mutation writes just label/icon/config.
+const updateActionInput = z.discriminatedUnion('type', [
+  z.object({ id: z.number().int(), type: z.literal('link'), label, icon, config: linkConfig }),
+  z.object({ id: z.number().int(), type: z.literal('command'), label, icon, config: commandConfig })
+])
+
 /**
  * Next sort position within an action's container — its group, or (when
  * ungrouped) the project's loose pool. Ordering is scoped per container so a
@@ -80,6 +89,17 @@ export const actionsRouter = router({
         config: input.config as ActionConfig,
         sortOrder: nextSortOrder(ctx.db, input.projectId, input.groupId)
       })
+      .returning()
+      .get()
+  }),
+
+  // Edit an action's settings (label, icon, type-specific config). Type stays
+  // fixed and group membership is managed separately, so neither is touched.
+  update: publicProcedure.input(updateActionInput).mutation(({ ctx, input }) => {
+    return ctx.db
+      .update(projectActions)
+      .set({ label: input.label, icon: input.icon, config: input.config as ActionConfig })
+      .where(eq(projectActions.id, input.id))
       .returning()
       .get()
   }),

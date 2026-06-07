@@ -5,7 +5,7 @@ import {
   IconTerminal2,
   type TablerIcon
 } from '@tabler/icons-react'
-import { type FormEvent, type ReactElement, useId, useState } from 'react'
+import { type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from 'react'
 import { IconPicker } from '@/components/icon-picker'
 import { Button } from '@/components/ui/button'
 import {
@@ -23,9 +23,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
 import { FAVICON_ICON_KEY } from '@/lib/favicon'
-import type { ActionGroupRow } from '@/lib/project-types'
+import type { ActionGroupRow, ProjectActionRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
-import type { ActionType } from '../../../main/db/schema'
+import type { ActionType, CommandActionConfig, LinkActionConfig } from '../../../main/db/schema'
 
 interface AddActionDialogProps {
   projectId: number
@@ -35,6 +35,8 @@ interface AddActionDialogProps {
   groups: ActionGroupRow[]
   /** Preselect a target group (e.g. when adding from within a group section). */
   defaultGroupId?: number | null
+  /** When provided, the dialog edits this action (type fixed) instead of creating. */
+  action?: ProjectActionRow
   /** Controlled open state. When provided, no trigger is rendered. */
   open?: boolean
   onOpenChange?: (open: boolean) => void
@@ -62,57 +64,82 @@ const DEFAULT_ICON_FOR_TYPE: Record<ActionType, string> = {
 const NO_GROUP = 'none'
 const EMPTY = { label: '', url: '', command: '', cwd: '' }
 
+/** Form values seeded from an action being edited (or empty for create). */
+function seedForm(action?: ProjectActionRow): typeof EMPTY {
+  if (!action) return EMPTY
+  if (action.type === 'link') {
+    return { ...EMPTY, label: action.label, url: (action.config as LinkActionConfig).url }
+  }
+  const config = action.config as CommandActionConfig
+  return { ...EMPTY, label: action.label, command: config.command, cwd: config.cwd ?? '' }
+}
+
+/** The group select's initial value: the edited action's group, else a preset. */
+function initialGroup(action: ProjectActionRow | undefined, defaultGroupId: number | null): string {
+  if (action?.groupId != null) return String(action.groupId)
+  return defaultGroupId ? String(defaultGroupId) : NO_GROUP
+}
+
 /**
- * Dialog + form to add an action to a project. Creation is two steps: first a
- * grid of type cards (Command / Link), then the settings for the chosen type
- * with a "Change type" button back to the grid.
+ * Dialog + form to add or edit a project action. Creating is two steps — a grid
+ * of type cards (Command / Link), then the chosen type's settings (with a
+ * "Change type" button back). Passing `action` edits it instead: the type is
+ * fixed, so it opens straight on the settings with the fields prefilled.
  */
 export function AddActionDialog({
   projectId,
   projectPath,
   groups,
   defaultGroupId = null,
+  action,
   open: openProp,
   onOpenChange,
   trigger
 }: AddActionDialogProps): ReactElement {
   const utils = trpc.useUtils()
+  const isEdit = action != null
   const isControlled = openProp !== undefined
   const [internalOpen, setInternalOpen] = useState(false)
   const open = isControlled ? openProp : internalOpen
-  // 'pick' = choosing a type from the grid; 'configure' = the type's settings.
-  const [step, setStep] = useState<'pick' | 'configure'>('pick')
-  const [type, setType] = useState<ActionType>('command')
-  const [icon, setIcon] = useState(DEFAULT_ICON_FOR_TYPE.command)
-  const [groupValue, setGroupValue] = useState(defaultGroupId ? String(defaultGroupId) : NO_GROUP)
-  const [form, setForm] = useState(EMPTY)
+  const setOpen = (next: boolean): void => {
+    if (isControlled) onOpenChange?.(next)
+    else setInternalOpen(next)
+  }
+
+  // 'pick' = choosing a type from the grid (create only); 'configure' = the
+  // type's settings. Editing skips the grid — the type can't change.
+  const [step, setStep] = useState<'pick' | 'configure'>(isEdit ? 'configure' : 'pick')
+  const [type, setType] = useState<ActionType>(action?.type ?? 'command')
+  const [icon, setIcon] = useState(action?.icon ?? DEFAULT_ICON_FOR_TYPE.command)
+  const [groupValue, setGroupValue] = useState(initialGroup(action, defaultGroupId))
+  const [form, setForm] = useState(() => seedForm(action))
   const labelId = useId()
   const urlId = useId()
   const commandId = useId()
   const cwdId = useId()
 
-  const reset = (): void => {
-    setStep('pick')
-    setType('command')
-    setIcon(DEFAULT_ICON_FOR_TYPE.command)
-    setGroupValue(defaultGroupId ? String(defaultGroupId) : NO_GROUP)
-    setForm(EMPTY)
-  }
-
-  // Closing (cancel or after submit) resets the flow so reopening starts at the
-  // type grid rather than the last configured step.
-  const setOpen = (next: boolean): void => {
-    if (!next) reset()
-    if (isControlled) onOpenChange?.(next)
-    else setInternalOpen(next)
-  }
-
-  const create = trpc.actions.create.useMutation({
-    onSuccess: () => {
-      utils.projects.list.invalidate()
-      setOpen(false)
+  // Seed from the action (edit) or defaults (create) each time it opens —
+  // mirroring GroupDialog — so a reopened dialog never shows stale state.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setStep(isEdit ? 'configure' : 'pick')
+      setType(action?.type ?? 'command')
+      setIcon(action?.icon ?? DEFAULT_ICON_FOR_TYPE.command)
+      setGroupValue(initialGroup(action, defaultGroupId))
+      setForm(seedForm(action))
     }
-  })
+    wasOpen.current = open
+  }, [open, action, isEdit, defaultGroupId])
+
+  const onSuccess = (): void => {
+    utils.projects.list.invalidate()
+    setOpen(false)
+  }
+  const create = trpc.actions.create.useMutation({ onSuccess })
+  const update = trpc.actions.update.useMutation({ onSuccess })
+  const pending = create.isPending || update.isPending
+  const error = create.error ?? update.error
 
   // Picking a type from the grid seeds that type's default glyph, then advances
   // to its settings; the user can still change either afterwards.
@@ -134,6 +161,29 @@ export function AddActionDialog({
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault()
     if (!canSubmit) return
+
+    // Editing keeps the type fixed and leaves group membership alone (managed
+    // via the row's "Move to" menu); creating files the new action in a group.
+    if (action) {
+      if (type === 'link') {
+        update.mutate({
+          id: action.id,
+          type: 'link',
+          label: form.label,
+          icon,
+          config: { url: form.url.trim() }
+        })
+      } else {
+        update.mutate({
+          id: action.id,
+          type: 'command',
+          label: form.label,
+          icon,
+          config: { command: form.command.trim(), cwd: form.cwd.trim() || undefined }
+        })
+      }
+      return
+    }
     const groupId = groupValue === NO_GROUP ? null : Number(groupValue)
     if (type === 'link') {
       create.mutate({
@@ -151,10 +201,7 @@ export function AddActionDialog({
         type: 'command',
         label: form.label,
         icon,
-        config: {
-          command: form.command.trim(),
-          cwd: form.cwd.trim() || undefined
-        }
+        config: { command: form.command.trim(), cwd: form.cwd.trim() || undefined }
       })
     }
   }
@@ -180,7 +227,7 @@ export function AddActionDialog({
       )}
       <DialogPopup className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add action</DialogTitle>
+          <DialogTitle>{isEdit ? 'Edit action' : 'Add action'}</DialogTitle>
           <DialogDescription>
             {step === 'pick' ? 'Choose what this action does.' : ACTION_TYPE_META[type].description}
           </DialogDescription>
@@ -216,16 +263,18 @@ export function AddActionDialog({
         ) : (
           <form className="contents" onSubmit={handleSubmit}>
             <DialogPanel className="grid gap-4">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="-ml-2 w-fit text-muted-foreground"
-                onClick={() => setStep('pick')}
-              >
-                <IconChevronLeft />
-                Change type
-              </Button>
+              {!isEdit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="-ml-2 w-fit text-muted-foreground"
+                  onClick={() => setStep('pick')}
+                >
+                  <IconChevronLeft />
+                  Change type
+                </Button>
+              )}
 
               <div className="grid gap-1.5">
                 <Label htmlFor={labelId}>Label</Label>
@@ -283,32 +332,32 @@ export function AddActionDialog({
                 />
               </div>
 
-              <div className="grid gap-1.5">
-                <Label>Group (optional)</Label>
-                <Select
-                  value={groupValue}
-                  onValueChange={(value) => setGroupValue(value ?? NO_GROUP)}
-                >
-                  <SelectTrigger>{groupTriggerLabel}</SelectTrigger>
-                  <SelectPopup>
-                    <SelectItem value={NO_GROUP}>No group</SelectItem>
-                    {groups.map((group) => (
-                      <SelectItem key={group.id} value={String(group.id)}>
-                        {group.name}
-                      </SelectItem>
-                    ))}
-                  </SelectPopup>
-                </Select>
-              </div>
-
-              {create.error && (
-                <p className="text-destructive-foreground text-sm">{create.error.message}</p>
+              {!isEdit && (
+                <div className="grid gap-1.5">
+                  <Label>Group (optional)</Label>
+                  <Select
+                    value={groupValue}
+                    onValueChange={(value) => setGroupValue(value ?? NO_GROUP)}
+                  >
+                    <SelectTrigger>{groupTriggerLabel}</SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value={NO_GROUP}>No group</SelectItem>
+                      {groups.map((group) => (
+                        <SelectItem key={group.id} value={String(group.id)}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </div>
               )}
+
+              {error && <p className="text-destructive-foreground text-sm">{error.message}</p>}
             </DialogPanel>
             <DialogFooter>
               <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
-              <Button type="submit" loading={create.isPending} disabled={!canSubmit}>
-                Add action
+              <Button type="submit" loading={pending} disabled={!canSubmit}>
+                {isEdit ? 'Save changes' : 'Add action'}
               </Button>
             </DialogFooter>
           </form>
