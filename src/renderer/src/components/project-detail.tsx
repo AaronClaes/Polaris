@@ -58,7 +58,7 @@ import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/sch
  *  (see the route) so cards and links can deep-link to a specific tab. */
 export const PROJECT_TABS = ['issues', 'pulls', 'actions', 'settings'] as const
 export type ProjectTab = (typeof PROJECT_TABS)[number]
-const DEFAULT_TAB: ProjectTab = 'actions'
+const DEFAULT_TAB: ProjectTab = 'issues'
 
 function actionTarget(action: ProjectActionRow): string {
   return action.type === 'link'
