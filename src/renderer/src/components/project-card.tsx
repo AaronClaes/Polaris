@@ -1,4 +1,4 @@
-import { IconArrowUpRight, IconCircleDot, IconGitPullRequest } from '@tabler/icons-react'
+import { IconCircleDot, IconGitPullRequest } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
 import { type ReactElement, useMemo, useState } from 'react'
 import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
@@ -10,7 +10,8 @@ import { useRepoCounts } from '@/lib/github-queries'
 import type { ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 
-/** A launch tile: project identity, an open button, its groups and actions. */
+/** A launch tile: the whole card opens the project; the counts deep-link to the
+ *  Issues/Pull requests tabs, and the groups/actions launch in place. */
 export function ProjectCard({ project }: { project: ProjectWithActions }): ReactElement {
   const [runError, setRunError] = useState<string | null>(null)
 
@@ -59,7 +60,15 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
   const hasLaunchers = visibleGroups.length > 0 || looseActions.length > 0
 
   return (
-    <Card className="gap-0 p-4">
+    <Card className="relative gap-0 p-4 transition-colors hover:border-ring/60">
+      {/* Stretched link: the whole card opens the project. It sits beneath the
+          interactive bits (count links, launchers), which are lifted with z-10. */}
+      <Link
+        to="/projects/$projectId"
+        params={{ projectId: String(project.id) }}
+        aria-label={`Open ${project.name}`}
+        className="absolute inset-0 z-0 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
       <div className="flex items-start gap-3">
         <ProjectIcon icon={project.icon} color={project.color} size={22} className="size-11" />
         <div className="min-w-0 flex-1">
@@ -68,38 +77,34 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
             <p className="mt-1 line-clamp-2 text-muted-foreground text-xs">{project.description}</p>
           )}
           {showCounts && (
-            <div className="mt-2 flex items-center gap-3 text-muted-foreground text-xs">
-              <span
-                className="inline-flex items-center gap-1"
+            <div className="relative z-10 mt-2 flex w-fit items-center gap-3 text-muted-foreground text-xs">
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: String(project.id) }}
+                search={{ tab: 'issues' }}
+                className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
                 title={`${counts.issues} open issues`}
               >
                 <IconCircleDot className="size-3.5" />
                 {counts.issues}
-              </span>
-              <span
-                className="inline-flex items-center gap-1"
+              </Link>
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId: String(project.id) }}
+                search={{ tab: 'pulls' }}
+                className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
                 title={`${counts.pulls} open pull requests`}
               >
                 <IconGitPullRequest className="size-3.5" />
                 {counts.pulls}
-              </span>
+              </Link>
             </div>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="-mt-1 -mr-1 shrink-0"
-          aria-label={`Open ${project.name}`}
-          title={`Open ${project.name}`}
-          render={<Link to="/projects/$projectId" params={{ projectId: String(project.id) }} />}
-        >
-          <IconArrowUpRight />
-        </Button>
       </div>
 
       {hasLaunchers && (
-        <div className="mt-4 flex flex-wrap gap-1.5">
+        <div className="relative z-10 mt-4 flex flex-wrap gap-1.5">
           {visibleGroups.map(({ group, visibleMembers }) => (
             <GroupLauncher
               key={group.id}
@@ -124,7 +129,7 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
       )}
 
       {runError && (
-        <p className="mt-3 rounded-md border border-destructive/36 bg-destructive/8 px-2.5 py-1.5 text-destructive-foreground text-xs">
+        <p className="relative z-10 mt-3 rounded-md border border-destructive/36 bg-destructive/8 px-2.5 py-1.5 text-destructive-foreground text-xs">
           {runError}
         </p>
       )}

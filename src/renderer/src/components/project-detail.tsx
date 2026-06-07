@@ -10,12 +10,14 @@ import {
   IconPlus,
   IconTrash
 } from '@tabler/icons-react'
-import { useNavigate } from '@tanstack/react-router'
-import { type ReactElement, useMemo, useState } from 'react'
+import { useNavigate, useSearch } from '@tanstack/react-router'
+import { type FormEvent, type ReactElement, useId, useMemo, useState } from 'react'
 import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
 import { AddActionDialog } from '@/components/add-action-dialog'
+import { ColorPicker } from '@/components/color-picker'
 import { GroupDialog } from '@/components/group-dialog'
 import { GroupLauncher } from '@/components/group-launcher'
+import { IconPicker } from '@/components/icon-picker'
 import { ProjectIcon } from '@/components/project-icon'
 import { ProjectIssues } from '@/components/project-issues'
 import { ProjectPulls } from '@/components/project-pulls'
@@ -33,6 +35,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Menu,
   MenuGroup,
@@ -43,11 +47,18 @@ import {
   MenuTrigger
 } from '@/components/ui/menu'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/schema'
+
+/** The project detail tabs, in display order. Drives the `?tab=` search param
+ *  (see the route) so cards and links can deep-link to a specific tab. */
+export const PROJECT_TABS = ['issues', 'pulls', 'actions', 'settings'] as const
+export type ProjectTab = (typeof PROJECT_TABS)[number]
+const DEFAULT_TAB: ProjectTab = 'actions'
 
 function actionTarget(action: ProjectActionRow): string {
   return action.type === 'link'
@@ -469,7 +480,116 @@ function ActionsTab({
   )
 }
 
-/** Project settings (the Settings tab): linked repositories + a danger zone. */
+/** Editable project basics (name, description, look, default path) — the top
+ *  section of Settings. Saves via projects.update; Save enables only when the
+ *  form differs from the saved project. */
+function ProjectDetailsSection({ project }: { project: ProjectWithActions }): ReactElement {
+  const utils = trpc.useUtils()
+  const [form, setForm] = useState({
+    name: project.name,
+    description: project.description ?? '',
+    icon: project.icon,
+    color: project.color,
+    path: project.path ?? ''
+  })
+  const nameId = useId()
+  const descriptionId = useId()
+  const pathId = useId()
+
+  const update = trpc.projects.update.useMutation({
+    onSuccess: () => utils.projects.list.invalidate()
+  })
+
+  const dirty =
+    form.name !== project.name ||
+    form.description !== (project.description ?? '') ||
+    form.icon !== project.icon ||
+    form.color !== project.color ||
+    form.path !== (project.path ?? '')
+  const canSave = form.name.trim().length > 0 && dirty
+
+  const handleSubmit = (event: FormEvent): void => {
+    event.preventDefault()
+    if (!canSave) return
+    update.mutate({
+      id: project.id,
+      name: form.name,
+      description: form.description,
+      icon: form.icon,
+      color: form.color,
+      path: form.path
+    })
+  }
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="font-medium text-sm">Details</h3>
+      <form
+        className="flex flex-col gap-4 rounded-xl border border-border p-4"
+        onSubmit={handleSubmit}
+      >
+        <div className="grid gap-1.5">
+          <Label htmlFor={nameId}>Name</Label>
+          <Input
+            id={nameId}
+            value={form.name}
+            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            required
+          />
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label htmlFor={descriptionId}>Description</Label>
+          <Textarea
+            id={descriptionId}
+            placeholder="What is this project?"
+            value={form.description}
+            onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+          />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label>Icon</Label>
+            <IconPicker value={form.icon} onChange={(icon) => setForm((p) => ({ ...p, icon }))} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Color</Label>
+            <ColorPicker
+              value={form.color}
+              onChange={(color) => setForm((p) => ({ ...p, color }))}
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label htmlFor={pathId}>Default path (optional)</Label>
+          <Input
+            id={pathId}
+            placeholder="/Users/you/projects/polaris"
+            value={form.path}
+            onChange={(e) => setForm((p) => ({ ...p, path: e.target.value }))}
+          />
+          <p className="text-muted-foreground text-xs">
+            Working directory commands run in (each action can override it).
+          </p>
+        </div>
+
+        {update.error && (
+          <p className="text-destructive-foreground text-sm">{update.error.message}</p>
+        )}
+        <div className="flex justify-end">
+          <Button type="submit" size="sm" loading={update.isPending} disabled={!canSave}>
+            Save changes
+          </Button>
+        </div>
+      </form>
+    </section>
+  )
+}
+
+/** Project settings (the Settings tab): editable details, linked repositories,
+ *  and a danger zone. */
 function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement {
   const utils = trpc.useUtils()
   const navigate = useNavigate()
@@ -482,6 +602,7 @@ function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement
 
   return (
     <div className="flex flex-col gap-8">
+      <ProjectDetailsSection project={project} />
       <ProjectRepos project={project} />
 
       <section className="flex flex-col gap-2">
@@ -530,6 +651,22 @@ function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement
 
 export function ProjectDetail({ project }: { project: ProjectWithActions }): ReactElement {
   const [runError, setRunError] = useState<string | null>(null)
+  const navigate = useNavigate()
+  // The shell is a pathless layout route, so the route ID is `/shell/...` even
+  // though the URL stays `/projects/$projectId`.
+  const { tab } = useSearch({ from: '/shell/projects/$projectId' })
+  const activeTab = tab ?? DEFAULT_TAB
+
+  // Reflect the open tab in `?tab=`; the default tab clears the param to keep
+  // URLs clean. `replace` so tab switches don't pile up in history.
+  const handleTabChange = (value: string): void => {
+    navigate({
+      to: '/projects/$projectId',
+      params: { projectId: String(project.id) },
+      search: { tab: value === DEFAULT_TAB ? undefined : (value as ProjectTab) },
+      replace: true
+    })
+  }
 
   const looseActions = useMemo(
     () => project.actions.filter((a) => a.groupId == null),
@@ -587,7 +724,7 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
         </p>
       )}
 
-      <Tabs defaultValue="actions">
+      <Tabs value={activeTab} onValueChange={(value) => handleTabChange(String(value))}>
         <TabsList variant="underline" className="w-full justify-start border-border border-b">
           <TabsTab value="issues" className="grow-0">
             Issues

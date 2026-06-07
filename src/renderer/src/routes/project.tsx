@@ -1,6 +1,6 @@
 import { createRoute } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
-import { ProjectDetail } from '@/components/project-detail'
+import { PROJECT_TABS, ProjectDetail, type ProjectTab } from '@/components/project-detail'
 import { trpc } from '@/lib/trpc'
 import { shellRoute } from './shell'
 
@@ -25,5 +25,13 @@ function ProjectDetailPage(): ReactElement {
 export const projectRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: '/projects/$projectId',
+  // `?tab=` selects the open tab; an absent/unknown value falls back in the
+  // component. Lets the dashboard cards deep-link to Issues/Pull requests.
+  validateSearch: (search: Record<string, unknown>): { tab?: ProjectTab } => {
+    const tab = search.tab
+    return typeof tab === 'string' && (PROJECT_TABS as readonly string[]).includes(tab)
+      ? { tab: tab as ProjectTab }
+      : {}
+  },
   component: ProjectDetailPage
 })
