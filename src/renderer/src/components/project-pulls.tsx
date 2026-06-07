@@ -21,8 +21,8 @@ import {
   UserAvatars
 } from '@/components/github-list'
 import { Badge } from '@/components/ui/badge'
+import { useRepoPulls } from '@/lib/github-queries'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
-import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 
 /** Rolled-up GitHub Actions status as a leading icon, with a per-workflow
@@ -177,10 +177,8 @@ function pullMatches(pull: PullRequestRow, query: string): boolean {
 /** The PR surface for a set of repos: a toolbar + the three sections. Repo-list-
  * driven so a future global inbox can reuse it as-is. */
 function PullsView({ repos }: { repos: { owner: string; name: string }[] }): ReactElement {
-  const pullsQuery = trpc.github.listPullRequests.useQuery(
-    { repos },
-    { enabled: repos.length > 0, staleTime: 60_000 }
-  )
+  const { pulls, errors, isLoading, isError, errorMessage, isFetching, refetch } =
+    useRepoPulls(repos)
   const [query, setQuery] = useState('')
   // The input stays bound to `query` (instant feedback); filtering + rendering
   // run against the deferred value so a keystroke never blocks on the tables.
@@ -191,14 +189,14 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
     const assigned: PullRequestRow[] = []
     const review: PullRequestRow[] = []
     const other: PullRequestRow[] = []
-    for (const pull of pullsQuery.data?.pulls ?? []) {
+    for (const pull of pulls) {
       if (normalized && !pullMatches(pull, normalized)) continue
       if (pull.bucket === 'assigned') assigned.push(pull)
       else if (pull.bucket === 'review') review.push(pull)
       else other.push(pull)
     }
     return { assigned, review, other }
-  }, [pullsQuery.data, deferredQuery])
+  }, [pulls, deferredQuery])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.assigned },
@@ -214,17 +212,17 @@ function PullsView({ repos }: { repos: { owner: string; name: string }[] }): Rea
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
-        isFetching={pullsQuery.isFetching}
-        onRefresh={() => pullsQuery.refetch()}
+        isFetching={isFetching}
+        onRefresh={refetch}
         searchValue={query}
         onSearchChange={setQuery}
         searchPlaceholder="Search pull requests…"
       />
-      <FailuresBanner failures={pullsQuery.data?.errors ?? []} />
+      <FailuresBanner failures={errors} />
       <QueryBoundary
-        isLoading={pullsQuery.isLoading}
-        isError={pullsQuery.isError}
-        errorMessage={pullsQuery.error?.message}
+        isLoading={isLoading}
+        isError={isError}
+        errorMessage={errorMessage}
         loadingLabel="Loading pull requests…"
       >
         {isSearching && visibleSections.length === 0 ? (

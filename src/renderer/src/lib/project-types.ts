@@ -14,7 +14,7 @@ export type ProjectRepoRow = ProjectWithActions['repos'][number]
 export type GithubAccountRow = RouterOutputs['github']['listAccounts'][number]
 /** A repo the linked tokens can reach, as returned by `github.listRepos`. */
 export type GithubRepoRow = RouterOutputs['github']['listRepos']['repos'][number]
-/** An open issue (with its assignment bucket), as returned by `github.listIssues`. */
-export type IssueRow = RouterOutputs['github']['listIssues']['issues'][number]
-/** An open pull request (with its bucket), as returned by `github.listPullRequests`. */
-export type PullRequestRow = RouterOutputs['github']['listPullRequests']['pulls'][number]
+/** An open issue (with its assignment bucket), as returned by `github.issuesForRepo`. */
+export type IssueRow = RouterOutputs['github']['issuesForRepo']['issues'][number]
+/** An open pull request (with its bucket), as returned by `github.pullsForRepo`. */
+export type PullRequestRow = RouterOutputs['github']['pullsForRepo']['pulls'][number]

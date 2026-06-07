@@ -28,8 +28,8 @@ import {
 } from '@/components/github-list'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
+import { useRepoIssues } from '@/lib/github-queries'
 import type { IssueRow, ProjectWithActions } from '@/lib/project-types'
-import { trpc } from '@/lib/trpc'
 
 // GitHub's IssueTypeColor enum → a representative hex for the type icon.
 const TYPE_COLORS: Record<string, string> = {
@@ -173,10 +173,8 @@ function issueMatches(issue: IssueRow, query: string): boolean {
 /** The issues surface for a set of repos: a toolbar + the three assignment
  * sections. Repo-list-driven so a future global inbox can reuse it as-is. */
 function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): ReactElement {
-  const issuesQuery = trpc.github.listIssues.useQuery(
-    { repos },
-    { enabled: repos.length > 0, staleTime: 60_000 }
-  )
+  const { issues, errors, isLoading, isError, errorMessage, isFetching, refetch } =
+    useRepoIssues(repos)
   const [query, setQuery] = useState('')
   // The input stays bound to `query` (instant feedback); filtering + rendering
   // run against the deferred value so a keystroke never blocks on the tables.
@@ -187,14 +185,14 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
     const mine: IssueRow[] = []
     const unassigned: IssueRow[] = []
     const others: IssueRow[] = []
-    for (const issue of issuesQuery.data?.issues ?? []) {
+    for (const issue of issues) {
       if (normalized && !issueMatches(issue, normalized)) continue
       if (issue.bucket === 'mine') mine.push(issue)
       else if (issue.bucket === 'unassigned') unassigned.push(issue)
       else others.push(issue)
     }
     return { mine, unassigned, others }
-  }, [issuesQuery.data, deferredQuery])
+  }, [issues, deferredQuery])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.mine },
@@ -210,17 +208,17 @@ function IssuesView({ repos }: { repos: { owner: string; name: string }[] }): Re
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
-        isFetching={issuesQuery.isFetching}
-        onRefresh={() => issuesQuery.refetch()}
+        isFetching={isFetching}
+        onRefresh={refetch}
         searchValue={query}
         onSearchChange={setQuery}
         searchPlaceholder="Search issues…"
       />
-      <FailuresBanner failures={issuesQuery.data?.errors ?? []} />
+      <FailuresBanner failures={errors} />
       <QueryBoundary
-        isLoading={issuesQuery.isLoading}
-        isError={issuesQuery.isError}
-        errorMessage={issuesQuery.error?.message}
+        isLoading={isLoading}
+        isError={isError}
+        errorMessage={errorMessage}
         loadingLabel="Loading issues…"
       >
         {isSearching && visibleSections.length === 0 ? (
