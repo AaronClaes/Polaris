@@ -1,5 +1,6 @@
 import { IconChevronDown } from '@tabler/icons-react'
 import { type ReactElement, useMemo } from 'react'
+import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import { getIcon } from '@/lib/icons'
@@ -74,15 +75,12 @@ export function GroupLauncher({
           {actions.length === 0 ? (
             <MenuItem disabled>All actions are hidden</MenuItem>
           ) : (
-            actions.map((action) => {
-              const ActionIcon = getIcon(action.icon).Icon
-              return (
-                <MenuItem key={action.id} onClick={() => runAction.mutate({ id: action.id })}>
-                  <ActionIcon />
-                  {action.label}
-                </MenuItem>
-              )
-            })
+            actions.map((action) => (
+              <MenuItem key={action.id} onClick={() => runAction.mutate({ id: action.id })}>
+                <ActionIcon action={action} className={ACTION_ICON_CLASS} />
+                {action.label}
+              </MenuItem>
+            ))
           )}
         </MenuPopup>
       </Menu>

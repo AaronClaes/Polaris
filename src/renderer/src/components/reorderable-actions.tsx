@@ -22,6 +22,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { IconGripVertical, IconInbox } from '@tabler/icons-react'
 import { type ReactElement, useMemo, useRef, useState } from 'react'
+import { ActionIcon } from '@/components/action-icon'
 import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -73,11 +74,10 @@ function DragHandle({ label, attributes, listeners }: DragHandleProps): ReactEle
 }
 
 function ActionRowContent({ action }: { action: ProjectActionRow }): ReactElement {
-  const Icon = getIcon(action.icon).Icon
   return (
     <>
       <span className="text-muted-foreground">
-        <Icon size={18} />
+        <ActionIcon action={action} size={18} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-sm">{action.label}</p>

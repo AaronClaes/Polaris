@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react'
 import { Link, useLocation, useParams } from '@tanstack/react-router'
 import { type ReactElement, useMemo } from 'react'
+import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { ProjectIcon } from '@/components/project-icon'
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from '@/components/ui/menu'
@@ -48,16 +49,20 @@ function ProjectRow({
   const firstLooseAction = project.actions.find((a) => a.groupId == null && !a.hidden)
 
   // Quick-launch the first top-level item: a group (run all) or a loose action.
+  // The loose-action branch carries the action so a favicon link shows its
+  // favicon; the group branch resolves a Tabler glyph (groups never use one).
   const quick = firstGroup
     ? {
         Icon: getIcon(firstGroup.icon).Icon,
+        action: null,
         title: `Run group: ${firstGroup.name}`,
         pending: runGroup.isPending && runGroup.variables?.groupId === firstGroup.id,
         run: () => runGroup.mutate({ groupId: firstGroup.id })
       }
     : firstLooseAction
       ? {
-          Icon: getIcon(firstLooseAction.icon).Icon,
+          Icon: null,
+          action: firstLooseAction,
           title: `Run: ${firstLooseAction.label}`,
           pending: runAction.isPending && runAction.variables?.id === firstLooseAction.id,
           run: () => runAction.mutate({ id: firstLooseAction.id })
@@ -81,7 +86,11 @@ function ProjectRow({
           disabled={quick.pending}
           onClick={quick.run}
         >
-          <quick.Icon />
+          {quick.action ? (
+            <ActionIcon action={quick.action} className={ACTION_ICON_CLASS} />
+          ) : (
+            quick.Icon && <quick.Icon />
+          )}
         </SidebarMenuAction>
       )}
     </SidebarMenuItem>

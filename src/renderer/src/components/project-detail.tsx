@@ -12,6 +12,7 @@ import {
 } from '@tabler/icons-react'
 import { useNavigate } from '@tanstack/react-router'
 import { type ReactElement, useMemo, useState } from 'react'
+import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
 import { AddActionDialog } from '@/components/add-action-dialog'
 import { GroupDialog } from '@/components/group-dialog'
 import { GroupLauncher } from '@/components/group-launcher'
@@ -86,21 +87,18 @@ function LauncherRow({
       {groupsWithMembers.map(({ group, members }) => (
         <GroupLauncher key={group.id} group={group} actions={members} onError={onError} />
       ))}
-      {looseActions.map((action) => {
-        const Icon = getIcon(action.icon).Icon
-        return (
-          <Button
-            key={action.id}
-            variant="outline"
-            size="sm"
-            loading={runAction.isPending && runAction.variables?.id === action.id}
-            onClick={() => runAction.mutate({ id: action.id })}
-          >
-            <Icon />
-            {action.label}
-          </Button>
-        )
-      })}
+      {looseActions.map((action) => (
+        <Button
+          key={action.id}
+          variant="outline"
+          size="sm"
+          loading={runAction.isPending && runAction.variables?.id === action.id}
+          onClick={() => runAction.mutate({ id: action.id })}
+        >
+          <ActionIcon action={action} className={ACTION_ICON_CLASS} />
+          {action.label}
+        </Button>
+      ))}
     </div>
   )
 }
@@ -116,7 +114,6 @@ function ActionRow({
   onError: (message: string | null) => void
 }): ReactElement {
   const utils = trpc.useUtils()
-  const Icon = getIcon(action.icon).Icon
 
   const runAction = trpc.actions.run.useMutation({
     onSuccess: (res) => onError(res.ok ? null : (res.error ?? 'Action failed')),
@@ -138,7 +135,7 @@ function ActionRow({
   return (
     <div className="flex items-center gap-3 px-3 py-2">
       <span className="text-muted-foreground">
-        <Icon size={18} />
+        <ActionIcon action={action} size={18} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1.5 truncate font-medium text-sm">

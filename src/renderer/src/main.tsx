@@ -22,17 +22,19 @@ createRoot(rootElement).render(
         persistOptions={{
           persister,
           maxAge: MAX_AGE,
-          // Persist only the per-repo GitHub queries: it keeps the on-disk blob
-          // small, and avoids round-tripping queries whose payload carries Dates
-          // (e.g. projects.list) through plain JSON, which would corrupt them.
+          // Persist only small, Date-free payloads: the per-repo GitHub queries
+          // and resolved favicons. (projects.list carries Dates that plain JSON
+          // would corrupt, so it stays out.)
           dehydrateOptions: {
             shouldDehydrateQuery: (query) => {
+              if (query.state.status !== 'success') return false
               const group = query.queryKey[0]
-              const procedure = Array.isArray(group) ? group[1] : undefined
-              return (
-                query.state.status === 'success' &&
-                (procedure === 'issuesForRepo' || procedure === 'pullsForRepo')
-              )
+              if (!Array.isArray(group)) return false
+              const [namespace, procedure] = group
+              if (namespace === 'github')
+                return procedure === 'issuesForRepo' || procedure === 'pullsForRepo'
+              if (namespace === 'favicon') return procedure === 'get'
+              return false
             }
           }
         }}
