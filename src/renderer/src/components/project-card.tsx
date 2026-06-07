@@ -1,10 +1,11 @@
-import { IconArrowUpRight } from '@tabler/icons-react'
+import { IconArrowUpRight, IconCircleDot, IconGitPullRequest } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
 import { type ReactElement, useMemo, useState } from 'react'
 import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -12,6 +13,15 @@ import { trpc } from '@/lib/trpc'
 /** A launch tile: project identity, an open button, its groups and actions. */
 export function ProjectCard({ project }: { project: ProjectWithActions }): ReactElement {
   const [runError, setRunError] = useState<string | null>(null)
+
+  // Linked repos drive the issue/PR counts — read from the shared per-repo cache
+  // (warm from the persisted snapshot on launch), so this adds no extra fetch.
+  const repos = useMemo(
+    () => project.repos.map((repo) => ({ owner: repo.owner, name: repo.name })),
+    [project.repos]
+  )
+  const counts = useRepoCounts(repos)
+  const showCounts = repos.length > 0 && counts.issuesLoaded && counts.pullsLoaded
 
   // Only non-hidden items appear on the dashboard.
   const looseActions = useMemo(
@@ -56,6 +66,24 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
           <h3 className="truncate font-medium text-sm leading-tight">{project.name}</h3>
           {project.description && (
             <p className="mt-1 line-clamp-2 text-muted-foreground text-xs">{project.description}</p>
+          )}
+          {showCounts && (
+            <div className="mt-2 flex items-center gap-3 text-muted-foreground text-xs">
+              <span
+                className="inline-flex items-center gap-1"
+                title={`${counts.issues} open issues`}
+              >
+                <IconCircleDot className="size-3.5" />
+                {counts.issues}
+              </span>
+              <span
+                className="inline-flex items-center gap-1"
+                title={`${counts.pulls} open pull requests`}
+              >
+                <IconGitPullRequest className="size-3.5" />
+                {counts.pulls}
+              </span>
+            </div>
           )}
         </div>
         <Button

@@ -30,6 +30,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger
 } from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Menu,
@@ -41,6 +42,7 @@ import {
   MenuTrigger
 } from '@/components/ui/menu'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
+import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -522,6 +524,14 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
     return map
   }, [project.actions])
 
+  // Counts for the tab badges. Reads the same per-repo cache the tabs' own
+  // views use, so this is free; the badge shows only once that count has data.
+  const repos = useMemo(
+    () => project.repos.map((repo) => ({ owner: repo.owner, name: repo.name })),
+    [project.repos]
+  )
+  const counts = useRepoCounts(repos)
+
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
       <header className="flex items-start gap-4">
@@ -557,19 +567,37 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
 
       <Tabs defaultValue="actions">
         <TabsList variant="underline" className="w-full justify-start border-border border-b">
-          <TabsTab value="actions" className="grow-0">
-            Actions
-          </TabsTab>
           <TabsTab value="issues" className="grow-0">
             Issues
+            {repos.length > 0 && counts.issuesLoaded && (
+              <Badge variant="secondary" size="sm" className="rounded-full">
+                {counts.issues}
+              </Badge>
+            )}
           </TabsTab>
           <TabsTab value="pulls" className="grow-0">
             Pull requests
+            {repos.length > 0 && counts.pullsLoaded && (
+              <Badge variant="secondary" size="sm" className="rounded-full">
+                {counts.pulls}
+              </Badge>
+            )}
+          </TabsTab>
+          <TabsTab value="actions" className="grow-0">
+            Actions
           </TabsTab>
           <TabsTab value="settings" className="grow-0">
             Settings
           </TabsTab>
         </TabsList>
+
+        <TabsPanel value="issues" className="pt-5" keepMounted>
+          <ProjectIssues project={project} />
+        </TabsPanel>
+
+        <TabsPanel value="pulls" className="pt-5" keepMounted>
+          <ProjectPulls project={project} />
+        </TabsPanel>
 
         <TabsPanel value="actions" className="pt-5">
           <ActionsTab
@@ -578,14 +606,6 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
             looseActions={looseActions}
             onError={setRunError}
           />
-        </TabsPanel>
-
-        <TabsPanel value="issues" className="pt-5" keepMounted>
-          <ProjectIssues project={project} />
-        </TabsPanel>
-
-        <TabsPanel value="pulls" className="pt-5" keepMounted>
-          <ProjectPulls project={project} />
         </TabsPanel>
 
         <TabsPanel value="settings" className="pt-5">

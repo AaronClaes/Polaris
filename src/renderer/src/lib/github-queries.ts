@@ -106,3 +106,23 @@ export function useRepoPulls(repos: Repo[]): Omit<Aggregated<PullRequestRow>, 'r
   const { rows, ...rest } = useAggregated(repos, results, (data) => data.pulls)
   return { pulls: rows, ...rest }
 }
+
+/** Open issue and PR counts for `repos`, for the dashboard cards and tab badges.
+ * Reads the same per-repo cache entries as the full views (no extra fetch). The
+ * `*Loaded` flags gate display so a count appears only once there's data —
+ * avoiding a flash of "0" on a cold first launch before the snapshot exists. */
+export function useRepoCounts(repos: Repo[]): {
+  issues: number
+  pulls: number
+  issuesLoaded: boolean
+  pullsLoaded: boolean
+} {
+  const { issues, isLoading: issuesLoading } = useRepoIssues(repos)
+  const { pulls, isLoading: pullsLoading } = useRepoPulls(repos)
+  return {
+    issues: issues.length,
+    pulls: pulls.length,
+    issuesLoaded: !issuesLoading,
+    pullsLoaded: !pullsLoading
+  }
+}
