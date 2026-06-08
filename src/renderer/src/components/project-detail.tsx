@@ -18,6 +18,7 @@ import { ColorPicker } from '@/components/color-picker'
 import { GroupDialog } from '@/components/group-dialog'
 import { GroupLauncher } from '@/components/group-launcher'
 import { IconPicker } from '@/components/icon-picker'
+import { ProjectHome } from '@/components/project-home'
 import { ProjectIcon } from '@/components/project-icon'
 import { ProjectIssues } from '@/components/project-issues'
 import { ProjectPulls } from '@/components/project-pulls'
@@ -56,9 +57,9 @@ import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/sch
 
 /** The project detail tabs, in display order. Drives the `?tab=` search param
  *  (see the route) so cards and links can deep-link to a specific tab. */
-export const PROJECT_TABS = ['issues', 'pulls', 'actions', 'settings'] as const
+export const PROJECT_TABS = ['home', 'issues', 'pulls', 'actions', 'settings'] as const
 export type ProjectTab = (typeof PROJECT_TABS)[number]
-const DEFAULT_TAB: ProjectTab = 'issues'
+const DEFAULT_TAB: ProjectTab = 'home'
 
 function actionTarget(action: ProjectActionRow): string {
   return action.type === 'link'
@@ -726,6 +727,9 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
 
       <Tabs value={activeTab} onValueChange={(value) => handleTabChange(String(value))}>
         <TabsList variant="underline" className="w-full justify-start border-border border-b">
+          <TabsTab value="home" className="grow-0">
+            Home
+          </TabsTab>
           <TabsTab value="issues" className="grow-0">
             Issues
             {repos.length > 0 && counts.issuesLoaded && (
@@ -749,6 +753,10 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
             Settings
           </TabsTab>
         </TabsList>
+
+        <TabsPanel value="home" className="pt-5" keepMounted>
+          <ProjectHome project={project} />
+        </TabsPanel>
 
         <TabsPanel value="issues" className="pt-5" keepMounted>
           <ProjectIssues project={project} />

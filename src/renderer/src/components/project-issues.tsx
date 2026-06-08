@@ -160,7 +160,7 @@ export const ISSUE_COLUMNS = [
 
 /** Case-insensitive substring match across an issue's user-visible fields, for
  * the client-side search box. `query` is expected already lower-cased. */
-function issueMatches(issue: IssueRow, query: string): boolean {
+export function issueMatches(issue: IssueRow, query: string): boolean {
   return (
     issue.title.toLowerCase().includes(query) ||
     `#${issue.number}`.includes(query) ||

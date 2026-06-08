@@ -164,7 +164,7 @@ export const PULL_COLUMNS = [
 
 /** Case-insensitive substring match across a PR's user-visible fields, for the
  * client-side search box. `query` is expected already lower-cased. */
-function pullMatches(pull: PullRequestRow, query: string): boolean {
+export function pullMatches(pull: PullRequestRow, query: string): boolean {
   return (
     pull.title.toLowerCase().includes(query) ||
     `#${pull.number}`.includes(query) ||
