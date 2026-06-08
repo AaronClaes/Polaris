@@ -204,8 +204,15 @@ export const githubRouter = router({
     const pulls: PullRow[] = []
     for (const pull of await listPullRequestsForRepo(input.owner, input.name, repoToken)) {
       const assigned = pull.assignees.some((a) => viewerLogins.has(a.login.toLowerCase()))
+      // A PR you opened that has no one else assigned is implicitly yours — people
+      // often don't bother assigning their own PRs. (every() is true when the
+      // assignee list is empty or holds only your own logins.)
+      const isAuthor = pull.author ? viewerLogins.has(pull.author.login.toLowerCase()) : false
+      const mine =
+        assigned ||
+        (isAuthor && pull.assignees.every((a) => viewerLogins.has(a.login.toLowerCase())))
       const needsReview = pull.reviewers.some((r) => viewerLogins.has(r.login.toLowerCase()))
-      const bucket: PullBucket = assigned ? 'assigned' : needsReview ? 'review' : 'other'
+      const bucket: PullBucket = mine ? 'assigned' : needsReview ? 'review' : 'other'
       pulls.push({ ...pull, repo: { owner: input.owner, name: input.name }, bucket })
     }
 
