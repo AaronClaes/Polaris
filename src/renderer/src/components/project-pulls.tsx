@@ -8,6 +8,7 @@ import {
 } from '@tabler/icons-react'
 import { createColumnHelper, type TableOptions } from '@tanstack/react-table'
 import { memo, type ReactElement, type ReactNode, useDeferredValue, useMemo, useState } from 'react'
+import { CreateOnGitHubButton } from '@/components/create-on-github-button'
 import {
   CollapsibleSection,
   DataTable,
@@ -183,11 +184,13 @@ export function PullsView({
   repos,
   columns = PULL_COLUMNS,
   toolbarFilter,
+  toolbarAction,
   rowFilter
 }: {
   repos: { owner: string; name: string }[]
   columns?: TableOptions<PullRequestRow>['columns']
   toolbarFilter?: ReactNode
+  toolbarAction?: ReactNode
   rowFilter?: (pull: PullRequestRow) => boolean
 }): ReactElement {
   const { pulls, errors, isLoading, isError, errorMessage, isFetching, refetch } =
@@ -232,6 +235,7 @@ export function PullsView({
         onSearchChange={setQuery}
         searchPlaceholder="Search pull requests…"
         filter={toolbarFilter}
+        action={toolbarAction}
       />
       <FailuresBanner failures={errors} />
       <QueryBoundary
@@ -283,5 +287,10 @@ export function ProjectPulls({ project }: { project: ProjectWithActions }): Reac
     )
   }
 
-  return <PullsView repos={repos} />
+  return (
+    <PullsView
+      repos={repos}
+      toolbarAction={<CreateOnGitHubButton kind="pull" groups={[{ key: 'repos', repos }]} />}
+    />
+  )
 }

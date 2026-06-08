@@ -227,14 +227,16 @@ export function EmptyHint({ children }: { children: ReactNode }): ReactElement {
 /** Toolbar: a client-side search box on the left, a manual refresh button on
  * the right. The search filters the already-loaded rows (no requery). `filter`
  * is an optional control rendered beside the search box (e.g. the global views'
- * project filter). */
+ * project filter); `action` is an optional control to the right of Refresh
+ * (e.g. the "New issue" / "New pull request" button). */
 export function ListToolbar({
   isFetching,
   onRefresh,
   searchValue,
   onSearchChange,
   searchPlaceholder = 'Search…',
-  filter
+  filter,
+  action
 }: {
   isFetching: boolean
   onRefresh: () => void
@@ -242,6 +244,7 @@ export function ListToolbar({
   onSearchChange: (value: string) => void
   searchPlaceholder?: string
   filter?: ReactNode
+  action?: ReactNode
 }): ReactElement {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -260,10 +263,13 @@ export function ListToolbar({
         </InputGroup>
         {filter}
       </div>
-      <Button variant="ghost" size="sm" loading={isFetching} onClick={onRefresh}>
-        <IconRefresh />
-        Refresh
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="sm" loading={isFetching} onClick={onRefresh}>
+          <IconRefresh />
+          Refresh
+        </Button>
+        {action}
+      </div>
     </div>
   )
 }

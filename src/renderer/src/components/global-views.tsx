@@ -1,6 +1,7 @@
 import { IconFilter } from '@tabler/icons-react'
 import { createColumnHelper } from '@tanstack/react-table'
 import { type ReactElement, type ReactNode, useCallback, useMemo, useState } from 'react'
+import { CreateOnGitHubButton, type RepoGroup } from '@/components/create-on-github-button'
 import { ProjectIcon } from '@/components/project-icon'
 import { ISSUE_COLUMNS, IssuesView } from '@/components/project-issues'
 import { PULL_COLUMNS, PullsView } from '@/components/project-pulls'
@@ -48,6 +49,19 @@ function useProjectIndex(projects: ProjectWithActions[]): {
     }
     return { repos, projectByRepo }
   }, [projects])
+}
+
+/** Repo groups for the create-on-GitHub picker: one labeled group per project
+ * with linked repos. Not deduped (unlike the fetch index) — a repo shared by
+ * several projects appears under each, so you create in the right context. */
+function repoGroupsByProject(projects: ProjectWithActions[]): RepoGroup[] {
+  return projects
+    .map((project) => ({
+      key: String(project.id),
+      label: project.name,
+      repos: project.repos.map((repo) => ({ owner: repo.owner, name: repo.name }))
+    }))
+    .filter((group) => group.repos.length > 0)
 }
 
 /** Deselected project ids hide their rows; everything shows by default. New
@@ -211,6 +225,7 @@ export function AllIssues(): ReactElement {
     [projectByRepo]
   )
   const rowFilter = useMemo(() => makeRowFilter(projectByRepo, hidden), [projectByRepo, hidden])
+  const createGroups = useMemo(() => repoGroupsByProject(projects), [projects])
 
   return (
     <GlobalListPage
@@ -224,6 +239,7 @@ export function AllIssues(): ReactElement {
         columns={columns}
         rowFilter={rowFilter}
         toolbarFilter={<ProjectFilterMenu projects={projects} hidden={hidden} onToggle={toggle} />}
+        toolbarAction={<CreateOnGitHubButton kind="issue" groups={createGroups} />}
       />
     </GlobalListPage>
   )
@@ -258,6 +274,7 @@ export function AllPulls(): ReactElement {
     [projectByRepo]
   )
   const rowFilter = useMemo(() => makeRowFilter(projectByRepo, hidden), [projectByRepo, hidden])
+  const createGroups = useMemo(() => repoGroupsByProject(projects), [projects])
 
   return (
     <GlobalListPage
@@ -271,6 +288,7 @@ export function AllPulls(): ReactElement {
         columns={columns}
         rowFilter={rowFilter}
         toolbarFilter={<ProjectFilterMenu projects={projects} hidden={hidden} onToggle={toggle} />}
+        toolbarAction={<CreateOnGitHubButton kind="pull" groups={createGroups} />}
       />
     </GlobalListPage>
   )

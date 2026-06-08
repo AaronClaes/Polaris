@@ -15,6 +15,7 @@ import {
   useMemo,
   useState
 } from 'react'
+import { CreateOnGitHubButton } from '@/components/create-on-github-button'
 import {
   CollapsibleSection,
   DataTable,
@@ -180,11 +181,13 @@ export function IssuesView({
   repos,
   columns = ISSUE_COLUMNS,
   toolbarFilter,
+  toolbarAction,
   rowFilter
 }: {
   repos: { owner: string; name: string }[]
   columns?: TableOptions<IssueRow>['columns']
   toolbarFilter?: ReactNode
+  toolbarAction?: ReactNode
   rowFilter?: (issue: IssueRow) => boolean
 }): ReactElement {
   const { issues, errors, isLoading, isError, errorMessage, isFetching, refetch } =
@@ -229,6 +232,7 @@ export function IssuesView({
         onSearchChange={setQuery}
         searchPlaceholder="Search issues…"
         filter={toolbarFilter}
+        action={toolbarAction}
       />
       <FailuresBanner failures={errors} />
       <QueryBoundary
@@ -280,5 +284,10 @@ export function ProjectIssues({ project }: { project: ProjectWithActions }): Rea
     )
   }
 
-  return <IssuesView repos={repos} />
+  return (
+    <IssuesView
+      repos={repos}
+      toolbarAction={<CreateOnGitHubButton kind="issue" groups={[{ key: 'repos', repos }]} />}
+    />
+  )
 }
