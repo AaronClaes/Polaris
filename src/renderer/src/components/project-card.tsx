@@ -1,10 +1,9 @@
 import { IconCircleDot, IconGitPullRequest } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
 import { type ReactElement, useMemo, useState } from 'react'
-import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
+import { ActionLaunchButton } from '@/components/action-launch-button'
 import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { buildRootEntries } from '@/lib/action-tree'
 import { useRepoCounts } from '@/lib/github-queries'
@@ -114,16 +113,12 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
                 onError={setRunError}
               />
             ) : (
-              <Button
+              <ActionLaunchButton
                 key={`action-${entry.action.id}`}
-                variant="outline"
-                size="sm"
+                action={entry.action}
                 loading={runAction.isPending && runAction.variables?.id === entry.action.id}
-                onClick={() => runAction.mutate({ id: entry.action.id })}
-              >
-                <ActionIcon action={entry.action} className={ACTION_ICON_CLASS} />
-                {entry.action.label}
-              </Button>
+                onRun={() => runAction.mutate({ id: entry.action.id })}
+              />
             )
           )}
         </div>

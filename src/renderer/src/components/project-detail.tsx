@@ -11,7 +11,8 @@ import {
 } from '@tabler/icons-react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { type FormEvent, type ReactElement, useId, useMemo, useState } from 'react'
-import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
+import { ActionIcon } from '@/components/action-icon'
+import { ActionLaunchButton } from '@/components/action-launch-button'
 import { AddActionDialog } from '@/components/add-action-dialog'
 import { ColorPicker } from '@/components/color-picker'
 import { GroupDialog } from '@/components/group-dialog'
@@ -147,16 +148,12 @@ function LauncherRow({
             onError={onError}
           />
         ) : (
-          <Button
+          <ActionLaunchButton
             key={`action-${entry.action.id}`}
-            variant="outline"
-            size="sm"
+            action={entry.action}
             loading={runAction.isPending && runAction.variables?.id === entry.action.id}
-            onClick={() => runAction.mutate({ id: entry.action.id })}
-          >
-            <ActionIcon action={entry.action} className={ACTION_ICON_CLASS} />
-            {entry.action.label}
-          </Button>
+            onRun={() => runAction.mutate({ id: entry.action.id })}
+          />
         )
       )}
     </div>

@@ -1,5 +1,5 @@
-import { IconChevronDown } from '@tabler/icons-react'
-import { type ReactElement, useMemo } from 'react'
+import { IconChevronDown, IconCopy } from '@tabler/icons-react'
+import { type ReactElement, useMemo, useState } from 'react'
 import { ACTION_ICON_CLASS, ActionIcon } from '@/components/action-icon'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
@@ -7,6 +7,7 @@ import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
+import type { LinkActionConfig } from '../../../main/db/schema'
 
 interface GroupLauncherProps {
   group: ActionGroupRow
@@ -44,6 +45,10 @@ export function GroupLauncher({
     onSuccess: (res) => onError?.(res.ok ? null : (res.error ?? 'Action failed')),
     onError: (error) => onError?.(error.message)
   })
+  // Controlled so the copy button can close the menu itself — it stops the
+  // click from reaching the item (which would otherwise run the action), so the
+  // item's own close-on-click never fires.
+  const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <div className={cn('inline-flex', className)}>
@@ -57,7 +62,7 @@ export function GroupLauncher({
         <GroupIcon />
         {group.name}
       </Button>
-      <Menu>
+      <Menu open={menuOpen} onOpenChange={setMenuOpen}>
         <MenuTrigger
           render={
             <Button
@@ -78,7 +83,27 @@ export function GroupLauncher({
             actions.map((action) => (
               <MenuItem key={action.id} onClick={() => runAction.mutate({ id: action.id })}>
                 <ActionIcon action={action} className={ACTION_ICON_CLASS} />
-                {action.label}
+                <span className="min-w-0 flex-1 truncate">{action.label}</span>
+                {action.type === 'link' && (
+                  <button
+                    type="button"
+                    // Secondary action inside a menu item: stop the click so it
+                    // neither runs the action nor closes the menu. tabIndex -1
+                    // keeps it out of the menu's arrow/Tab focus management.
+                    tabIndex={-1}
+                    aria-label={`Copy URL for ${action.label}`}
+                    title="Copy URL"
+                    className="-me-1 ms-4 inline-flex size-6 shrink-0 items-center justify-center rounded-sm opacity-70 transition hover:bg-foreground/10 hover:opacity-100 [&>svg]:size-4"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      const { url } = action.config as LinkActionConfig
+                      navigator.clipboard.writeText(url).catch(() => {})
+                      setMenuOpen(false)
+                    }}
+                  >
+                    <IconCopy />
+                  </button>
+                )}
               </MenuItem>
             ))
           )}
