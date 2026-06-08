@@ -36,8 +36,9 @@ export const actionGroups = sqliteTable('action_groups', {
   name: text('name').notNull(),
   // Tabler icon key (see renderer `icons.ts` registry).
   icon: text('icon').notNull().default('stack'),
-  // Hidden from the dashboard launch grid; still shown/usable in the project view.
-  hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+  // Pinned to the dashboard launch grid. Off by default — pin a group to surface
+  // it (with all its actions) there; it's always available in the project view.
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
   // Manual ordering of groups within a project.
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
@@ -90,8 +91,10 @@ export const projectActions = sqliteTable('project_actions', {
   label: text('label').notNull(),
   // Tabler icon key (see renderer `icons.ts` registry).
   icon: text('icon').notNull().default('bolt'),
-  // Hidden from the dashboard launch grid; still shown/usable in the project view.
-  hidden: integer('hidden', { mode: 'boolean' }).notNull().default(false),
+  // Pinned to the dashboard launch grid. Off by default; only meaningful for a
+  // loose (ungrouped) action — a grouped action surfaces via its group's pin.
+  // Always available in the project view regardless.
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
   // Type-specific payload; shape is keyed by `type` (see ActionConfig).
   config: text('config', { mode: 'json' }).notNull().$type<ActionConfig>(),
   // Manual ordering within the action's container (its group, or the loose pool).

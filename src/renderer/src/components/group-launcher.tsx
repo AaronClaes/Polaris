@@ -73,7 +73,7 @@ export function GroupLauncher({
         </MenuTrigger>
         <MenuPopup align="end" className="min-w-44">
           {actions.length === 0 ? (
-            <MenuItem disabled>All actions are hidden</MenuItem>
+            <MenuItem disabled>No actions in this group</MenuItem>
           ) : (
             actions.map((action) => (
               <MenuItem key={action.id} onClick={() => runAction.mutate({ id: action.id })}>

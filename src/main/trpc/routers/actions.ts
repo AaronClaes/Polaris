@@ -130,14 +130,14 @@ export const actionsRouter = router({
         .get()
     }),
 
-  // Toggle whether an action shows on the dashboard launch grid. It stays fully
-  // available in the project view either way.
-  setHidden: publicProcedure
-    .input(z.object({ id: z.number().int(), hidden: z.boolean() }))
+  // Toggle whether an action is pinned to the dashboard launch grid. It stays
+  // fully available in the project view either way.
+  setPinned: publicProcedure
+    .input(z.object({ id: z.number().int(), pinned: z.boolean() }))
     .mutation(({ ctx, input }) => {
       return ctx.db
         .update(projectActions)
-        .set({ hidden: input.hidden })
+        .set({ pinned: input.pinned })
         .where(eq(projectActions.id, input.id))
         .returning()
         .get()

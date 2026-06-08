@@ -25,9 +25,9 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
   const counts = useRepoCounts(repos)
   const showCounts = repos.length > 0 && counts.issuesLoaded && counts.pullsLoaded
 
-  // Only non-hidden items appear on the dashboard.
+  // Only pinned items appear on the dashboard.
   const looseActions = useMemo(
-    () => project.actions.filter((a) => a.groupId == null && !a.hidden),
+    () => project.actions.filter((a) => a.groupId == null && a.pinned),
     [project.actions]
   )
   const membersByGroup = useMemo(() => {
@@ -40,30 +40,16 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
     }
     return map
   }, [project.actions])
-  // A group shows when it isn't hidden and isn't empty; its launcher lists only
-  // visible members (Run all still launches the whole group).
-  const visibleGroups = useMemo(
-    () =>
-      project.groups
-        .filter((g) => !g.hidden && (membersByGroup.get(g.id)?.length ?? 0) > 0)
-        .map((g) => ({
-          group: g,
-          visibleMembers: (membersByGroup.get(g.id) ?? []).filter((m) => !m.hidden)
-        })),
+  // A pinned, non-empty group shows as a single unit: its launcher runs/lists all
+  // its members (a grouped action isn't pinned on its own — the group is).
+  const pinnedGroups = useMemo(
+    () => project.groups.filter((g) => g.pinned && (membersByGroup.get(g.id)?.length ?? 0) > 0),
     [project.groups, membersByGroup]
   )
   // Groups and loose actions launch in their shared root order.
   const rootItems = useMemo(
-    () =>
-      buildRootEntries(
-        visibleGroups.map((v) => v.group),
-        looseActions
-      ),
-    [visibleGroups, looseActions]
-  )
-  const visibleMembersByGroup = useMemo(
-    () => new Map(visibleGroups.map((v) => [v.group.id, v.visibleMembers])),
-    [visibleGroups]
+    () => buildRootEntries(pinnedGroups, looseActions),
+    [pinnedGroups, looseActions]
   )
 
   const runAction = trpc.actions.run.useMutation({
@@ -71,7 +57,7 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
     onError: (error) => setRunError(error.message)
   })
 
-  const hasLaunchers = visibleGroups.length > 0 || looseActions.length > 0
+  const hasLaunchers = pinnedGroups.length > 0 || looseActions.length > 0
 
   return (
     <Card className="relative gap-0 p-4 transition-colors hover:border-ring/60">
@@ -124,7 +110,7 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
               <GroupLauncher
                 key={`group-${entry.group.id}`}
                 group={entry.group}
-                actions={visibleMembersByGroup.get(entry.group.id) ?? []}
+                actions={membersByGroup.get(entry.group.id) ?? []}
                 onError={setRunError}
               />
             ) : (

@@ -31,7 +31,7 @@ export const groupsRouter = router({
         id: z.number().int(),
         name: name.optional(),
         icon: icon.optional(),
-        hidden: z.boolean().optional()
+        pinned: z.boolean().optional()
       })
     )
     .mutation(({ ctx, input }) => {

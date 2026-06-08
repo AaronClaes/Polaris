@@ -2,10 +2,9 @@ import {
   IconArrowsSort,
   IconCheck,
   IconDots,
-  IconEye,
-  IconEyeOff,
   IconInbox,
   IconPencil,
+  IconPin,
   IconPlayerPlay,
   IconPlus,
   IconTrash
@@ -49,6 +48,7 @@ import {
 } from '@/components/ui/menu'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { buildRootEntries } from '@/lib/action-tree'
 import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
@@ -69,8 +69,46 @@ function actionTarget(action: ProjectActionRow): string {
 }
 
 /**
+ * Pin/unpin toggle for the dashboard. The icon is the same either way — Tabler
+ * has no good "unpinned" glyph — so the button variant carries the state:
+ * `outline` when pinned, `ghost` when not.
+ */
+function PinButton({
+  pinned,
+  loading,
+  disabled,
+  onToggle
+}: {
+  pinned: boolean
+  loading: boolean
+  disabled?: boolean
+  onToggle: () => void
+}): ReactElement {
+  const tip = pinned ? 'Unpin from dashboard' : 'Pin to dashboard'
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant={pinned ? 'outline' : 'ghost'}
+            size="icon-sm"
+            loading={loading}
+            disabled={disabled}
+            aria-label={tip}
+            onClick={onToggle}
+          />
+        }
+      >
+        <IconPin />
+      </TooltipTrigger>
+      <TooltipPopup>{tip}</TooltipPopup>
+    </Tooltip>
+  )
+}
+
+/**
  * The project's launch bar: group split-buttons + loose-action buttons, like the
- * dashboard card — but here it shows everything, hidden items included (hidden
+ * dashboard card — but here it shows everything, unpinned items included (pinning
  * only governs the dashboard). Empty groups are skipped (nothing to run).
  */
 function LauncherRow({
@@ -151,7 +189,7 @@ function ActionRow({
   const setGroup = trpc.actions.setGroup.useMutation({
     onSuccess: () => utils.projects.list.invalidate()
   })
-  const setHidden = trpc.actions.setHidden.useMutation({
+  const setPinned = trpc.actions.setPinned.useMutation({
     onSuccess: () => utils.projects.list.invalidate()
   })
 
@@ -164,18 +202,18 @@ function ActionRow({
         <ActionIcon action={action} size={18} />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 truncate font-medium text-sm">
-          <span className="truncate">{action.label}</span>
-          {action.hidden && (
-            <IconEyeOff
-              size={14}
-              className="shrink-0 text-muted-foreground"
-              aria-label="Hidden from dashboard"
-            />
-          )}
-        </p>
+        <p className="truncate font-medium text-sm">{action.label}</p>
         <p className="truncate font-mono text-muted-foreground text-xs">{actionTarget(action)}</p>
       </div>
+      {/* Pinning is per dashboard unit: a loose action pins itself; a grouped
+          action surfaces via its group's pin, so it gets no button of its own. */}
+      {action.groupId == null && (
+        <PinButton
+          pinned={action.pinned}
+          loading={setPinned.isPending}
+          onToggle={() => setPinned.mutate({ id: action.id, pinned: !action.pinned })}
+        />
+      )}
       <Button
         variant="outline"
         size="sm"
@@ -229,11 +267,6 @@ function ActionRow({
               <MenuSeparator />
             </>
           )}
-          <MenuItem onClick={() => setHidden.mutate({ id: action.id, hidden: !action.hidden })}>
-            {action.hidden ? <IconEye /> : <IconEyeOff />}
-            {action.hidden ? 'Show on dashboard' : 'Hide from dashboard'}
-          </MenuItem>
-          <MenuSeparator />
           <MenuItem variant="destructive" onClick={() => deleteAction.mutate({ id: action.id })}>
             <IconTrash />
             Delete
@@ -295,14 +328,13 @@ function GroupSection({
         </span>
         <span className="truncate font-medium text-sm">{group.name}</span>
         <span className="text-muted-foreground text-xs">{members.length}</span>
-        {group.hidden && (
-          <IconEyeOff
-            size={14}
-            className="text-muted-foreground"
-            aria-label="Hidden from dashboard"
-          />
-        )}
         <div className="ml-auto flex items-center gap-1">
+          <PinButton
+            pinned={group.pinned}
+            loading={updateGroup.isPending}
+            disabled={members.length === 0}
+            onToggle={() => updateGroup.mutate({ id: group.id, pinned: !group.pinned })}
+          />
           <Button
             variant="outline"
             size="sm"
@@ -334,10 +366,6 @@ function GroupSection({
               <MenuItem onClick={() => setEditOpen(true)}>
                 <IconPencil />
                 Edit group
-              </MenuItem>
-              <MenuItem onClick={() => updateGroup.mutate({ id: group.id, hidden: !group.hidden })}>
-                {group.hidden ? <IconEye /> : <IconEyeOff />}
-                {group.hidden ? 'Show on dashboard' : 'Hide from dashboard'}
               </MenuItem>
               <MenuSeparator />
               <MenuItem variant="destructive" onClick={() => deleteGroup.mutate({ id: group.id })}>
