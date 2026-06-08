@@ -8,6 +8,7 @@ import {
   type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
+  pointerWithin,
   useDroppable,
   useSensor,
   useSensors
@@ -20,20 +21,28 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconGripVertical, IconInbox } from '@tabler/icons-react'
+import { IconGripVertical } from '@tabler/icons-react'
 import { type ReactElement, useMemo, useRef, useState } from 'react'
 import { ActionIcon } from '@/components/action-icon'
+import { buildRootEntries } from '@/lib/action-tree'
 import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/schema'
 
-const UNGROUPED = 'ungrouped'
+// Sortable ids and container keys. A group appears in the root list as
+// `group-<id>` and owns a `members-<id>` droppable holding its action rows; a
+// loose action is `action-<id>`, living directly in the root list. The root and
+// each members list are the entries of the `containers` map.
 const groupKey = (id: number): string => `group-${id}`
+const membersKey = (id: number): string => `members-${id}`
 const actionKey = (id: number): string => `action-${id}`
-const parseGroupId = (key: string): number => Number(key.slice('group-'.length))
-const parseActionId = (key: string): number => Number(key.slice('action-'.length))
+const isGroupKey = (key: string): boolean => key.startsWith('group-')
+const isMembersKey = (key: string): boolean => key.startsWith('members-')
+const parseId = (key: string): number => Number(key.slice(key.indexOf('-') + 1))
+
+const ROOT = 'root'
 
 type Containers = Record<string, string[]>
 
@@ -43,16 +52,20 @@ function actionTarget(action: ProjectActionRow): string {
     : (action.config as CommandActionConfig).command
 }
 
-/** Build the initial container → ordered action-id map from project data. */
+/** Build the initial container map: the root list (groups + loose actions in
+ * their shared order) plus a members list per group. */
 function buildContainers(project: ProjectWithActions): Containers {
-  const map: Containers = { [UNGROUPED]: [] }
-  for (const group of project.groups) map[groupKey(group.id)] = []
+  const loose = project.actions.filter((a) => a.groupId == null)
+  const root = buildRootEntries(project.groups, loose).map((entry) =>
+    entry.kind === 'group' ? groupKey(entry.group.id) : actionKey(entry.action.id)
+  )
+  const containers: Containers = { [ROOT]: root }
+  for (const group of project.groups) containers[membersKey(group.id)] = []
+  // project.actions arrives ordered by sortOrder, so members land in order.
   for (const action of project.actions) {
-    const key = action.groupId == null ? UNGROUPED : groupKey(action.groupId)
-    if (!map[key]) map[key] = []
-    map[key].push(actionKey(action.id))
+    if (action.groupId != null) containers[membersKey(action.groupId)].push(actionKey(action.id))
   }
-  return map
+  return containers
 }
 
 type DragHandleProps = Pick<ReturnType<typeof useSortable>, 'attributes' | 'listeners'> & {
@@ -87,7 +100,8 @@ function ActionRowContent({ action }: { action: ProjectActionRow }): ReactElemen
   )
 }
 
-/** A draggable action row (grip handle + identity), used inside any container. */
+/** A draggable action row (grip handle + identity), used in the root list and
+ * inside groups alike. */
 function SortableActionRow({ action }: { action: ProjectActionRow }): ReactElement {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: actionKey(action.id)
@@ -124,8 +138,8 @@ function ContainerBody({
   )
 }
 
-/** A draggable group section: its header is the group's drag handle; its body
- * is a sortable + droppable container for member actions. */
+/** A draggable group section in the root list: its header is the group's drag
+ * handle; its body is a droppable + sortable container for member actions. */
 function SortableGroupSection({
   group,
   actions
@@ -136,6 +150,9 @@ function SortableGroupSection({
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
     id: groupKey(group.id)
   })
+  // The body is its own droppable so an action dragged inside it joins the group
+  // (vs. reordering next to the group in the root list).
+  const { setNodeRef: setBodyRef } = useDroppable({ id: membersKey(group.id) })
   const GroupIcon = getIcon(group.icon).Icon
   return (
     <div
@@ -151,42 +168,24 @@ function SortableGroupSection({
         <span className="truncate font-medium text-sm">{group.name}</span>
         <span className="text-muted-foreground text-xs">{actions.length}</span>
       </div>
-      <SortableContext
-        items={actions.map((a) => actionKey(a.id))}
-        strategy={verticalListSortingStrategy}
-      >
-        <ContainerBody actions={actions} emptyHint="Drop actions here" />
-      </SortableContext>
-    </div>
-  )
-}
-
-/** The ungrouped (loose) container — a droppable so actions can be dragged out. */
-function UngroupedSection({ actions }: { actions: ProjectActionRow[] }): ReactElement {
-  const { setNodeRef } = useDroppable({ id: UNGROUPED })
-  return (
-    <div ref={setNodeRef} className="rounded-xl border border-border">
-      <div className="flex items-center gap-2 border-border border-b px-3 py-2">
-        <span className="text-muted-foreground">
-          <IconInbox size={18} />
-        </span>
-        <span className="truncate font-medium text-sm">Ungrouped</span>
-        <span className="text-muted-foreground text-xs">{actions.length}</span>
+      <div ref={setBodyRef}>
+        <SortableContext
+          items={actions.map((a) => actionKey(a.id))}
+          strategy={verticalListSortingStrategy}
+        >
+          <ContainerBody actions={actions} emptyHint="Drop actions here" />
+        </SortableContext>
       </div>
-      <SortableContext
-        items={actions.map((a) => actionKey(a.id))}
-        strategy={verticalListSortingStrategy}
-      >
-        <ContainerBody actions={actions} emptyHint="Drop actions here to ungroup them" />
-      </SortableContext>
     </div>
   )
 }
 
 /**
- * Drag-to-reorder surface for a project's groups and actions. Holds its own
- * ordering state (seeded once from the project) and persists each drop via the
- * reorder mutations; the parent re-syncs on exit.
+ * Drag-to-reorder surface for a project's groups and actions. Groups and loose
+ * actions share one root list and can be interleaved; actions can also be
+ * dragged into or out of groups. Holds its own ordering state (seeded once from
+ * the project) and persists each drop via the reorder mutations; the parent
+ * re-syncs on exit.
  */
 export function ReorderableActions({ project }: { project: ProjectWithActions }): ReactElement {
   const groupsById = useMemo(() => new Map(project.groups.map((g) => [g.id, g])), [project.groups])
@@ -195,19 +194,11 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
     [project.actions]
   )
 
-  const [groupOrder, setGroupOrderState] = useState<string[]>(() =>
-    project.groups.map((g) => groupKey(g.id))
-  )
   const [containers, setContainersState] = useState<Containers>(() => buildContainers(project))
   const [activeId, setActiveId] = useState<string | null>(null)
 
-  // Refs mirror state so drag handlers read the freshest value synchronously.
-  const groupOrderRef = useRef(groupOrder)
+  // A ref mirrors state so the drag handlers read the freshest value synchronously.
   const containersRef = useRef(containers)
-  const commitGroups = (next: string[]): void => {
-    groupOrderRef.current = next
-    setGroupOrderState(next)
-  }
   const commitContainers = (next: Containers): void => {
     containersRef.current = next
     setContainersState(next)
@@ -216,23 +207,29 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
   const reorderActions = trpc.actions.reorder.useMutation()
   const reorderGroups = trpc.groups.reorder.useMutation()
 
-  const persistContainers = (next: Containers): void => {
-    const items: { id: number; groupId: number | null; sortOrder: number }[] = []
-    for (const [key, ids] of Object.entries(next)) {
-      const groupId = key === UNGROUPED ? null : parseGroupId(key)
+  // Persist the full arrangement. Root entries (groups + loose actions) take
+  // their shared index in the root list as sortOrder; group members number
+  // within their group. Idempotent overwrite, so we always send everything.
+  const persist = (state: Containers): void => {
+    const groupItems: { id: number; sortOrder: number }[] = []
+    const actionItems: {
+      id: number
+      groupId: number | null
+      sortOrder: number
+    }[] = []
+    state[ROOT].forEach((key, index) => {
+      if (isGroupKey(key)) groupItems.push({ id: parseId(key), sortOrder: index })
+      else actionItems.push({ id: parseId(key), groupId: null, sortOrder: index })
+    })
+    for (const [containerKey, ids] of Object.entries(state)) {
+      if (!isMembersKey(containerKey)) continue
+      const groupId = parseId(containerKey)
       ids.forEach((aKey, index) => {
-        items.push({ id: parseActionId(aKey), groupId, sortOrder: index })
+        actionItems.push({ id: parseId(aKey), groupId, sortOrder: index })
       })
     }
-    reorderActions.mutate({ items })
-  }
-  const persistGroups = (next: string[]): void => {
-    reorderGroups.mutate({
-      items: next.map((gKey, index) => ({
-        id: parseGroupId(gKey),
-        sortOrder: index
-      }))
-    })
+    reorderActions.mutate({ items: actionItems })
+    reorderGroups.mutate({ items: groupItems })
   }
 
   const findContainer = (id: string): string | null => {
@@ -243,18 +240,46 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
     return null
   }
 
-  // When dragging a group, only let it collide with other group containers so
-  // the reorder stays clean; actions collide with everything.
+  // Resolve the drop target by intent. A dragged group reorders among the root
+  // entries only. A dragged action: when the pointer is over a group's body, it
+  // targets that group's member rows — so it reorders within the group (or drops
+  // into it) at the hovered position; an empty group has no rows, so it targets
+  // the body itself. When the pointer is outside every body (a group header or
+  // the space around entries), it targets the root entries only — which is what
+  // lets an action be dropped before or after a group, top one included.
   const collisionDetection: CollisionDetection = (args) => {
-    if (String(args.active.id).startsWith('group-')) {
-      return closestCorners({
+    const activeIdStr = String(args.active.id)
+    const restrictTo = (keys: Set<string>): ReturnType<CollisionDetection> =>
+      closestCorners({
         ...args,
-        droppableContainers: args.droppableContainers.filter((c) =>
-          String(c.id).startsWith('group-')
-        )
+        droppableContainers: args.droppableContainers.filter((c) => keys.has(String(c.id)))
       })
+
+    if (isGroupKey(activeIdStr)) {
+      return restrictTo(new Set(containersRef.current[ROOT]))
     }
-    return closestCorners(args)
+
+    const within = pointerWithin(args)
+    const body = within.find((c) => isMembersKey(String(c.id)))
+    if (body) {
+      const members = new Set(containersRef.current[String(body.id)] ?? [])
+      return members.size > 0 ? restrictTo(members) : [body]
+    }
+
+    // Hysteresis: if the action already lives in a group and the pointer is still
+    // anywhere over that group's card (e.g. its header), keep it in the group
+    // rather than releasing to the root. Without this, the target flickers
+    // rapidly between the group and the root right at the body's edge — each move
+    // shifts the layout and flips the decision back. Releasing needs the pointer
+    // to leave the card entirely.
+    const activeContainer = findContainer(activeIdStr)
+    if (activeContainer && isMembersKey(activeContainer)) {
+      const ownGroup = groupKey(parseId(activeContainer))
+      if (within.some((c) => String(c.id) === ownGroup)) {
+        return restrictTo(new Set(containersRef.current[activeContainer]))
+      }
+    }
+    return restrictTo(new Set(containersRef.current[ROOT]))
   }
 
   const sensors = useSensors(
@@ -271,7 +296,7 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
     if (!over) return
     const activeIdStr = String(active.id)
     const overIdStr = String(over.id)
-    if (activeIdStr.startsWith('group-')) return // group reorder handled on drop
+    if (isGroupKey(activeIdStr)) return // group reorder is handled on drop
 
     const activeContainer = findContainer(activeIdStr)
     const overContainer = findContainer(overIdStr)
@@ -280,12 +305,12 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
     const prev = containersRef.current
     const activeItems = prev[activeContainer]
     const overItems = prev[overContainer]
-    const overIndex = overItems.indexOf(overIdStr)
 
     let newIndex: number
     if (overIdStr in prev) {
       newIndex = overItems.length
     } else {
+      const overIndex = overItems.indexOf(overIdStr)
       const isBelow =
         active.rect.current.translated &&
         active.rect.current.translated.top > over.rect.top + over.rect.height / 2
@@ -303,22 +328,24 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
     const { active, over } = event
     const activeIdStr = String(active.id)
     setActiveId(null)
-    if (!over) return
+    if (!over) {
+      persist(containersRef.current)
+      return
+    }
     const overIdStr = String(over.id)
 
-    if (activeIdStr.startsWith('group-')) {
-      const order = groupOrderRef.current
-      const oldIndex = order.indexOf(activeIdStr)
-      let overGroupKey = overIdStr
-      if (!overIdStr.startsWith('group-')) {
-        const container = findContainer(overIdStr)
-        overGroupKey = container?.startsWith('group-') ? container : activeIdStr
-      }
-      const newIndex = order.indexOf(overGroupKey)
+    if (isGroupKey(activeIdStr)) {
+      // Reorder the group among the root entries (groups + loose actions).
+      const root = containersRef.current[ROOT]
+      const oldIndex = root.indexOf(activeIdStr)
+      const newIndex = root.indexOf(overIdStr)
       if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-        const next = arrayMove(order, oldIndex, newIndex)
-        commitGroups(next)
-        persistGroups(next)
+        const next = {
+          ...containersRef.current,
+          [ROOT]: arrayMove(root, oldIndex, newIndex)
+        }
+        commitContainers(next)
+        persist(next)
       }
       return
     }
@@ -328,7 +355,7 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
     const activeContainer = findContainer(activeIdStr)
     const overContainer = findContainer(overIdStr)
     if (!activeContainer || !overContainer) {
-      persistContainers(containersRef.current)
+      persist(containersRef.current)
       return
     }
 
@@ -345,21 +372,18 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
       }
       commitContainers(next)
     }
-    persistContainers(next)
+    persist(next)
   }
 
   const actionsFor = (key: string): ProjectActionRow[] =>
     (containers[key] ?? [])
-      .map((aKey) => actionsById.get(parseActionId(aKey)))
+      .map((aKey) => actionsById.get(parseId(aKey)))
       .filter(Boolean) as ProjectActionRow[]
 
   const activeAction =
-    activeId && !activeId.startsWith('group-')
-      ? actionsById.get(parseActionId(activeId))
-      : undefined
-  const activeGroup = activeId?.startsWith('group-')
-    ? groupsById.get(parseGroupId(activeId))
-    : undefined
+    activeId && !isGroupKey(activeId) ? actionsById.get(parseId(activeId)) : undefined
+  const activeGroup =
+    activeId && isGroupKey(activeId) ? groupsById.get(parseId(activeId)) : undefined
 
   return (
     <DndContext
@@ -370,16 +394,26 @@ export function ReorderableActions({ project }: { project: ProjectWithActions })
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveId(null)}
     >
-      <div className="flex flex-col gap-3">
-        <SortableContext items={groupOrder} strategy={verticalListSortingStrategy}>
-          {groupOrder.map((gKey) => {
-            const group = groupsById.get(parseGroupId(gKey))
-            if (!group) return null
-            return <SortableGroupSection key={gKey} group={group} actions={actionsFor(gKey)} />
+      <SortableContext items={containers[ROOT]} strategy={verticalListSortingStrategy}>
+        <div className="flex flex-col gap-3">
+          {containers[ROOT].map((key) => {
+            if (isGroupKey(key)) {
+              const group = groupsById.get(parseId(key))
+              if (!group) return null
+              return (
+                <SortableGroupSection
+                  key={key}
+                  group={group}
+                  actions={actionsFor(membersKey(group.id))}
+                />
+              )
+            }
+            const action = actionsById.get(parseId(key))
+            if (!action) return null
+            return <SortableActionRow key={key} action={action} />
           })}
-        </SortableContext>
-        <UngroupedSection actions={actionsFor(UNGROUPED)} />
-      </div>
+        </div>
+      </SortableContext>
 
       <DragOverlay>
         {activeAction ? (

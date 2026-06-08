@@ -1,7 +1,8 @@
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { DB } from '../../db/client'
 import { type ActionConfig, projectActions, projects } from '../../db/schema'
+import { maxRootSortOrder } from '../../db/sort-order'
 import { runAction } from '../../services/action-runner'
 import { publicProcedure, router } from '..'
 
@@ -56,21 +57,18 @@ const updateActionInput = z.discriminatedUnion('type', [
 ])
 
 /**
- * Next sort position within an action's container — its group, or (when
- * ungrouped) the project's loose pool. Ordering is scoped per container so a
- * group's members and the loose actions each number from zero.
+ * Next sort position for a new action. A grouped action numbers within its
+ * group (from zero); a loose action joins the project's root sequence, which
+ * groups and loose actions share so the two can interleave.
  */
 function nextSortOrder(db: DB, projectId: number, group: number | null | undefined): number {
-  const where =
-    group == null
-      ? and(eq(projectActions.projectId, projectId), isNull(projectActions.groupId))
-      : eq(projectActions.groupId, group)
+  if (group == null) return maxRootSortOrder(db, projectId) + 1
 
   const max =
     db
       .select({ max: sql<number | null>`max(${projectActions.sortOrder})` })
       .from(projectActions)
-      .where(where)
+      .where(eq(projectActions.groupId, group))
       .get()?.max ?? -1
 
   return max + 1

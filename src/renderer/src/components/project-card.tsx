@@ -6,6 +6,7 @@ import { GroupLauncher } from '@/components/group-launcher'
 import { ProjectIcon } from '@/components/project-icon'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { buildRootEntries } from '@/lib/action-tree'
 import { useRepoCounts } from '@/lib/github-queries'
 import type { ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -50,6 +51,19 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
           visibleMembers: (membersByGroup.get(g.id) ?? []).filter((m) => !m.hidden)
         })),
     [project.groups, membersByGroup]
+  )
+  // Groups and loose actions launch in their shared root order.
+  const rootItems = useMemo(
+    () =>
+      buildRootEntries(
+        visibleGroups.map((v) => v.group),
+        looseActions
+      ),
+    [visibleGroups, looseActions]
+  )
+  const visibleMembersByGroup = useMemo(
+    () => new Map(visibleGroups.map((v) => [v.group.id, v.visibleMembers])),
+    [visibleGroups]
   )
 
   const runAction = trpc.actions.run.useMutation({
@@ -105,26 +119,27 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
 
       {hasLaunchers && (
         <div className="relative z-10 mt-4 flex flex-wrap gap-1.5">
-          {visibleGroups.map(({ group, visibleMembers }) => (
-            <GroupLauncher
-              key={group.id}
-              group={group}
-              actions={visibleMembers}
-              onError={setRunError}
-            />
-          ))}
-          {looseActions.map((action) => (
-            <Button
-              key={action.id}
-              variant="outline"
-              size="sm"
-              loading={runAction.isPending && runAction.variables?.id === action.id}
-              onClick={() => runAction.mutate({ id: action.id })}
-            >
-              <ActionIcon action={action} className={ACTION_ICON_CLASS} />
-              {action.label}
-            </Button>
-          ))}
+          {rootItems.map((entry) =>
+            entry.kind === 'group' ? (
+              <GroupLauncher
+                key={`group-${entry.group.id}`}
+                group={entry.group}
+                actions={visibleMembersByGroup.get(entry.group.id) ?? []}
+                onError={setRunError}
+              />
+            ) : (
+              <Button
+                key={`action-${entry.action.id}`}
+                variant="outline"
+                size="sm"
+                loading={runAction.isPending && runAction.variables?.id === entry.action.id}
+                onClick={() => runAction.mutate({ id: entry.action.id })}
+              >
+                <ActionIcon action={entry.action} className={ACTION_ICON_CLASS} />
+                {entry.action.label}
+              </Button>
+            )
+          )}
         </div>
       )}
 

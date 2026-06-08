@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/menu'
 import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { buildRootEntries } from '@/lib/action-tree'
 import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
@@ -88,29 +89,38 @@ function LauncherRow({
     onError: (error) => onError(error.message)
   })
 
-  const groupsWithMembers = project.groups
-    .map((group) => ({ group, members: membersByGroup.get(group.id) ?? [] }))
-    .filter((g) => g.members.length > 0)
+  const groupsWithMembers = project.groups.filter(
+    (group) => (membersByGroup.get(group.id)?.length ?? 0) > 0
+  )
 
   if (groupsWithMembers.length === 0 && looseActions.length === 0) return null
 
+  // Groups and loose actions launch in their shared root order.
+  const rootItems = buildRootEntries(groupsWithMembers, looseActions)
+
   return (
     <div className="flex flex-wrap gap-1.5">
-      {groupsWithMembers.map(({ group, members }) => (
-        <GroupLauncher key={group.id} group={group} actions={members} onError={onError} />
-      ))}
-      {looseActions.map((action) => (
-        <Button
-          key={action.id}
-          variant="outline"
-          size="sm"
-          loading={runAction.isPending && runAction.variables?.id === action.id}
-          onClick={() => runAction.mutate({ id: action.id })}
-        >
-          <ActionIcon action={action} className={ACTION_ICON_CLASS} />
-          {action.label}
-        </Button>
-      ))}
+      {rootItems.map((entry) =>
+        entry.kind === 'group' ? (
+          <GroupLauncher
+            key={`group-${entry.group.id}`}
+            group={entry.group}
+            actions={membersByGroup.get(entry.group.id) ?? []}
+            onError={onError}
+          />
+        ) : (
+          <Button
+            key={`action-${entry.action.id}`}
+            variant="outline"
+            size="sm"
+            loading={runAction.isPending && runAction.variables?.id === entry.action.id}
+            onClick={() => runAction.mutate({ id: entry.action.id })}
+          >
+            <ActionIcon action={entry.action} className={ACTION_ICON_CLASS} />
+            {entry.action.label}
+          </Button>
+        )
+      )}
     </div>
   )
 }
@@ -395,6 +405,13 @@ function ActionsTab({
   // more than one loose action to shuffle.
   const canReorder = project.groups.length > 0 || project.actions.length > 1
 
+  // Groups and loose actions interleave in one root list, ordered by their
+  // shared sortOrder; a loose action renders as a bare row between group cards.
+  const rootItems = useMemo(
+    () => buildRootEntries(project.groups, looseActions),
+    [project.groups, looseActions]
+  )
+
   const exitReorder = (): void => {
     // Re-sync the rest of the app (sidebar, dashboard) with the new order.
     utils.projects.list.invalidate()
@@ -443,37 +460,24 @@ function ActionsTab({
         </p>
       ) : (
         <div className="flex flex-col gap-3">
-          {project.groups.map((group) => (
-            <GroupSection
-              key={group.id}
-              project={project}
-              group={group}
-              members={membersByGroup.get(group.id) ?? []}
-              onError={onError}
-            />
-          ))}
-
-          {looseActions.length > 0 && (
-            <div className="rounded-xl border border-border">
-              <div className="flex items-center gap-2 border-border border-b px-3 py-2">
-                <span className="text-muted-foreground">
-                  <IconInbox size={18} />
-                </span>
-                <span className="truncate font-medium text-sm">Ungrouped</span>
-                <span className="text-muted-foreground text-xs">{looseActions.length}</span>
-              </div>
-              <div className="divide-y divide-border">
-                {looseActions.map((action) => (
-                  <ActionRow
-                    key={action.id}
-                    action={action}
-                    groups={project.groups}
-                    projectPath={project.path}
-                    onError={onError}
-                  />
-                ))}
-              </div>
-            </div>
+          {rootItems.map((entry) =>
+            entry.kind === 'group' ? (
+              <GroupSection
+                key={`group-${entry.group.id}`}
+                project={project}
+                group={entry.group}
+                members={membersByGroup.get(entry.group.id) ?? []}
+                onError={onError}
+              />
+            ) : (
+              <ActionRow
+                key={`action-${entry.action.id}`}
+                action={entry.action}
+                groups={project.groups}
+                projectPath={project.path}
+                onError={onError}
+              />
+            )
           )}
         </div>
       )}

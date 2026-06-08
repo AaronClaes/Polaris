@@ -1,6 +1,7 @@
-import { asc, eq, sql } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { actionGroups, projectActions, projects } from '../../db/schema'
+import { maxRootSortOrder } from '../../db/sort-order'
 import { runAction } from '../../services/action-runner'
 import { publicProcedure, router } from '..'
 
@@ -11,21 +12,14 @@ export const groupsRouter = router({
   create: publicProcedure
     .input(z.object({ projectId: z.number().int(), name, icon }))
     .mutation(({ ctx, input }) => {
-      // Append to the end of the project's group list.
-      const next =
-        ctx.db
-          .select({ max: sql<number | null>`max(${actionGroups.sortOrder})` })
-          .from(actionGroups)
-          .where(eq(actionGroups.projectId, input.projectId))
-          .get()?.max ?? -1
-
       return ctx.db
         .insert(actionGroups)
         .values({
           projectId: input.projectId,
           name: input.name,
           icon: input.icon,
-          sortOrder: next + 1
+          // Append to the end of the project's root list (shared with loose actions).
+          sortOrder: maxRootSortOrder(ctx.db, input.projectId) + 1
         })
         .returning()
         .get()
