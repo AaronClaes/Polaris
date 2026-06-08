@@ -48,9 +48,16 @@ export const actionGroups = sqliteTable('action_groups', {
 export const ACTION_TYPES = ['link', 'command'] as const
 export type ActionType = (typeof ACTION_TYPES)[number]
 
-/** Open a URL in the default browser. */
+/**
+ * Open a URL. By default it goes to the OS default browser. If `browser` (a
+ * linked browser's registry key) and `profileDirectory` (a Chromium profile
+ * directory like "Default"/"Profile 1") are both set, the URL opens in that
+ * browser/profile instead. Omit them for the default behavior.
+ */
 export interface LinkActionConfig {
   url: string
+  browser?: string | null
+  profileDirectory?: string | null
 }
 
 /** Run a shell command. `cwd` overrides the project's default `path`. */
@@ -152,6 +159,20 @@ export const projectRepos = sqliteTable(
   ]
 )
 
+/**
+ * A browser the user has linked so its profiles can be targeted by link actions.
+ * We store only the registry `key` (e.g. "dia", "chrome"); the display name and
+ * on-disk paths come from the in-code browser registry (services/browsers.ts).
+ * Linking is opt-in metadata — removing the row reverts that browser's link
+ * actions to the OS default. No secrets here, so it's a plain table (unlike
+ * {@link githubAccounts}, whose token lives in {@link secrets}).
+ */
+export const browsers = sqliteTable('browsers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  key: text('key').notNull().unique(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
 export type ProjectRepo = typeof projectRepos.$inferSelect
@@ -162,3 +183,5 @@ export type ActionGroup = typeof actionGroups.$inferSelect
 export type NewActionGroup = typeof actionGroups.$inferInsert
 export type GithubAccount = typeof githubAccounts.$inferSelect
 export type NewGithubAccount = typeof githubAccounts.$inferInsert
+export type Browser = typeof browsers.$inferSelect
+export type NewBrowser = typeof browsers.$inferInsert

@@ -1,6 +1,8 @@
+import { existsSync } from 'node:fs'
 import { shell } from 'electron'
 import { execa } from 'execa'
 import type { CommandActionConfig, LinkActionConfig, ProjectAction } from '../db/schema'
+import { resolveBrowser } from './browsers'
 
 export interface RunResult {
   ok: boolean
@@ -17,8 +19,37 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-/** Open a URL in the user's default browser. */
-async function runLink(url: string): Promise<RunResult> {
+/**
+ * Open a URL. With no `target`, hand off to the OS default browser. With a
+ * target, launch that browser's binary directly with `--profile-directory` so
+ * the URL opens in the chosen profile — `open -a` can't do this reliably once
+ * the browser is already running (it drops the args; the binary routes the URL
+ * to the right profile via the singleton instance). Falls back to the OS
+ * default if the target browser is unknown or its binary is gone, so a link
+ * never silently dies.
+ */
+async function runLink(
+  url: string,
+  target: { browser: string; profileDirectory: string } | null
+): Promise<RunResult> {
+  const entry = target ? resolveBrowser(target.browser) : undefined
+  // `supportsProfiles` guards a stale target (e.g. a Dia link saved before
+  // profile-gating): launching Dia's binary with the flag only triggers its
+  // single-instance dialog, so fall through to the OS default instead.
+  if (entry?.supportsProfiles && target && existsSync(entry.binaryPath)) {
+    // Array args (no shell) so the URL is never re-interpreted. Detached and
+    // unref'd: the launcher hands off to the browser and exits without tying the
+    // window's lifetime to ours.
+    const subprocess = execa(
+      entry.binaryPath,
+      [`--profile-directory=${target.profileDirectory}`, url],
+      { detached: true, stdio: 'ignore', reject: false }
+    )
+    subprocess.unref()
+    subprocess.catch(() => {})
+    return { ok: true }
+  }
+
   try {
     await shell.openExternal(url)
     return { ok: true }
@@ -84,8 +115,14 @@ export async function runAction(
   projectPath: string | null
 ): Promise<RunResult> {
   switch (action.type) {
-    case 'link':
-      return runLink((action.config as LinkActionConfig).url)
+    case 'link': {
+      const config = action.config as LinkActionConfig
+      const target =
+        config.browser && config.profileDirectory
+          ? { browser: config.browser, profileDirectory: config.profileDirectory }
+          : null
+      return runLink(config.url, target)
+    }
     case 'command': {
       const config = action.config as CommandActionConfig
       return runCommand(config.command, config.cwd ?? projectPath)

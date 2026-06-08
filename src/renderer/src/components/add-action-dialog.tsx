@@ -21,7 +21,14 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
+import {
+  Select,
+  SelectGroup,
+  SelectGroupLabel,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger
+} from '@/components/ui/select'
 import { FAVICON_ICON_KEY } from '@/lib/favicon'
 import type { ActionGroupRow, ProjectActionRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -62,13 +69,36 @@ const DEFAULT_ICON_FOR_TYPE: Record<ActionType, string> = {
 }
 
 const NO_GROUP = 'none'
-const EMPTY = { label: '', url: '', command: '', cwd: '' }
+// Sentinel for the link "Open in" select: the OS default browser, no profile.
+const OS_DEFAULT = 'default'
+const EMPTY = { label: '', url: '', command: '', cwd: '', profile: OS_DEFAULT }
+
+/** Encode a browser+profile as a single select value (or the OS-default sentinel). */
+function profileValue(browser?: string | null, directory?: string | null): string {
+  return browser && directory ? `${browser}::${directory}` : OS_DEFAULT
+}
+
+/** Decode an "Open in" select value back into a link config's browser/profile. */
+function parseProfile(value: string): {
+  browser: string | null
+  profileDirectory: string | null
+} {
+  const sep = value.indexOf('::')
+  if (sep === -1) return { browser: null, profileDirectory: null }
+  return { browser: value.slice(0, sep), profileDirectory: value.slice(sep + 2) }
+}
 
 /** Form values seeded from an action being edited (or empty for create). */
 function seedForm(action?: ProjectActionRow): typeof EMPTY {
   if (!action) return EMPTY
   if (action.type === 'link') {
-    return { ...EMPTY, label: action.label, url: (action.config as LinkActionConfig).url }
+    const config = action.config as LinkActionConfig
+    return {
+      ...EMPTY,
+      label: action.label,
+      url: config.url,
+      profile: profileValue(config.browser, config.profileDirectory)
+    }
   }
   const config = action.config as CommandActionConfig
   return { ...EMPTY, label: action.label, command: config.command, cwd: config.cwd ?? '' }
@@ -171,7 +201,7 @@ export function AddActionDialog({
           type: 'link',
           label: form.label,
           icon,
-          config: { url: form.url.trim() }
+          config: { url: form.url.trim(), ...parseProfile(form.profile) }
         })
       } else {
         update.mutate({
@@ -192,7 +222,7 @@ export function AddActionDialog({
         type: 'link',
         label: form.label,
         icon,
-        config: { url: form.url.trim() }
+        config: { url: form.url.trim(), ...parseProfile(form.profile) }
       })
     } else {
       create.mutate({
@@ -210,6 +240,18 @@ export function AddActionDialog({
     groupValue === NO_GROUP
       ? 'No group'
       : (groups.find((g) => String(g.id) === groupValue)?.name ?? 'No group')
+
+  // Linked browsers + their profiles drive the link "Open in" picker. The field
+  // is shown only when at least one linked browser exposes a profile.
+  const linkedBrowsers = trpc.browsers.listLinked.useQuery().data ?? []
+  const hasBrowserProfiles = linkedBrowsers.some((browser) => browser.profiles.length > 0)
+  const profileTriggerLabel = ((): string => {
+    const { browser, profileDirectory } = parseProfile(form.profile)
+    if (!browser || !profileDirectory) return 'Default (system browser)'
+    const linked = linkedBrowsers.find((entry) => entry.key === browser)
+    const profile = linked?.profiles.find((entry) => entry.directory === profileDirectory)
+    return linked && profile ? `${linked.name} — ${profile.name}` : 'Default (system browser)'
+  })()
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -288,17 +330,50 @@ export function AddActionDialog({
               </div>
 
               {type === 'link' ? (
-                <div className="grid gap-1.5">
-                  <Label htmlFor={urlId}>URL</Label>
-                  <Input
-                    id={urlId}
-                    type="url"
-                    placeholder="https://example.com"
-                    value={form.url}
-                    onChange={set('url')}
-                    required
-                  />
-                </div>
+                <>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={urlId}>URL</Label>
+                    <Input
+                      id={urlId}
+                      type="url"
+                      placeholder="https://example.com"
+                      value={form.url}
+                      onChange={set('url')}
+                      required
+                    />
+                  </div>
+                  {hasBrowserProfiles && (
+                    <div className="grid gap-1.5">
+                      <Label>Open in</Label>
+                      <Select
+                        value={form.profile}
+                        onValueChange={(value) =>
+                          setForm((prev) => ({ ...prev, profile: value ?? OS_DEFAULT }))
+                        }
+                      >
+                        <SelectTrigger>{profileTriggerLabel}</SelectTrigger>
+                        <SelectPopup>
+                          <SelectItem value={OS_DEFAULT}>Default (system browser)</SelectItem>
+                          {linkedBrowsers.map((browser) =>
+                            browser.profiles.length > 0 ? (
+                              <SelectGroup key={browser.key}>
+                                <SelectGroupLabel>{browser.name}</SelectGroupLabel>
+                                {browser.profiles.map((profile) => (
+                                  <SelectItem
+                                    key={`${browser.key}::${profile.directory}`}
+                                    value={`${browser.key}::${profile.directory}`}
+                                  >
+                                    {profile.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            ) : null
+                          )}
+                        </SelectPopup>
+                      </Select>
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <div className="grid gap-1.5">

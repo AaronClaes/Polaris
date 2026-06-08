@@ -9,6 +9,7 @@ import {
 } from '@tabler/icons-react'
 import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
+import { BrowsersIntegration } from '@/components/browsers-integration'
 import { GitHubIntegration } from '@/components/github-integration'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
@@ -99,7 +100,10 @@ function IntegrationsPanel(): ReactElement {
       title="Integrations"
       description="Connect external services so Polaris can pull in your work."
     >
-      <GitHubIntegration />
+      <div className="grid gap-4">
+        <GitHubIntegration />
+        <BrowsersIntegration />
+      </div>
     </PanelPlaceholder>
   )
 }

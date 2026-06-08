@@ -12,6 +12,10 @@ export type ProjectRepoRow = ProjectWithActions['repos'][number]
 
 /** A linked GitHub owner, as returned by `github.listAccounts`. */
 export type GithubAccountRow = RouterOutputs['github']['listAccounts'][number]
+/** An installed Chromium browser available to link, from `browsers.listInstalled`. */
+export type InstalledBrowserRow = RouterOutputs['browsers']['listInstalled'][number]
+/** A linked browser with its profiles, as returned by `browsers.listLinked`. */
+export type LinkedBrowserRow = RouterOutputs['browsers']['listLinked'][number]
 /** A repo the linked tokens can reach, as returned by `github.listRepos`. */
 export type GithubRepoRow = RouterOutputs['github']['listRepos']['repos'][number]
 /** An open issue (with its assignment bucket), as returned by `github.issuesForRepo`. */

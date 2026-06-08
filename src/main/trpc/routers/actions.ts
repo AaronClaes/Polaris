@@ -9,7 +9,12 @@ import { publicProcedure, router } from '..'
 // Per-type config payloads. Adding an action type means adding a variant here,
 // to the `type` enum + ActionConfig union in the schema, and a runner branch.
 const linkConfig = z.object({
-  url: z.string().trim().url('Must be a valid URL')
+  url: z.string().trim().url('Must be a valid URL'),
+  // Optionally open in a specific linked browser + Chromium profile. Both are
+  // set together (selecting a profile implies its browser) or both omitted, in
+  // which case the URL opens in the OS default browser.
+  browser: z.string().trim().min(1).nullish(),
+  profileDirectory: z.string().trim().min(1).nullish()
 })
 
 const commandConfig = z.object({
