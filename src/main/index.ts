@@ -6,14 +6,19 @@ import icon from '../../resources/icon.png?asset'
 import { runMigrations } from './db/migrate'
 import { createContext } from './trpc'
 import { appRouter } from './trpc/router'
+import { manage as manageWindowState, read as readWindowState } from './window-state'
 
 let mainWindow: BrowserWindow | null = null
 let ipcHandler: ReturnType<typeof createIPCHandler> | null = null
 
 function createWindow(): void {
+  const windowState = readWindowState()
   mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 760,
+    width: windowState.width,
+    height: windowState.height,
+    ...(windowState.x !== undefined && windowState.y !== undefined
+      ? { x: windowState.x, y: windowState.y }
+      : {}),
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: 'hiddenInset',
@@ -23,6 +28,10 @@ function createWindow(): void {
       sandbox: false
     }
   })
+  // Restore maximize on top of the normal bounds, while still hidden, so the
+  // window appears already maximized rather than resizing into place.
+  if (windowState.isMaximized) mainWindow.maximize()
+  manageWindowState(mainWindow)
 
   // Wire the typed tRPC-over-IPC handler to this window (attach extra windows
   // to the existing handler rather than recreating it).
