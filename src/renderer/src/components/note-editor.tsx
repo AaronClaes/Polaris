@@ -3,6 +3,7 @@ import {
   IconCode,
   IconH1,
   IconH2,
+  IconH3,
   IconItalic,
   IconList,
   IconListCheck,
@@ -161,6 +162,7 @@ export function NoteEditor({
             strike: editor.isActive('strike'),
             h1: editor.isActive('heading', { level: 1 }),
             h2: editor.isActive('heading', { level: 2 }),
+            h3: editor.isActive('heading', { level: 3 }),
             bulletList: editor.isActive('bulletList'),
             orderedList: editor.isActive('orderedList'),
             taskList: editor.isActive('taskList'),
@@ -213,6 +215,13 @@ export function NoteEditor({
             active={state?.h2}
             disabled={disabled}
             onClick={() => run((c) => c.toggleHeading({ level: 2 }).run())}
+          />
+          <ToolbarButton
+            label="Heading 3"
+            icon={IconH3}
+            active={state?.h3}
+            disabled={disabled}
+            onClick={() => run((c) => c.toggleHeading({ level: 3 }).run())}
           />
           <span className="mx-1 h-5 w-px bg-border" />
           <ToolbarButton

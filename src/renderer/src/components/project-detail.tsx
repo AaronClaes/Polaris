@@ -874,11 +874,15 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
   // Fullscreen note mode: the active note fills the project page. Gate on the
   // Notes tab being open so navigating elsewhere always restores the chrome.
   const expanded = notesExpanded && activeTab === 'notes'
+  // The Notes tab fills the viewport region (the list/editor scroll internally)
+  // instead of growing the page; every other tab keeps its natural scroll.
+  const notesActive = activeTab === 'notes'
 
   return (
     <div
       className={cn(
-        expanded ? 'flex h-full flex-col' : 'mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10'
+        expanded ? 'flex h-full flex-col' : 'mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10',
+        notesActive && 'h-full'
       )}
     >
       {!expanded && (
@@ -919,7 +923,7 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
       <Tabs
         value={activeTab}
         onValueChange={(value) => handleTabChange(String(value))}
-        className={cn(expanded && 'flex min-h-0 flex-1 flex-col')}
+        className={cn(notesActive && 'flex min-h-0 flex-1 flex-col')}
       >
         {!expanded && (
           <TabsList variant="underline" className="w-full justify-start border-border border-b">
@@ -963,7 +967,7 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
           <ProjectPulls project={project} />
         </TabsPanel>
 
-        <TabsPanel value="notes" className={cn(expanded ? 'min-h-0 flex-1' : 'pt-5')} keepMounted>
+        <TabsPanel value="notes" className={cn('min-h-0 flex-1', !expanded && 'pt-5')} keepMounted>
           <ProjectNotes project={project} expanded={expanded} onExpandedChange={setNotesExpanded} />
         </TabsPanel>
 

@@ -141,6 +141,19 @@ export function ProjectNotes({
     if (expanded && !activeNote) onExpandedChange(false)
   }, [expanded, activeNote, onExpandedChange])
 
+  // Esc leaves fullscreen — unless an open dialog (e.g. delete confirm) should
+  // take the keypress first.
+  useEffect(() => {
+    if (!expanded) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      if (document.querySelector('[role="dialog"],[role="alertdialog"]')) return
+      onExpandedChange(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [expanded, onExpandedChange])
+
   const newNoteButton = (
     <Tooltip>
       <TooltipTrigger
@@ -163,7 +176,7 @@ export function ProjectNotes({
 
   if (notesQuery.isLoading) {
     return (
-      <div className="flex h-[60vh] min-h-[22rem] items-center justify-center rounded-lg border border-border text-muted-foreground text-sm">
+      <div className="flex h-full items-center justify-center rounded-lg border border-border text-muted-foreground text-sm">
         Loading…
       </div>
     )
@@ -171,7 +184,7 @@ export function ProjectNotes({
 
   if (notes.length === 0) {
     return (
-      <div className="flex h-[60vh] min-h-[22rem] flex-col items-center justify-center gap-3 rounded-lg border border-border px-6 text-center">
+      <div className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border border-border px-6 text-center">
         <IconNotes className="size-8 text-muted-foreground" />
         <div>
           <p className="font-medium text-sm">No notes yet</p>
@@ -255,17 +268,14 @@ export function ProjectNotes({
 
   return (
     <div
-      className={cn(
-        'flex overflow-hidden',
-        expanded ? 'h-full' : 'h-[60vh] min-h-[22rem] rounded-lg border border-border'
-      )}
+      className={cn('flex h-full overflow-hidden', !expanded && 'rounded-lg border border-border')}
     >
       <aside
         className={cn('flex w-64 shrink-0 flex-col border-border border-r', expanded && 'hidden')}
       >
         <div className="flex items-center justify-between gap-2 border-border border-b px-2 py-1.5">
           <span className="px-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
-            Notes
+            Notes ({notes.length})
           </span>
           {newNoteButton}
         </div>
