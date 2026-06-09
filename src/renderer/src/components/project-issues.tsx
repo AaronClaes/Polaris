@@ -2,7 +2,9 @@ import {
   IconBug,
   IconCircleCheck,
   IconCircleDot,
+  IconGitMerge,
   IconGitPullRequest,
+  IconGitPullRequestClosed,
   IconSparkles
 } from '@tabler/icons-react'
 import { createColumnHelper, type TableOptions } from '@tanstack/react-table'
@@ -32,6 +34,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { useRepoIssues } from '@/lib/github-queries'
 import type { IssueRow, ProjectWithActions } from '@/lib/project-types'
+import { cn } from '@/lib/utils'
 
 // GitHub's IssueTypeColor enum → a representative hex for the type icon.
 const TYPE_COLORS: Record<string, string> = {
@@ -99,6 +102,45 @@ const LabelChips = memo(function LabelChips({
   )
 })
 
+/** GitHub's PR state → its icon, a signalling color, and a readable label. A
+ * linked PR is open (green), merged (purple), or closed without merging (red). */
+const PR_STATE = {
+  OPEN: { Icon: IconGitPullRequest, color: 'text-success-foreground', label: 'Open' },
+  MERGED: { Icon: IconGitMerge, color: 'text-violet-600 dark:text-violet-400', label: 'Merged' },
+  CLOSED: { Icon: IconGitPullRequestClosed, color: 'text-destructive-foreground', label: 'Closed' }
+} as const
+
+/** The linked-PR cell: a pull-request icon, colored by the PR's state, linking
+ * to it on GitHub — with the number + state in a tooltip. */
+const LinkedPrLink = memo(function LinkedPrLink({
+  pr
+}: {
+  pr: NonNullable<IssueRow['linkedPr']>
+}): ReactElement {
+  const state = PR_STATE[pr.state.toUpperCase() as keyof typeof PR_STATE] ?? PR_STATE.OPEN
+  const { Icon } = state
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <a
+            href={pr.url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Pull request #${pr.number} (${state.label}) — open on GitHub`}
+            className={cn('inline-flex transition-opacity hover:opacity-70', state.color)}
+          >
+            <Icon className="size-4" />
+          </a>
+        }
+      />
+      <TooltipPopup>
+        #{pr.number} · {state.label}
+      </TooltipPopup>
+    </Tooltip>
+  )
+})
+
 const columnHelper = createColumnHelper<IssueRow>()
 
 // Defined once and shared by every section's table — the column model is the
@@ -141,15 +183,7 @@ export const ISSUE_COLUMNS = [
     meta: { width: '3.5rem' },
     cell: (cell) => {
       const pr = cell.getValue()
-      if (!pr) return null
-      return (
-        <span
-          className="inline-flex text-muted-foreground"
-          title={`#${pr.number} (${pr.state.toLowerCase()})`}
-        >
-          <IconGitPullRequest className="size-4" />
-        </span>
-      )
+      return pr ? <LinkedPrLink pr={pr} /> : null
     }
   }),
   columnHelper.display({
