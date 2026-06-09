@@ -348,7 +348,7 @@ export function ProjectRepos({ project }: { project: ProjectWithActions }): Reac
   })
 
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="font-medium text-sm">Repositories</h3>
