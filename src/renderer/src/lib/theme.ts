@@ -1,7 +1,18 @@
+import { IconDeviceLaptop, IconMoon, IconSun, type TablerIcon } from '@tabler/icons-react'
 import { useSyncExternalStore } from 'react'
 
 /** The theme preference the user picks. `auto` follows the OS setting. */
 export type Theme = 'light' | 'dark' | 'auto'
+
+/** The concrete appearance shown on screen (`auto` resolved against the OS). */
+export type Appearance = 'light' | 'dark'
+
+/** The theme options, in display order, each with its glyph. */
+export const THEME_OPTIONS: { value: Theme; label: string; Icon: TablerIcon }[] = [
+  { value: 'light', label: 'Light', Icon: IconSun },
+  { value: 'dark', label: 'Dark', Icon: IconMoon },
+  { value: 'auto', label: 'Auto', Icon: IconDeviceLaptop }
+]
 
 const STORAGE_KEY = 'polaris.theme'
 const DARK_QUERY = '(prefers-color-scheme: dark)'
@@ -23,6 +34,11 @@ function systemPrefersDark(): boolean {
 /** Whether a preference resolves to a dark appearance right now. */
 function isDark(theme: Theme): boolean {
   return theme === 'dark' || (theme === 'auto' && systemPrefersDark())
+}
+
+/** The concrete appearance a preference resolves to right now. */
+function resolveAppearance(theme: Theme): Appearance {
+  return isDark(theme) ? 'dark' : 'light'
 }
 
 /**
@@ -51,9 +67,13 @@ function emit(): void {
  */
 export function initTheme(): void {
   applyTheme(current)
-  // While on `auto`, follow the OS as it flips between light and dark.
+  // While on `auto`, follow the OS as it flips between light and dark. Notify
+  // subscribers too so anything keyed to the resolved appearance updates.
   window.matchMedia(DARK_QUERY).addEventListener('change', () => {
-    if (current === 'auto') applyTheme('auto')
+    if (current === 'auto') {
+      applyTheme('auto')
+      emit()
+    }
   })
 }
 
@@ -64,14 +84,25 @@ export function setTheme(theme: Theme): void {
   emit()
 }
 
+/** Flip between explicit light and dark, based on the appearance shown now (so a
+ *  press while on `auto` lands on the opposite of what the OS resolved to). */
+export function toggleAppearance(): void {
+  setTheme(resolveAppearance(current) === 'dark' ? 'light' : 'dark')
+}
+
+function subscribe(callback: () => void): () => void {
+  listeners.add(callback)
+  return () => listeners.delete(callback)
+}
+
 /** Read the current preference reactively, paired with a setter. */
 export function useTheme(): [Theme, (theme: Theme) => void] {
-  const theme = useSyncExternalStore(
-    (callback) => {
-      listeners.add(callback)
-      return () => listeners.delete(callback)
-    },
-    () => current
-  )
+  const theme = useSyncExternalStore(subscribe, () => current)
   return [theme, setTheme]
+}
+
+/** The appearance shown right now, resolving `auto` against the OS. Re-renders
+ *  when the preference changes or — while on `auto` — when the OS flips. */
+export function useAppearance(): Appearance {
+  return useSyncExternalStore(subscribe, () => resolveAppearance(current))
 }

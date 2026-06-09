@@ -1,15 +1,17 @@
-import { IconRefresh } from '@tabler/icons-react'
+import { IconRefresh, IconSettings } from '@tabler/icons-react'
 import { useIsFetching } from '@tanstack/react-query'
-import { useParams } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
 import { ProjectIcon } from '@/components/project-icon'
 import { Button } from '@/components/ui/button'
+import { THEME_OPTIONS, toggleAppearance, useAppearance } from '@/lib/theme'
 import { trpc } from '@/lib/trpc'
 
 /**
  * Full-width draggable title bar (VS Code style). Shows the active project
- * centered, with a global refresh on the right. `drag-region` lets it move the
- * window; the left padding clears the inset macOS traffic lights (window uses
+ * centered, with global refresh, a light/dark toggle and settings on the right.
+ * `drag-region` lets it move the window; the left padding clears the inset macOS
+ * traffic lights (window uses
  * `titleBarStyle: 'hiddenInset'`); interactive controls opt out with `no-drag`.
  */
 export function TopBar(): ReactElement {
@@ -30,6 +32,16 @@ export function TopBar(): ReactElement {
     }
   })
 
+  const navigate = useNavigate()
+  // A binary light/dark toggle (Auto lives in Settings): it shows the glyph for
+  // the appearance on screen now — resolving `auto` to whatever the OS gives —
+  // and a click flips to the opposite explicit mode.
+  const appearance = useAppearance()
+  const themeOption =
+    THEME_OPTIONS.find((option) => option.value === appearance) ?? THEME_OPTIONS[0]
+  const ThemeIcon = themeOption.Icon
+  const nextLabel = appearance === 'dark' ? 'light' : 'dark'
+
   return (
     <header className="drag-region relative flex h-10 shrink-0 items-center justify-center border-border border-b bg-background pl-20">
       {active ? (
@@ -40,16 +52,35 @@ export function TopBar(): ReactElement {
       ) : (
         <span className="font-medium text-muted-foreground text-sm">Polaris</span>
       )}
-      <Button
-        variant="outline"
-        size="sm"
-        className="no-drag absolute right-2"
-        loading={refreshing > 0}
-        onClick={() => utils.github.invalidate()}
-      >
-        <IconRefresh />
-        Refresh
-      </Button>
+      <div className="no-drag absolute right-2 flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          loading={refreshing > 0}
+          onClick={() => utils.github.invalidate()}
+        >
+          <IconRefresh />
+          Refresh
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label={`Switch to ${nextLabel} theme`}
+          title={`Switch to ${nextLabel} theme`}
+          onClick={toggleAppearance}
+        >
+          <ThemeIcon />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          aria-label="Settings"
+          title="Settings"
+          onClick={() => navigate({ to: '/settings' })}
+        >
+          <IconSettings />
+        </Button>
+      </div>
     </header>
   )
 }

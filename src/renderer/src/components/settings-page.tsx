@@ -1,12 +1,4 @@
-import {
-  IconDeviceLaptop,
-  IconMoon,
-  IconPlug,
-  IconSettings,
-  IconSun,
-  IconX,
-  type TablerIcon
-} from '@tabler/icons-react'
+import { IconPlug, IconSettings, IconX, type TablerIcon } from '@tabler/icons-react'
 import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { BrowsersIntegration } from '@/components/browsers-integration'
@@ -14,7 +6,7 @@ import { GitHubIntegration } from '@/components/github-integration'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { type Theme, useTheme } from '@/lib/theme'
+import { THEME_OPTIONS, type Theme, useTheme } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 
 interface SettingsSection {
@@ -44,13 +36,6 @@ function PanelPlaceholder({
     </div>
   )
 }
-
-/** The theme options, in display order, with their segmented-control glyph. */
-const THEME_OPTIONS: { value: Theme; label: string; Icon: TablerIcon }[] = [
-  { value: 'light', label: 'Light', Icon: IconSun },
-  { value: 'dark', label: 'Dark', Icon: IconMoon },
-  { value: 'auto', label: 'Auto', Icon: IconDeviceLaptop }
-]
 
 /** Segmented Light / Dark / Auto picker, bound to the global theme store. */
 function ThemeToggle(): ReactElement {
