@@ -17,6 +17,8 @@ export const projects = sqliteTable('projects', {
   color: text('color').notNull().default('blue'),
   // Default working directory for command actions; per-action cwd can override.
   path: text('path'),
+  // Surfaces the project on the dashboard home (its pinned-projects section).
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
   // `timestamp` mode → drizzle returns a JS Date. superjson keeps it a Date
   // across the IPC boundary (see trpc transformer wiring).
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)

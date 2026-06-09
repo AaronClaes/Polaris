@@ -828,10 +828,14 @@ function SettingsTab({
 }
 
 export function ProjectDetail({ project }: { project: ProjectWithActions }): ReactElement {
+  const utils = trpc.useUtils()
   const [runError, setRunError] = useState<string | null>(null)
   // A note can take over the whole project page; only meaningful on the Notes tab.
   const [notesExpanded, setNotesExpanded] = useState(false)
   const navigate = useNavigate()
+  const setPinned = trpc.projects.setPinned.useMutation({
+    onSuccess: () => utils.projects.list.invalidate()
+  })
   // The shell is a pathless layout route, so the route ID is `/shell/...` even
   // though the URL stays `/projects/$projectId`.
   const { tab } = useSearch({ from: '/shell/projects/$projectId' })
@@ -890,7 +894,16 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
           <header className="flex items-start gap-4">
             <ProjectIcon icon={project.icon} color={project.color} size={30} className="size-14" />
             <div className="min-w-0 flex-1">
-              <h1 className="font-heading font-semibold text-2xl tracking-tight">{project.name}</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="min-w-0 truncate font-heading font-semibold text-2xl tracking-tight">
+                  {project.name}
+                </h1>
+                <PinButton
+                  pinned={project.pinned}
+                  loading={setPinned.isPending}
+                  onToggle={() => setPinned.mutate({ id: project.id, pinned: !project.pinned })}
+                />
+              </div>
               {project.description && (
                 <p className="mt-0.5 text-muted-foreground text-sm">{project.description}</p>
               )}

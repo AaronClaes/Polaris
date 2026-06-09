@@ -64,6 +64,13 @@
       "when": 1781033798478,
       "tag": "0008_long_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1781038591296,
+      "tag": "0009_add_project_pinned",
+      "breakpoints": true
     }
   ]
 }

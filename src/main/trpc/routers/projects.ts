@@ -91,6 +91,18 @@ export const projectsRouter = router({
     return ctx.db.update(projects).set(values).where(eq(projects.id, id)).returning().get()
   }),
 
+  // Pin/unpin from the dashboard home's projects section.
+  setPinned: publicProcedure
+    .input(z.object({ id: z.number().int(), pinned: z.boolean() }))
+    .mutation(({ ctx, input }) =>
+      ctx.db
+        .update(projects)
+        .set({ pinned: input.pinned })
+        .where(eq(projects.id, input.id))
+        .returning()
+        .get()
+    ),
+
   // Cascades to the project's actions (FK onDelete: 'cascade' + foreign_keys ON).
   delete: publicProcedure.input(z.object({ id: z.number().int() })).mutation(({ ctx, input }) => {
     ctx.db.delete(projects).where(eq(projects.id, input.id)).run()

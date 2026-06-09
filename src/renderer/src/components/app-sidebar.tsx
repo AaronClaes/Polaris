@@ -30,6 +30,7 @@ import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
+import { cn } from '@/lib/utils'
 
 function ProjectRow({
   project,
@@ -167,7 +168,16 @@ export function AppSidebar(): ReactElement {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Projects</SidebarGroupLabel>
+          <SidebarGroupLabel
+            render={<Link to="/projects" />}
+            className={cn(
+              'cursor-pointer transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+              pathname === '/projects' &&
+                'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
+            )}
+          >
+            Projects
+          </SidebarGroupLabel>
           <CreateProjectDialog
             trigger={
               <SidebarGroupAction aria-label="New project" title="New project">
