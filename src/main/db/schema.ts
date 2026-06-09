@@ -180,6 +180,39 @@ export const browsers = sqliteTable('browsers', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
 
+/**
+ * A ProseMirror/TipTap document, stored as JSON in {@link notes.body}. Kept
+ * structurally loose here so the main process needn't depend on the editor
+ * library — the renderer casts it to TipTap's `JSONContent`.
+ */
+export type NoteDoc = { type: string; content?: unknown[]; [key: string]: unknown }
+
+/**
+ * A per-project note. Free-form rich text edited in the renderer; the editor's
+ * document is persisted as ProseMirror JSON in `body` (the source of truth),
+ * while `title` (first line) and `plaintext` are denormalized on every save so
+ * the notes list can render — and a future search can match — without parsing
+ * the doc. `updatedAt` drives the recency sort; `pinned` floats a note to the top.
+ */
+export const notes = sqliteTable('notes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  // Derived from the document's first line on each save; '' for an empty note.
+  title: text('title').notNull().default(''),
+  // The editor document (ProseMirror JSON) — the source of truth.
+  body: text('body', { mode: 'json' }).$type<NoteDoc>().notNull(),
+  // Flattened text of `body`, refreshed on every save for list snippets + search.
+  plaintext: text('plaintext').notNull().default(''),
+  // Pinned notes sort above the rest. Pinning is not an edit, so it leaves
+  // `updatedAt` untouched (the within-group order stays by recency).
+  pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  // Bumped to `now` on every content save; drives the recency ordering.
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
 export type ProjectRepo = typeof projectRepos.$inferSelect
@@ -192,3 +225,5 @@ export type GithubAccount = typeof githubAccounts.$inferSelect
 export type NewGithubAccount = typeof githubAccounts.$inferInsert
 export type Browser = typeof browsers.$inferSelect
 export type NewBrowser = typeof browsers.$inferInsert
+export type Note = typeof notes.$inferSelect
+export type NewNote = typeof notes.$inferInsert

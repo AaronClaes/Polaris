@@ -35,6 +35,7 @@ import { PathInput } from '@/components/path-input'
 import { ProjectHome } from '@/components/project-home'
 import { ProjectIcon } from '@/components/project-icon'
 import { ProjectIssues } from '@/components/project-issues'
+import { ProjectNotes } from '@/components/project-notes'
 import { ProjectPulls } from '@/components/project-pulls'
 import { ProjectRepos } from '@/components/project-repos'
 import { ReorderableActions } from '@/components/reorderable-actions'
@@ -74,7 +75,7 @@ import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/sch
 
 /** The project detail tabs, in display order. Drives the `?tab=` search param
  *  (see the route) so cards and links can deep-link to a specific tab. */
-export const PROJECT_TABS = ['home', 'issues', 'pulls', 'settings'] as const
+export const PROJECT_TABS = ['home', 'issues', 'pulls', 'notes', 'settings'] as const
 export type ProjectTab = (typeof PROJECT_TABS)[number]
 const DEFAULT_TAB: ProjectTab = 'home'
 
@@ -828,6 +829,8 @@ function SettingsTab({
 
 export function ProjectDetail({ project }: { project: ProjectWithActions }): ReactElement {
   const [runError, setRunError] = useState<string | null>(null)
+  // A note can take over the whole project page; only meaningful on the Notes tab.
+  const [notesExpanded, setNotesExpanded] = useState(false)
   const navigate = useNavigate()
   // The shell is a pathless layout route, so the route ID is `/shell/...` even
   // though the URL stays `/projects/$projectId`.
@@ -868,64 +871,85 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
   )
   const counts = useRepoCounts(repos)
 
+  // Fullscreen note mode: the active note fills the project page. Gate on the
+  // Notes tab being open so navigating elsewhere always restores the chrome.
+  const expanded = notesExpanded && activeTab === 'notes'
+
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
-      <header className="flex items-start gap-4">
-        <ProjectIcon icon={project.icon} color={project.color} size={30} className="size-14" />
-        <div className="min-w-0 flex-1">
-          <h1 className="font-heading font-semibold text-2xl tracking-tight">{project.name}</h1>
-          {project.description && (
-            <p className="mt-0.5 text-muted-foreground text-sm">{project.description}</p>
-          )}
-          {project.path && (
-            <p
-              className="mt-2 truncate font-mono text-muted-foreground text-xs"
-              title={project.path}
-            >
-              {project.path}
+    <div
+      className={cn(
+        expanded ? 'flex h-full flex-col' : 'mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10'
+      )}
+    >
+      {!expanded && (
+        <>
+          <header className="flex items-start gap-4">
+            <ProjectIcon icon={project.icon} color={project.color} size={30} className="size-14" />
+            <div className="min-w-0 flex-1">
+              <h1 className="font-heading font-semibold text-2xl tracking-tight">{project.name}</h1>
+              {project.description && (
+                <p className="mt-0.5 text-muted-foreground text-sm">{project.description}</p>
+              )}
+              {project.path && (
+                <p
+                  className="mt-2 truncate font-mono text-muted-foreground text-xs"
+                  title={project.path}
+                >
+                  {project.path}
+                </p>
+              )}
+            </div>
+          </header>
+
+          <LauncherRow
+            project={project}
+            membersByGroup={membersByGroup}
+            looseActions={looseActions}
+            onError={setRunError}
+          />
+
+          {runError && (
+            <p className="rounded-lg border border-destructive/36 bg-destructive/8 px-3 py-2 text-destructive-foreground text-sm">
+              {runError}
             </p>
           )}
-        </div>
-      </header>
-
-      <LauncherRow
-        project={project}
-        membersByGroup={membersByGroup}
-        looseActions={looseActions}
-        onError={setRunError}
-      />
-
-      {runError && (
-        <p className="rounded-lg border border-destructive/36 bg-destructive/8 px-3 py-2 text-destructive-foreground text-sm">
-          {runError}
-        </p>
+        </>
       )}
 
-      <Tabs value={activeTab} onValueChange={(value) => handleTabChange(String(value))}>
-        <TabsList variant="underline" className="w-full justify-start border-border border-b">
-          <TabsTab value="home" className="grow-0">
-            Home
-          </TabsTab>
-          <TabsTab value="issues" className="grow-0">
-            Issues
-            {repos.length > 0 && counts.issuesLoaded && (
-              <Badge variant="secondary" size="sm" className="rounded-full">
-                {counts.issues}
-              </Badge>
-            )}
-          </TabsTab>
-          <TabsTab value="pulls" className="grow-0">
-            Pull requests
-            {repos.length > 0 && counts.pullsLoaded && (
-              <Badge variant="secondary" size="sm" className="rounded-full">
-                {counts.pulls}
-              </Badge>
-            )}
-          </TabsTab>
-          <TabsTab value="settings" className="grow-0">
-            Settings
-          </TabsTab>
-        </TabsList>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => handleTabChange(String(value))}
+        className={cn(expanded && 'flex min-h-0 flex-1 flex-col')}
+      >
+        {!expanded && (
+          <TabsList variant="underline" className="w-full justify-start border-border border-b">
+            <TabsTab value="home" className="grow-0">
+              Home
+            </TabsTab>
+            <TabsTab value="issues" className="grow-0">
+              Issues
+              {repos.length > 0 && counts.issuesLoaded && (
+                <Badge variant="secondary" size="sm" className="rounded-full">
+                  {counts.issues}
+                </Badge>
+              )}
+            </TabsTab>
+            <TabsTab value="pulls" className="grow-0">
+              Pull requests
+              {repos.length > 0 && counts.pullsLoaded && (
+                <Badge variant="secondary" size="sm" className="rounded-full">
+                  {counts.pulls}
+                </Badge>
+              )}
+            </TabsTab>
+            <TabsTab value="notes" className="grow-0">
+              Notes
+            </TabsTab>
+            <TabsTab value="settings" className="grow-0">
+              Settings
+            </TabsTab>
+          </TabsList>
+        )}
 
         <TabsPanel value="home" className="pt-5" keepMounted>
           <ProjectHome project={project} />
@@ -937,6 +961,10 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
 
         <TabsPanel value="pulls" className="pt-5" keepMounted>
           <ProjectPulls project={project} />
+        </TabsPanel>
+
+        <TabsPanel value="notes" className={cn(expanded ? 'min-h-0 flex-1' : 'pt-5')} keepMounted>
+          <ProjectNotes project={project} expanded={expanded} onExpandedChange={setNotesExpanded} />
         </TabsPanel>
 
         <TabsPanel value="settings" className="pt-5">

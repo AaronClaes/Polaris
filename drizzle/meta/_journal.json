@@ -57,6 +57,13 @@
       "when": 1780984069493,
       "tag": "0007_add_repo_path",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1781033798478,
+      "tag": "0008_long_maggott",
+      "breakpoints": true
     }
   ]
 }

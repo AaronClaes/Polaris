@@ -432,3 +432,161 @@
     @apply font-sans font-mono;
   }
 }
+
+/* ── Note editor (TipTap) ──────────────────────────────────────────────────
+   Scoped to the editor's contenteditable surface (the `note-editor` class is
+   set via `editorProps.attributes`). Everything keys off the app's design
+   tokens so the prose tracks light/dark with the rest of the UI. */
+.note-editor {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+.note-editor:focus {
+  outline: none;
+}
+.note-editor > * + * {
+  margin-top: 0.65em;
+}
+.note-editor h1,
+.note-editor h2,
+.note-editor h3 {
+  font-weight: 600;
+  line-height: 1.25;
+  margin-top: 1.2em;
+}
+.note-editor h1 {
+  font-size: 1.5rem;
+}
+.note-editor h2 {
+  font-size: 1.25rem;
+}
+.note-editor h3 {
+  font-size: 1.05rem;
+}
+.note-editor ul,
+.note-editor ol {
+  padding-left: 1.25rem;
+}
+.note-editor ul {
+  list-style: disc;
+}
+.note-editor ol {
+  list-style: decimal;
+}
+.note-editor li {
+  margin: 0.15em 0;
+}
+.note-editor li p {
+  margin: 0;
+}
+.note-editor blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.85rem;
+  color: var(--muted-foreground);
+}
+.note-editor a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.note-editor hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+.note-editor code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--code-highlight);
+  padding: 0.15em 0.35em;
+  border-radius: var(--radius-sm);
+}
+.note-editor pre {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.5;
+  background: var(--code);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.9rem;
+  overflow-x: auto;
+}
+.note-editor pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  border-radius: 0;
+}
+
+/* Task lists (checklists) — flatten the list and lay each item out as
+   [checkbox][content]; checked items read as done. */
+.note-editor ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.note-editor ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.note-editor ul[data-type="taskList"] li > label {
+  margin-top: 0.2em;
+  user-select: none;
+}
+.note-editor ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.note-editor ul[data-type="taskList"] input[type="checkbox"] {
+  cursor: pointer;
+}
+.note-editor ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+}
+
+/* Placeholder shown in an empty document. */
+.note-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Syntax highlighting (lowlight → highlight.js token classes). A compact,
+   theme-agnostic palette that reads on both the light and dark code surfaces. */
+.note-editor pre .hljs-comment,
+.note-editor pre .hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.note-editor pre .hljs-keyword,
+.note-editor pre .hljs-selector-tag,
+.note-editor pre .hljs-literal {
+  color: #c678dd;
+}
+.note-editor pre .hljs-string,
+.note-editor pre .hljs-attr,
+.note-editor pre .hljs-regexp {
+  color: #98c379;
+}
+.note-editor pre .hljs-number,
+.note-editor pre .hljs-built_in {
+  color: #d19a66;
+}
+.note-editor pre .hljs-title,
+.note-editor pre .hljs-section {
+  color: #61afef;
+}
+.note-editor pre .hljs-type {
+  color: #e5c07b;
+}
+.note-editor pre .hljs-tag,
+.note-editor pre .hljs-name {
+  color: #e06c75;
+}
+.note-editor pre .hljs-meta {
+  color: var(--muted-foreground);
+}
