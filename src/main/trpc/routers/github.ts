@@ -149,6 +149,20 @@ export const githubRouter = router({
         .get()
     ),
 
+  // Set (or clear) a linked repo's local working directory, keyed by the row id.
+  // A blank/whitespace path stores null, falling back to the project default.
+  setRepoPath: publicProcedure
+    .input(z.object({ id: z.number().int(), path: z.string() }))
+    .mutation(({ ctx, input }) => {
+      const path = input.path.trim() || null
+      return ctx.db
+        .update(projectRepos)
+        .set({ path })
+        .where(eq(projectRepos.id, input.id))
+        .returning()
+        .get()
+    }),
+
   // Unlink a repo from a project by its GitHub id (what the picker toggles off).
   unlinkRepo: publicProcedure
     .input(z.object({ projectId: z.number().int(), repoId: z.number().int() }))

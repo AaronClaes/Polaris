@@ -1,6 +1,7 @@
 import { router } from '.'
 import { actionsRouter } from './routers/actions'
 import { browsersRouter } from './routers/browsers'
+import { dialogRouter } from './routers/dialog'
 import { faviconRouter } from './routers/favicon'
 import { githubRouter } from './routers/github'
 import { groupsRouter } from './routers/groups'
@@ -12,7 +13,8 @@ export const appRouter = router({
   actions: actionsRouter,
   github: githubRouter,
   favicon: faviconRouter,
-  browsers: browsersRouter
+  browsers: browsersRouter,
+  dialog: dialogRouter
 })
 
 // Consumed type-only by the renderer for a fully typed IPC client.

@@ -2,6 +2,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { type FormEvent, type ReactElement, useId, useState } from 'react'
 import { ColorPicker } from '@/components/color-picker'
 import { IconPicker } from '@/components/icon-picker'
+import { PathInput } from '@/components/path-input'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -112,11 +113,11 @@ export function CreateProjectDialog({ trigger }: CreateProjectDialogProps): Reac
 
             <div className="grid gap-1.5">
               <Label htmlFor={pathId}>Default path (optional)</Label>
-              <Input
+              <PathInput
                 id={pathId}
                 placeholder="/Users/you/projects/polaris"
                 value={form.path}
-                onChange={(e) => setForm((p) => ({ ...p, path: e.target.value }))}
+                onChange={(value) => setForm((p) => ({ ...p, path: value }))}
               />
               <p className="text-muted-foreground text-xs">
                 Working directory commands run in (each action can override it).

@@ -7,6 +7,7 @@ import {
 } from '@tabler/icons-react'
 import { type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from 'react'
 import { IconPicker } from '@/components/icon-picker'
+import { PathInput } from '@/components/path-input'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -388,11 +389,11 @@ export function AddActionDialog({
                   </div>
                   <div className="grid gap-1.5">
                     <Label htmlFor={cwdId}>Working directory (optional)</Label>
-                    <Input
+                    <PathInput
                       id={cwdId}
                       placeholder={projectPath ?? 'Project default path'}
                       value={form.cwd}
-                      onChange={set('cwd')}
+                      onChange={(value) => setForm((prev) => ({ ...prev, cwd: value }))}
                     />
                   </div>
                 </>

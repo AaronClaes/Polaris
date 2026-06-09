@@ -3,11 +3,21 @@ import {
   IconCheck,
   IconExternalLink,
   IconLock,
+  IconPencil,
   IconPlus,
   IconTrash
 } from '@tabler/icons-react'
 import { useNavigate } from '@tanstack/react-router'
-import { type ReactElement, useMemo, useState } from 'react'
+import {
+  type FormEvent,
+  type ReactElement,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
+import { PathInput } from '@/components/path-input'
 import { Button } from '@/components/ui/button'
 import {
   Command,
@@ -22,21 +32,39 @@ import {
   CommandItem,
   CommandList
 } from '@/components/ui/command'
+import {
+  Dialog,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import type { GithubRepoRow, ProjectRepoRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 
-/** One linked repo: identity (opens on GitHub) + an unlink button. */
+/** One linked repo: identity (opens on GitHub) + its local path + edit/unlink. */
 function LinkedRepoRow({
   repo,
+  projectPath,
   unlinking,
   onUnlink
 }: {
   repo: ProjectRepoRow
+  /** The project's default path — shown (with a "(default)" tag) when the repo
+   * has no path of its own, and used as the picker/placeholder seed. */
+  projectPath: string | null
   unlinking: boolean
   onUnlink: () => void
 }): ReactElement {
+  const [editOpen, setEditOpen] = useState(false)
   const Icon = repo.private ? IconLock : IconBrandGithub
+  // The repo's own path wins; otherwise fall back to the project default.
+  const displayPath = repo.path ?? projectPath
   return (
     <li className="flex items-center gap-3 rounded-lg border px-3 py-2">
       <Icon className="size-4 shrink-0 text-muted-foreground" />
@@ -56,7 +84,25 @@ function LinkedRepoRow({
         {repo.description && (
           <p className="truncate text-muted-foreground text-xs">{repo.description}</p>
         )}
+        {displayPath && (
+          <p
+            className="mt-0.5 truncate font-mono text-muted-foreground text-xs"
+            title={displayPath}
+          >
+            {displayPath}
+            {!repo.path && <span className="opacity-70"> (default)</span>}
+          </p>
+        )}
       </div>
+      <Button
+        variant="outline"
+        size="icon-sm"
+        aria-label={`Edit local directory for ${repo.owner}/${repo.name}`}
+        title="Edit local directory"
+        onClick={() => setEditOpen(true)}
+      >
+        <IconPencil />
+      </Button>
       <Button
         variant="destructive-outline"
         size="icon-sm"
@@ -67,7 +113,88 @@ function LinkedRepoRow({
       >
         <IconTrash />
       </Button>
+      <RepoPathDialog
+        repo={repo}
+        projectPath={projectPath}
+        open={editOpen}
+        onOpenChange={setEditOpen}
+      />
     </li>
+  )
+}
+
+/** Dialog to set (or clear) a linked repo's local working directory. Blank saves
+ * as null, falling back to the project default; the project default seeds the
+ * input's placeholder so you can see what "empty" resolves to. */
+function RepoPathDialog({
+  repo,
+  projectPath,
+  open,
+  onOpenChange
+}: {
+  repo: ProjectRepoRow
+  projectPath: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): ReactElement {
+  const utils = trpc.useUtils()
+  const pathId = useId()
+  const [path, setPath] = useState(repo.path ?? '')
+
+  // Seed the field from the repo each time the dialog opens.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (open && !wasOpen.current) setPath(repo.path ?? '')
+    wasOpen.current = open
+  }, [open, repo.path])
+
+  const setRepoPath = trpc.github.setRepoPath.useMutation({
+    onSuccess: () => {
+      utils.projects.list.invalidate()
+      onOpenChange(false)
+    }
+  })
+
+  const handleSubmit = (event: FormEvent): void => {
+    event.preventDefault()
+    setRepoPath.mutate({ id: repo.id, path })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Local directory</DialogTitle>
+          <DialogDescription>
+            The working directory for{' '}
+            <span className="font-medium text-foreground">
+              {repo.owner}/{repo.name}
+            </span>
+            . Leave it empty to use the project's default path.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="contents" onSubmit={handleSubmit}>
+          <DialogPanel className="grid gap-1.5">
+            <Label htmlFor={pathId}>Path</Label>
+            <PathInput
+              id={pathId}
+              value={path}
+              onChange={setPath}
+              placeholder={projectPath ?? '/Users/you/projects/repo'}
+            />
+            {setRepoPath.error && (
+              <p className="text-destructive-foreground text-sm">{setRepoPath.error.message}</p>
+            )}
+          </DialogPanel>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
+            <Button type="submit" loading={setRepoPath.isPending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogPopup>
+    </Dialog>
   )
 }
 
@@ -266,6 +393,7 @@ export function ProjectRepos({ project }: { project: ProjectWithActions }): Reac
             <LinkedRepoRow
               key={repo.id}
               repo={repo}
+              projectPath={project.path}
               unlinking={unlink.isPending && unlink.variables?.repoId === repo.repoId}
               onUnlink={() => unlink.mutate({ projectId: project.id, repoId: repo.repoId })}
             />

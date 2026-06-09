@@ -18,6 +18,7 @@ import { ColorPicker } from '@/components/color-picker'
 import { GroupDialog } from '@/components/group-dialog'
 import { GroupLauncher } from '@/components/group-launcher'
 import { IconPicker } from '@/components/icon-picker'
+import { PathInput } from '@/components/path-input'
 import { ProjectHome } from '@/components/project-home'
 import { ProjectIcon } from '@/components/project-icon'
 import { ProjectIssues } from '@/components/project-issues'
@@ -594,11 +595,11 @@ function ProjectDetailsSection({ project }: { project: ProjectWithActions }): Re
 
         <div className="grid gap-1.5">
           <Label htmlFor={pathId}>Default path (optional)</Label>
-          <Input
+          <PathInput
             id={pathId}
             placeholder="/Users/you/projects/polaris"
             value={form.path}
-            onChange={(e) => setForm((p) => ({ ...p, path: e.target.value }))}
+            onChange={(value) => setForm((p) => ({ ...p, path: value }))}
           />
           <p className="text-muted-foreground text-xs">
             Working directory commands run in (each action can override it).

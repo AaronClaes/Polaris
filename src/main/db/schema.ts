@@ -155,6 +155,10 @@ export const projectRepos = sqliteTable(
     description: text('description'),
     url: text('url').notNull(),
     defaultBranch: text('default_branch'),
+    // Local working directory for this repo's git operations (e.g. an existing
+    // clone). Null falls back to the project's default `path` — so a repo only
+    // stores a path when it diverges from the project default.
+    path: text('path'),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
   },
   (table) => [

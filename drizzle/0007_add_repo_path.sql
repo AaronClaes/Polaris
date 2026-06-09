@@ -1,0 +1,1 @@
+ALTER TABLE `project_repos` ADD `path` text;
