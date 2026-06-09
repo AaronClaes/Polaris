@@ -185,7 +185,7 @@ export function SettingsPage(): ReactElement {
           </ul>
         </nav>
 
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        <main className="min-w-0 flex-1 overflow-y-auto scrollbar-gutter-stable">
           <div className="mx-auto max-w-2xl px-8 py-10">{active.render()}</div>
         </main>
       </div>

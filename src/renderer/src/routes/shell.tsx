@@ -13,7 +13,9 @@ function ShellLayout(): ReactElement {
       <SidebarProvider className="min-h-0 flex-1">
         <AppSidebar />
         <SidebarInset className="min-w-0">
-          <div className="flex-1 overflow-y-auto">
+          {/* Reserve the scrollbar gutter always, so content doesn't shift when
+              a page grows tall enough to scroll. */}
+          <div className="flex-1 overflow-y-auto scrollbar-gutter-stable">
             <Outlet />
           </div>
         </SidebarInset>
