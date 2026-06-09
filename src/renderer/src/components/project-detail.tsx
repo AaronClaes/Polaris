@@ -1,5 +1,8 @@
 import {
+  IconAlertTriangle,
   IconArrowsSort,
+  IconBolt,
+  IconBrandGithub,
   IconCheck,
   IconDots,
   IconInbox,
@@ -7,10 +10,20 @@ import {
   IconPin,
   IconPlayerPlay,
   IconPlus,
-  IconTrash
+  IconSettings,
+  IconTrash,
+  type TablerIcon
 } from '@tabler/icons-react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
-import { type FormEvent, type ReactElement, useId, useMemo, useState } from 'react'
+import {
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { ActionIcon } from '@/components/action-icon'
 import { ActionLaunchButton } from '@/components/action-launch-button'
 import { AddActionDialog } from '@/components/add-action-dialog'
@@ -56,11 +69,12 @@ import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
+import { cn } from '@/lib/utils'
 import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/schema'
 
 /** The project detail tabs, in display order. Drives the `?tab=` search param
  *  (see the route) so cards and links can deep-link to a specific tab. */
-export const PROJECT_TABS = ['home', 'issues', 'pulls', 'actions', 'settings'] as const
+export const PROJECT_TABS = ['home', 'issues', 'pulls', 'settings'] as const
 export type ProjectTab = (typeof PROJECT_TABS)[number]
 const DEFAULT_TAB: ProjectTab = 'home'
 
@@ -511,117 +525,160 @@ function ActionsTab({
   )
 }
 
-/** Editable project basics (name, description, look, default path) — the top
- *  section of Settings. Saves via projects.update; Save enables only when the
- *  form differs from the saved project. */
-function ProjectDetailsSection({ project }: { project: ProjectWithActions }): ReactElement {
-  const utils = trpc.useUtils()
-  const [form, setForm] = useState({
-    name: project.name,
-    description: project.description ?? '',
-    icon: project.icon,
-    color: project.color,
-    path: project.path ?? ''
-  })
-  const nameId = useId()
-  const descriptionId = useId()
-  const pathId = useId()
-
-  const update = trpc.projects.update.useMutation({
-    onSuccess: () => utils.projects.list.invalidate()
-  })
-
-  const dirty =
-    form.name !== project.name ||
-    form.description !== (project.description ?? '') ||
-    form.icon !== project.icon ||
-    form.color !== project.color ||
-    form.path !== (project.path ?? '')
-  const canSave = form.name.trim().length > 0 && dirty
-
-  const handleSubmit = (event: FormEvent): void => {
-    event.preventDefault()
-    if (!canSave) return
-    update.mutate({
-      id: project.id,
-      name: form.name,
-      description: form.description,
-      icon: form.icon,
-      color: form.color,
-      path: form.path
-    })
-  }
-
+/** A titled section inside the project Settings tab — a header (title + optional
+ *  description) over its content, sharing the project's lightweight heading
+ *  style so every vertical-tab panel reads the same. */
+function SettingsPanel({
+  title,
+  description,
+  children
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+}): ReactElement {
   return (
-    <section className="flex flex-col gap-2">
-      <h3 className="font-medium text-sm">Details</h3>
-      <form
-        className="flex flex-col gap-4 rounded-xl border border-border p-4"
-        onSubmit={handleSubmit}
-      >
-        <div className="grid gap-1.5">
-          <Label htmlFor={nameId}>Name</Label>
-          <Input
-            id={nameId}
-            value={form.name}
-            onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-            required
-          />
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label htmlFor={descriptionId}>Description</Label>
-          <Textarea
-            id={descriptionId}
-            placeholder="What is this project?"
-            value={form.description}
-            onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-          />
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-1.5">
-            <Label>Icon</Label>
-            <IconPicker value={form.icon} onChange={(icon) => setForm((p) => ({ ...p, icon }))} />
-          </div>
-          <div className="grid gap-1.5">
-            <Label>Color</Label>
-            <ColorPicker
-              value={form.color}
-              onChange={(color) => setForm((p) => ({ ...p, color }))}
-            />
-          </div>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label htmlFor={pathId}>Default path (optional)</Label>
-          <PathInput
-            id={pathId}
-            placeholder="/Users/you/projects/polaris"
-            value={form.path}
-            onChange={(value) => setForm((p) => ({ ...p, path: value }))}
-          />
-          <p className="text-muted-foreground text-xs">
-            Working directory commands run in (each action can override it).
-          </p>
-        </div>
-
-        {update.error && (
-          <p className="text-destructive-foreground text-sm">{update.error.message}</p>
-        )}
-        <div className="flex justify-end">
-          <Button type="submit" size="sm" loading={update.isPending} disabled={!canSave}>
-            Save changes
-          </Button>
-        </div>
-      </form>
+    <section className="flex flex-col gap-4">
+      <div className="min-w-0">
+        <h3 className="font-medium text-sm">{title}</h3>
+        {description && <p className="mt-0.5 text-muted-foreground text-sm">{description}</p>}
+      </div>
+      {children}
     </section>
   )
 }
 
-/** Project settings (the Settings tab): editable details, linked repositories,
- *  and a danger zone. */
-function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement {
+type ProjectForm = {
+  name: string
+  description: string
+  icon: string
+  color: string
+  path: string
+}
+
+/** Project row → the editable form shape (nullable columns become ''). */
+function seedProjectForm(p: ProjectWithActions): ProjectForm {
+  return {
+    name: p.name,
+    description: p.description ?? '',
+    icon: p.icon,
+    color: p.color,
+    path: p.path ?? ''
+  }
+}
+
+/** The General settings panel: editable project basics (name, description, look,
+ *  default path). Auto-saves — every edit is debounced and persisted via
+ *  projects.update, so there's no Save button. The required name is never saved
+ *  blank (the field just shows a hint until it's filled back in). */
+function GeneralPanel({ project }: { project: ProjectWithActions }): ReactElement {
+  const utils = trpc.useUtils()
+  const update = trpc.projects.update.useMutation({
+    onSuccess: () => utils.projects.list.invalidate()
+  })
+
+  const [form, setForm] = useState(() => seedProjectForm(project))
+  const nameId = useId()
+  const descriptionId = useId()
+  const pathId = useId()
+
+  // Re-seed when navigating to a different project (this instance is reused).
+  const seededId = useRef(project.id)
+  useEffect(() => {
+    if (seededId.current !== project.id) {
+      seededId.current = project.id
+      setForm(seedProjectForm(project))
+    }
+  }, [project])
+
+  const persisted = seedProjectForm(project)
+  const dirty =
+    form.name !== persisted.name ||
+    form.description !== persisted.description ||
+    form.icon !== persisted.icon ||
+    form.color !== persisted.color ||
+    form.path !== persisted.path
+  const nameValid = form.name.trim().length > 0
+
+  // Debounced auto-save: persist once edits settle and the name is non-blank.
+  // When the save lands, the query invalidates and `persisted` catches up to
+  // `form`, so `dirty` flips false and this doesn't re-fire.
+  const save = update.mutate
+  useEffect(() => {
+    if (!dirty || !nameValid) return
+    const timer = setTimeout(() => {
+      save({
+        id: project.id,
+        name: form.name,
+        description: form.description,
+        icon: form.icon,
+        color: form.color,
+        path: form.path
+      })
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [form, dirty, nameValid, project.id, save])
+
+  return (
+    <SettingsPanel
+      title="General"
+      description="Name, appearance, and where this project's commands run."
+    >
+      <div className="grid gap-1.5">
+        <Label htmlFor={nameId}>Name</Label>
+        <Input
+          id={nameId}
+          value={form.name}
+          onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+          aria-invalid={!nameValid}
+          required
+        />
+        {!nameValid && <p className="text-destructive-foreground text-xs">Name is required.</p>}
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor={descriptionId}>Description</Label>
+        <Textarea
+          id={descriptionId}
+          placeholder="What is this project?"
+          value={form.description}
+          onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-1.5">
+          <Label>Icon</Label>
+          <IconPicker value={form.icon} onChange={(icon) => setForm((p) => ({ ...p, icon }))} />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Color</Label>
+          <ColorPicker value={form.color} onChange={(color) => setForm((p) => ({ ...p, color }))} />
+        </div>
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor={pathId}>Default path (optional)</Label>
+        <PathInput
+          id={pathId}
+          placeholder="/Users/you/projects/polaris"
+          value={form.path}
+          onChange={(value) => setForm((p) => ({ ...p, path: value }))}
+        />
+        <p className="text-muted-foreground text-xs">
+          Working directory commands run in (each action can override it).
+        </p>
+      </div>
+
+      {update.error && (
+        <p className="text-destructive-foreground text-sm">{update.error.message}</p>
+      )}
+    </SettingsPanel>
+  )
+}
+
+/** The Danger zone panel: permanently delete the project (with confirmation). */
+function DangerZonePanel({ project }: { project: ProjectWithActions }): ReactElement {
   const utils = trpc.useUtils()
   const navigate = useNavigate()
   const deleteProject = trpc.projects.delete.useMutation({
@@ -632,50 +689,139 @@ function SettingsTab({ project }: { project: ProjectWithActions }): ReactElement
   })
 
   return (
-    <div className="flex flex-col gap-8">
-      <ProjectDetailsSection project={project} />
-      <ProjectRepos project={project} />
-
-      <section className="flex flex-col gap-2">
-        <h3 className="font-medium text-destructive-foreground text-sm">Danger zone</h3>
-        <div className="flex items-center justify-between gap-4 rounded-xl border border-destructive/36 px-4 py-3">
-          <div className="min-w-0">
-            <p className="font-medium text-sm">Delete this project</p>
-            <p className="text-muted-foreground text-sm">
-              Permanently removes the project and all its actions. This can't be undone.
-            </p>
-          </div>
-          <AlertDialog>
-            <AlertDialogTrigger
-              render={
-                <Button variant="destructive-outline" size="sm" className="shrink-0">
-                  <IconTrash />
-                  Delete project
-                </Button>
-              }
-            />
-            <AlertDialogPopup>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete “{project.name}”?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This permanently removes the project and all its actions and groups. This can't be
-                  undone.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogClose render={<Button variant="ghost" />}>Cancel</AlertDialogClose>
-                <Button
-                  variant="destructive"
-                  loading={deleteProject.isPending}
-                  onClick={() => deleteProject.mutate({ id: project.id })}
-                >
-                  Delete project
-                </Button>
-              </AlertDialogFooter>
-            </AlertDialogPopup>
-          </AlertDialog>
+    <SettingsPanel title="Danger zone" description="Irreversible actions for this project.">
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-destructive/36 px-4 py-3">
+        <div className="min-w-0">
+          <p className="font-medium text-sm">Delete this project</p>
+          <p className="text-muted-foreground text-sm">
+            Permanently removes the project and all its actions. This can't be undone.
+          </p>
         </div>
-      </section>
+        <AlertDialog>
+          <AlertDialogTrigger
+            render={
+              <Button variant="destructive-outline" size="sm" className="shrink-0">
+                <IconTrash />
+                Delete project
+              </Button>
+            }
+          />
+          <AlertDialogPopup>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete “{project.name}”?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes the project and all its actions and groups. This can't be
+                undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogClose render={<Button variant="ghost" />}>Cancel</AlertDialogClose>
+              <Button
+                variant="destructive"
+                loading={deleteProject.isPending}
+                onClick={() => deleteProject.mutate({ id: project.id })}
+              >
+                Delete project
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogPopup>
+        </AlertDialog>
+      </div>
+    </SettingsPanel>
+  )
+}
+
+interface ProjectSettingsSection {
+  id: string
+  label: string
+  Icon: TablerIcon
+  render: () => ReactElement
+}
+
+/** The Settings tab: a vertical section menu (like the app-wide settings page)
+ *  over General, Actions, GitHub, and Danger zone panels. */
+function SettingsTab({
+  project,
+  membersByGroup,
+  looseActions,
+  onError
+}: {
+  project: ProjectWithActions
+  membersByGroup: Map<number, ProjectActionRow[]>
+  looseActions: ProjectActionRow[]
+  onError: (message: string | null) => void
+}): ReactElement {
+  const [activeId, setActiveId] = useState('general')
+
+  const sections: ProjectSettingsSection[] = [
+    {
+      id: 'general',
+      label: 'General',
+      Icon: IconSettings,
+      render: () => <GeneralPanel project={project} />
+    },
+    {
+      id: 'actions',
+      label: 'Actions',
+      Icon: IconBolt,
+      render: () => (
+        <SettingsPanel
+          title="Actions"
+          description="Links to open and commands to run for this project."
+        >
+          <ActionsTab
+            project={project}
+            membersByGroup={membersByGroup}
+            looseActions={looseActions}
+            onError={onError}
+          />
+        </SettingsPanel>
+      )
+    },
+    {
+      id: 'github',
+      label: 'GitHub',
+      Icon: IconBrandGithub,
+      render: () => <ProjectRepos project={project} />
+    },
+    {
+      id: 'danger',
+      label: 'Danger zone',
+      Icon: IconAlertTriangle,
+      render: () => <DangerZonePanel project={project} />
+    }
+  ]
+  const active = sections.find((s) => s.id === activeId) ?? sections[0]
+
+  return (
+    <div className="flex gap-6">
+      <nav className="w-44 shrink-0">
+        <ul className="grid gap-0.5">
+          {sections.map((section) => {
+            const isActive = section.id === active.id
+            return (
+              <li key={section.id}>
+                <button
+                  type="button"
+                  onClick={() => setActiveId(section.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',
+                    '[&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground',
+                    isActive
+                      ? 'bg-accent font-medium text-accent-foreground [&_svg]:text-foreground'
+                      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                  )}
+                >
+                  <section.Icon />
+                  {section.label}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </nav>
+      <div className="min-w-0 flex-1">{active.render()}</div>
     </div>
   )
 }
@@ -776,9 +922,6 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
               </Badge>
             )}
           </TabsTab>
-          <TabsTab value="actions" className="grow-0">
-            Actions
-          </TabsTab>
           <TabsTab value="settings" className="grow-0">
             Settings
           </TabsTab>
@@ -796,17 +939,13 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
           <ProjectPulls project={project} />
         </TabsPanel>
 
-        <TabsPanel value="actions" className="pt-5">
-          <ActionsTab
+        <TabsPanel value="settings" className="pt-5">
+          <SettingsTab
             project={project}
             membersByGroup={membersByGroup}
             looseActions={looseActions}
             onError={setRunError}
           />
-        </TabsPanel>
-
-        <TabsPanel value="settings" className="pt-5">
-          <SettingsTab project={project} />
         </TabsPanel>
       </Tabs>
     </div>
