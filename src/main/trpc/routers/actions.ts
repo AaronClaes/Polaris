@@ -35,6 +35,17 @@ const commandConfig = z.object({
 // default-apps setting — so their config is just the optional cwd override.
 const appLauncherConfig = z.object({ cwd })
 
+// A repo action snapshots the chosen linked repo (identity + display/url) and,
+// like a link, can target a browser/profile.
+const repoConfig = z.object({
+  repoId: z.number().int(),
+  owner: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+  url: z.string().trim().url(),
+  browser: z.string().trim().min(1).nullish(),
+  profileDirectory: z.string().trim().min(1).nullish()
+})
+
 const label = z.string().trim().min(1, 'Label is required')
 const icon = z.string().trim().min(1).default('bolt')
 // Optional group membership; null/omitted means a loose (ungrouped) action.
@@ -73,6 +84,14 @@ const createActionInput = z.discriminatedUnion('type', [
     label,
     icon,
     config: appLauncherConfig
+  }),
+  z.object({
+    projectId: z.number().int(),
+    groupId,
+    type: z.literal('repo'),
+    label,
+    icon,
+    config: repoConfig
   })
 ])
 
@@ -96,7 +115,14 @@ const updateActionInput = z.discriminatedUnion('type', [
     icon,
     config: appLauncherConfig
   }),
-  z.object({ id: z.number().int(), type: z.literal('ide'), label, icon, config: appLauncherConfig })
+  z.object({
+    id: z.number().int(),
+    type: z.literal('ide'),
+    label,
+    icon,
+    config: appLauncherConfig
+  }),
+  z.object({ id: z.number().int(), type: z.literal('repo'), label, icon, config: repoConfig })
 ])
 
 /**

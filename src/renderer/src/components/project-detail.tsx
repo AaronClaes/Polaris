@@ -68,13 +68,19 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { buildRootEntries } from '@/lib/action-tree'
 import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
-import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
+import type {
+  ActionGroupRow,
+  ProjectActionRow,
+  ProjectRepoRow,
+  ProjectWithActions
+} from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import type {
   AppLauncherActionConfig,
   CommandActionConfig,
-  LinkActionConfig
+  LinkActionConfig,
+  RepoActionConfig
 } from '../../../main/db/schema'
 
 /** The project detail tabs, in display order. Drives the `?tab=` search param
@@ -89,6 +95,10 @@ function actionTarget(action: ProjectActionRow): string {
       return (action.config as LinkActionConfig).url
     case 'command':
       return (action.config as CommandActionConfig).command
+    case 'repo': {
+      const config = action.config as RepoActionConfig
+      return `${config.owner}/${config.name}`
+    }
     default:
       // terminal / ide: the directory it opens (the cwd override) or, when none
       // is set, a label for the default app it resolves to at run time.
@@ -194,11 +204,14 @@ function LauncherRow({
 function ActionRow({
   action,
   groups,
+  repos,
   projectPath,
   onError
 }: {
   action: ProjectActionRow
   groups: ActionGroupRow[]
+  /** Linked repos — options when editing a GitHub repo action. */
+  repos: ProjectRepoRow[]
   /** Project default path — the cwd placeholder when editing a command action. */
   projectPath: string | null
   onError: (message: string | null) => void
@@ -305,6 +318,7 @@ function ActionRow({
         projectId={action.projectId}
         projectPath={projectPath}
         groups={groups}
+        repos={repos}
         action={action}
         open={editOpen}
         onOpenChange={setEditOpen}
@@ -408,6 +422,7 @@ function GroupSection({
         projectId={project.id}
         projectPath={project.path}
         groups={project.groups}
+        repos={project.repos}
         defaultGroupId={group.id}
         open={addOpen}
         onOpenChange={setAddOpen}
@@ -430,6 +445,7 @@ function GroupSection({
               key={action.id}
               action={action}
               groups={project.groups}
+              repos={project.repos}
               projectPath={project.path}
               onError={onError}
             />
@@ -501,6 +517,7 @@ function ActionsTab({
               projectId={project.id}
               projectPath={project.path}
               groups={project.groups}
+              repos={project.repos}
             />
           </>
         )}
@@ -529,6 +546,7 @@ function ActionsTab({
                 key={`action-${entry.action.id}`}
                 action={entry.action}
                 groups={project.groups}
+                repos={project.repos}
                 projectPath={project.path}
                 onError={onError}
               />

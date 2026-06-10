@@ -5,7 +5,8 @@ import type {
   AppLauncherActionConfig,
   CommandActionConfig,
   LinkActionConfig,
-  ProjectAction
+  ProjectAction,
+  RepoActionConfig
 } from '../db/schema'
 import { resolveBrowser } from './browsers'
 
@@ -153,8 +154,11 @@ export async function runAction(
   defaultApps: DefaultApps
 ): Promise<RunResult> {
   switch (action.type) {
-    case 'link': {
-      const config = action.config as LinkActionConfig
+    case 'link':
+    case 'repo': {
+      // A repo action is a link whose URL is a linked repo's github.com page;
+      // both open a URL, optionally in a chosen browser/profile.
+      const config = action.config as LinkActionConfig | RepoActionConfig
       const target =
         config.browser && config.profileDirectory
           ? { browser: config.browser, profileDirectory: config.profileDirectory }

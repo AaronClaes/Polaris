@@ -32,7 +32,8 @@ import { cn } from '@/lib/utils'
 import type {
   AppLauncherActionConfig,
   CommandActionConfig,
-  LinkActionConfig
+  LinkActionConfig,
+  RepoActionConfig
 } from '../../../main/db/schema'
 
 // Sortable ids and container keys. A group appears in the root list as
@@ -56,6 +57,10 @@ function actionTarget(action: ProjectActionRow): string {
       return (action.config as LinkActionConfig).url
     case 'command':
       return (action.config as CommandActionConfig).command
+    case 'repo': {
+      const config = action.config as RepoActionConfig
+      return `${config.owner}/${config.name}`
+    }
     default:
       // terminal / ide: the directory it opens (the cwd override) or, when none
       // is set, a label for the default app it resolves to at run time.

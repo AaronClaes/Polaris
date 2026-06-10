@@ -7,7 +7,7 @@ import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
-import type { LinkActionConfig } from '../../../main/db/schema'
+import type { LinkActionConfig, RepoActionConfig } from '../../../main/db/schema'
 
 interface GroupLauncherProps {
   group: ActionGroupRow
@@ -84,7 +84,7 @@ export function GroupLauncher({
               <MenuItem key={action.id} onClick={() => runAction.mutate({ id: action.id })}>
                 <ActionIcon action={action} className={ACTION_ICON_CLASS} />
                 <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                {action.type === 'link' && (
+                {(action.type === 'link' || action.type === 'repo') && (
                   <button
                     type="button"
                     // Secondary action inside a menu item: stop the click so it
@@ -96,7 +96,7 @@ export function GroupLauncher({
                     className="-me-1 ms-4 inline-flex size-6 shrink-0 items-center justify-center rounded-sm opacity-70 transition hover:bg-foreground/10 hover:opacity-100 [&>svg]:size-4"
                     onClick={(event) => {
                       event.stopPropagation()
-                      const { url } = action.config as LinkActionConfig
+                      const { url } = action.config as LinkActionConfig | RepoActionConfig
                       navigator.clipboard.writeText(url).catch(() => {})
                       setMenuOpen(false)
                     }}

@@ -48,7 +48,7 @@ export const actionGroups = sqliteTable('action_groups', {
 
 /** Action kinds. Extend this tuple (and the `config` union below + the main-side
  * runner + the renderer form) to add new action types. */
-export const ACTION_TYPES = ['link', 'command', 'terminal', 'ide'] as const
+export const ACTION_TYPES = ['link', 'command', 'terminal', 'ide', 'repo'] as const
 export type ActionType = (typeof ACTION_TYPES)[number]
 
 /**
@@ -79,10 +79,30 @@ export interface AppLauncherActionConfig {
   cwd?: string | null
 }
 
+/**
+ * Open one of the project's linked GitHub repositories on github.com. Stores a
+ * snapshot of the chosen repo — its GitHub `repoId` for identity, plus
+ * `owner`/`name`/`url` for display and opening — so the action renders and runs
+ * without a repo lookup; re-pick to refresh it after a rename. Like a link
+ * action, it can optionally open in a specific browser + Chromium profile.
+ */
+export interface RepoActionConfig {
+  repoId: number
+  owner: string
+  name: string
+  url: string
+  browser?: string | null
+  profileDirectory?: string | null
+}
+
 /** The `type`-discriminated payload stored in the `config` JSON column. The
  * discriminant lives in the row's `type` column, so each variant here is the
  * shape that pairs with that type. */
-export type ActionConfig = LinkActionConfig | CommandActionConfig | AppLauncherActionConfig
+export type ActionConfig =
+  | LinkActionConfig
+  | CommandActionConfig
+  | AppLauncherActionConfig
+  | RepoActionConfig
 
 /**
  * A user-defined, per-project action. Designed for extensibility: `type` is the

@@ -6,7 +6,7 @@ import { getIcon } from '@/lib/icons'
 import type { ProjectActionRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
-import type { LinkActionConfig } from '../../../main/db/schema'
+import type { LinkActionConfig, RepoActionConfig } from '../../../main/db/schema'
 
 /** Sizing for action icons inside buttons/menus, mirroring the `[&_svg]` rules
  *  so a favicon <img> tracks the same responsive size as a Tabler glyph. */
@@ -118,10 +118,11 @@ export function ActionIcon({
   size?: number
   className?: string
 }): ReactElement {
-  if (action.type === 'link' && action.icon === FAVICON_ICON_KEY) {
-    return (
-      <FaviconImg url={(action.config as LinkActionConfig).url} size={size} className={className} />
-    )
+  if ((action.type === 'link' || action.type === 'repo') && action.icon === FAVICON_ICON_KEY) {
+    // Both carry a `url`; for a repo it's the github.com page, so the favicon
+    // resolves to GitHub's.
+    const { url } = action.config as LinkActionConfig | RepoActionConfig
+    return <FaviconImg url={url} size={size} className={className} />
   }
   if ((action.type === 'terminal' || action.type === 'ide') && action.icon === APP_ICON_KEY) {
     return <ActionAppIcon kind={action.type} size={size} className={className} />

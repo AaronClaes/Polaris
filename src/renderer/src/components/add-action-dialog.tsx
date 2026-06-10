@@ -1,4 +1,5 @@
 import {
+  IconBrandGithub,
   IconChevronLeft,
   IconCode,
   IconLink,
@@ -33,13 +34,14 @@ import {
 } from '@/components/ui/select'
 import { APP_ICON_KEY } from '@/lib/app-icons'
 import { FAVICON_ICON_KEY } from '@/lib/favicon'
-import type { ActionGroupRow, ProjectActionRow } from '@/lib/project-types'
+import type { ActionGroupRow, ProjectActionRow, ProjectRepoRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import type {
   ActionType,
   AppLauncherActionConfig,
   CommandActionConfig,
-  LinkActionConfig
+  LinkActionConfig,
+  RepoActionConfig
 } from '../../../main/db/schema'
 
 interface AddActionDialogProps {
@@ -48,6 +50,8 @@ interface AddActionDialogProps {
   projectPath: string | null
   /** Groups the action can be filed under. */
   groups: ActionGroupRow[]
+  /** The project's linked repos — the options for a GitHub repo action. */
+  repos: ProjectRepoRow[]
   /** Preselect a target group (e.g. when adding from within a group section). */
   defaultGroupId?: number | null
   /** When provided, the dialog edits this action (type fixed) instead of creating. */
@@ -66,6 +70,7 @@ const ACTION_TYPE_ORDER = [
   'command',
   'terminal',
   'ide',
+  'repo',
   'link'
 ] as const satisfies readonly ActionType[]
 const ACTION_TYPE_META: Record<
@@ -90,6 +95,12 @@ const ACTION_TYPE_META: Record<
     labelPlaceholder: 'Open in editor',
     Icon: IconCode
   },
+  repo: {
+    title: 'GitHub repo',
+    description: 'Open a linked repository on GitHub',
+    labelPlaceholder: 'Open repo',
+    Icon: IconBrandGithub
+  },
   link: {
     title: 'Link',
     description: 'Open a URL in your browser',
@@ -99,19 +110,21 @@ const ACTION_TYPE_META: Record<
 }
 
 /** Sensible default icon for a freshly chosen action type. Links default to the
- *  site favicon and terminal / IDE to the resolved app's icon; the user can
- *  still override any of them to a Tabler icon. */
+ *  site favicon, terminal / IDE to the resolved app's icon, and repos to the
+ *  GitHub glyph; the user can still override any of them (repos can also pick
+ *  the GitHub favicon, like a link). */
 const DEFAULT_ICON_FOR_TYPE: Record<ActionType, string> = {
   command: 'terminal',
   terminal: APP_ICON_KEY,
   ide: APP_ICON_KEY,
+  repo: 'github',
   link: FAVICON_ICON_KEY
 }
 
 const NO_GROUP = 'none'
 // Sentinel for the link "Open in" select: the OS default browser, no profile.
 const OS_DEFAULT = 'default'
-const EMPTY = { label: '', url: '', command: '', cwd: '', profile: OS_DEFAULT }
+const EMPTY = { label: '', url: '', command: '', cwd: '', repoId: '', profile: OS_DEFAULT }
 
 /** Encode a browser+profile as a single select value (or the OS-default sentinel). */
 function profileValue(browser?: string | null, directory?: string | null): string {
@@ -144,6 +157,15 @@ function seedForm(action?: ProjectActionRow): typeof EMPTY {
     const config = action.config as CommandActionConfig
     return { ...EMPTY, label: action.label, command: config.command, cwd: config.cwd ?? '' }
   }
+  if (action.type === 'repo') {
+    const config = action.config as RepoActionConfig
+    return {
+      ...EMPTY,
+      label: action.label,
+      repoId: String(config.repoId),
+      profile: profileValue(config.browser, config.profileDirectory)
+    }
+  }
   // terminal / ide — no command, just an optional working directory.
   const config = action.config as AppLauncherActionConfig
   return { ...EMPTY, label: action.label, cwd: config.cwd ?? '' }
@@ -165,6 +187,7 @@ export function AddActionDialog({
   projectId,
   projectPath,
   groups,
+  repos,
   defaultGroupId = null,
   action,
   open: openProp,
@@ -229,15 +252,21 @@ export function AddActionDialog({
     (event: React.ChangeEvent<HTMLInputElement>): void =>
       setForm((prev) => ({ ...prev, [key]: event.target.value }))
 
-  // Label is always required; link needs a URL and command a command. Terminal
-  // and IDE carry no extra required field — their app comes from settings.
+  // The currently picked repo (repo actions). Resolved from the live list, so a
+  // stored repo that's since been unlinked reads as no selection.
+  const selectedRepo = repos.find((repo) => String(repo.repoId) === form.repoId)
+
+  // Label is always required; link needs a URL, command a command, and a repo
+  // action a (still-linked) repo. Terminal / IDE carry no extra required field.
   const canSubmit =
     form.label.trim().length > 0 &&
     (type === 'link'
       ? form.url.trim().length > 0
       : type === 'command'
         ? form.command.trim().length > 0
-        : true)
+        : type === 'repo'
+          ? selectedRepo != null
+          : true)
 
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault()
@@ -296,6 +325,19 @@ export function AddActionDialog({
             icon,
             config: { cwd }
           })
+        break
+      }
+      case 'repo': {
+        if (!selectedRepo) return
+        const config = {
+          repoId: selectedRepo.repoId,
+          owner: selectedRepo.owner,
+          name: selectedRepo.name,
+          url: selectedRepo.url,
+          ...parseProfile(form.profile)
+        }
+        if (action) update.mutate({ id: action.id, type: 'repo', label: form.label, icon, config })
+        else create.mutate({ projectId, groupId, type: 'repo', label: form.label, icon, config })
         break
       }
     }
@@ -406,50 +448,82 @@ export function AddActionDialog({
               </div>
 
               {type === 'link' && (
-                <>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor={urlId}>URL</Label>
-                    <Input
-                      id={urlId}
-                      type="url"
-                      placeholder="https://example.com"
-                      value={form.url}
-                      onChange={set('url')}
-                      required
-                    />
-                  </div>
-                  {hasBrowserProfiles && (
-                    <div className="grid gap-1.5">
-                      <Label>Open in</Label>
-                      <Select
-                        value={form.profile}
-                        onValueChange={(value) =>
-                          setForm((prev) => ({ ...prev, profile: value ?? OS_DEFAULT }))
-                        }
-                      >
-                        <SelectTrigger>{profileTriggerLabel}</SelectTrigger>
-                        <SelectPopup>
-                          <SelectItem value={OS_DEFAULT}>Default (system browser)</SelectItem>
-                          {linkedBrowsers.map((browser) =>
-                            browser.profiles.length > 0 ? (
-                              <SelectGroup key={browser.key}>
-                                <SelectGroupLabel>{browser.name}</SelectGroupLabel>
-                                {browser.profiles.map((profile) => (
-                                  <SelectItem
-                                    key={`${browser.key}::${profile.directory}`}
-                                    value={`${browser.key}::${profile.directory}`}
-                                  >
-                                    {profile.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            ) : null
-                          )}
-                        </SelectPopup>
-                      </Select>
-                    </div>
+                <div className="grid gap-1.5">
+                  <Label htmlFor={urlId}>URL</Label>
+                  <Input
+                    id={urlId}
+                    type="url"
+                    placeholder="https://example.com"
+                    value={form.url}
+                    onChange={set('url')}
+                    required
+                  />
+                </div>
+              )}
+
+              {type === 'repo' && (
+                <div className="grid gap-1.5">
+                  <Label>Repository</Label>
+                  {repos.length === 0 ? (
+                    <p className="rounded-md border border-border border-dashed px-3 py-2 text-muted-foreground text-sm">
+                      No repositories linked. Link one in the project's Settings tab first.
+                    </p>
+                  ) : (
+                    <Select
+                      value={form.repoId || null}
+                      onValueChange={(value) =>
+                        setForm((prev) => ({ ...prev, repoId: value ?? '' }))
+                      }
+                    >
+                      <SelectTrigger>
+                        {selectedRepo
+                          ? `${selectedRepo.owner}/${selectedRepo.name}`
+                          : 'Select a repository'}
+                      </SelectTrigger>
+                      <SelectPopup>
+                        {repos.map((repo) => (
+                          <SelectItem key={repo.repoId} value={String(repo.repoId)}>
+                            {repo.owner}/{repo.name}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
                   )}
-                </>
+                </div>
+              )}
+
+              {/* "Open in" is shared by link and repo — both open a URL in a
+                  browser. Shown only when a linked browser exposes profiles. */}
+              {(type === 'link' || type === 'repo') && hasBrowserProfiles && (
+                <div className="grid gap-1.5">
+                  <Label>Open in</Label>
+                  <Select
+                    value={form.profile}
+                    onValueChange={(value) =>
+                      setForm((prev) => ({ ...prev, profile: value ?? OS_DEFAULT }))
+                    }
+                  >
+                    <SelectTrigger>{profileTriggerLabel}</SelectTrigger>
+                    <SelectPopup>
+                      <SelectItem value={OS_DEFAULT}>Default (system browser)</SelectItem>
+                      {linkedBrowsers.map((browser) =>
+                        browser.profiles.length > 0 ? (
+                          <SelectGroup key={browser.key}>
+                            <SelectGroupLabel>{browser.name}</SelectGroupLabel>
+                            {browser.profiles.map((profile) => (
+                              <SelectItem
+                                key={`${browser.key}::${profile.directory}`}
+                                value={`${browser.key}::${profile.directory}`}
+                              >
+                                {profile.name}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        ) : null
+                      )}
+                    </SelectPopup>
+                  </Select>
+                </div>
               )}
 
               {type === 'command' && (
@@ -467,7 +541,7 @@ export function AddActionDialog({
 
               {/* The working directory applies to anything launched on a path:
                   the command's cwd, or the dir the terminal / IDE opens in. */}
-              {type !== 'link' && (
+              {(type === 'command' || type === 'terminal' || type === 'ide') && (
                 <div className="grid gap-1.5">
                   <Label htmlFor={cwdId}>Working directory (optional)</Label>
                   <PathInput
@@ -484,7 +558,15 @@ export function AddActionDialog({
                 <IconPicker
                   value={icon}
                   onChange={setIcon}
-                  linkUrl={type === 'link' ? form.url : undefined}
+                  // Repos offer a favicon too; it's GitHub's, resolved from the
+                  // repo URL (or github.com before one is picked).
+                  linkUrl={
+                    type === 'link'
+                      ? form.url
+                      : type === 'repo'
+                        ? (selectedRepo?.url ?? 'https://github.com')
+                        : undefined
+                  }
                   appIcon={appIcon}
                 />
               </div>

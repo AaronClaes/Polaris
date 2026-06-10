@@ -9,7 +9,7 @@ import {
   ContextMenuTrigger
 } from '@/components/ui/context-menu'
 import type { ProjectActionRow } from '@/lib/project-types'
-import type { LinkActionConfig } from '../../../main/db/schema'
+import type { LinkActionConfig, RepoActionConfig } from '../../../main/db/schema'
 
 /**
  * A loose action's launch button, shared by the dashboard card and the project
@@ -33,7 +33,12 @@ export function ActionLaunchButton({
     </>
   )
 
-  if (action.type !== 'link') {
+  // Link and repo actions both open a URL, so both get a right-click "Copy URL".
+  const url =
+    action.type === 'link' || action.type === 'repo'
+      ? (action.config as LinkActionConfig | RepoActionConfig).url
+      : null
+  if (url == null) {
     return (
       <Button variant="outline" size="sm" loading={loading} onClick={onRun}>
         {content}
@@ -41,7 +46,6 @@ export function ActionLaunchButton({
     )
   }
 
-  const { url } = action.config as LinkActionConfig
   return (
     <ContextMenu>
       <ContextMenuTrigger
