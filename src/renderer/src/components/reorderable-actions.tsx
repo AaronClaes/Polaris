@@ -29,7 +29,11 @@ import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
-import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/schema'
+import type {
+  AppLauncherActionConfig,
+  CommandActionConfig,
+  LinkActionConfig
+} from '../../../main/db/schema'
 
 // Sortable ids and container keys. A group appears in the root list as
 // `group-<id>` and owns a `members-<id>` droppable holding its action rows; a
@@ -47,9 +51,19 @@ const ROOT = 'root'
 type Containers = Record<string, string[]>
 
 function actionTarget(action: ProjectActionRow): string {
-  return action.type === 'link'
-    ? (action.config as LinkActionConfig).url
-    : (action.config as CommandActionConfig).command
+  switch (action.type) {
+    case 'link':
+      return (action.config as LinkActionConfig).url
+    case 'command':
+      return (action.config as CommandActionConfig).command
+    default:
+      // terminal / ide: the directory it opens (the cwd override) or, when none
+      // is set, a label for the default app it resolves to at run time.
+      return (
+        (action.config as AppLauncherActionConfig).cwd ??
+        (action.type === 'terminal' ? 'Default terminal' : 'Default editor')
+      )
+  }
 }
 
 /** Build the initial container map: the root list (groups + loose actions in

@@ -1,7 +1,12 @@
 import { existsSync } from 'node:fs'
 import { shell } from 'electron'
 import { execa } from 'execa'
-import type { CommandActionConfig, LinkActionConfig, ProjectAction } from '../db/schema'
+import type {
+  AppLauncherActionConfig,
+  CommandActionConfig,
+  LinkActionConfig,
+  ProjectAction
+} from '../db/schema'
 import { resolveBrowser } from './browsers'
 
 export interface RunResult {
@@ -102,9 +107,41 @@ async function runCommand(command: string, cwd: string | null | undefined): Prom
 }
 
 /**
+ * Open a macOS app (by its `.app` name) on a directory via `open -a <app> <dir>`
+ * — the default-terminal / default-IDE launcher. `open` lives at a fixed path
+ * and takes the app by name, so it sidesteps the stripped-PATH trap that forces
+ * the login-shell dance in {@link runCommand}. With no directory it just brings
+ * the app to the front. `open` returns promptly (it only launches), so we await
+ * it and surface its error — e.g. "Unable to find application named '…'".
+ */
+async function runOpenApp(appName: string, cwd: string | null | undefined): Promise<RunResult> {
+  const args = cwd ? ['-a', appName, cwd] : ['-a', appName]
+  const result = await execa('open', args, { reject: false })
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      error: result.stderr || result.shortMessage || `open exited with code ${result.exitCode}`
+    }
+  }
+  return { ok: true }
+}
+
+/**
+ * The user's chosen default terminal / IDE, as macOS app names — resolved from
+ * global settings (with fallbacks) by the caller and handed to the `terminal` /
+ * `ide` action branches.
+ */
+export interface DefaultApps {
+  terminal: string
+  ide: string
+}
+
+/**
  * Execute a project action. The `type` discriminant selects the runner; the
- * project's default `path` is the command cwd unless the action overrides it.
- * New action types add a branch here (and to the schema union + renderer form).
+ * project's default `path` is the working directory unless the action overrides
+ * it. The `terminal` / `ide` types carry no command — they open `defaultApps`'
+ * resolved app on that directory. New action types add a branch here (and to the
+ * schema union + renderer form).
  *
  * `config` is stored as the `ActionConfig` union and isn't narrowed by the
  * sibling `type` column, so each branch casts to its matching shape — safe
@@ -112,7 +149,8 @@ async function runCommand(command: string, cwd: string | null | undefined): Prom
  */
 export async function runAction(
   action: ProjectAction,
-  projectPath: string | null
+  projectPath: string | null,
+  defaultApps: DefaultApps
 ): Promise<RunResult> {
   switch (action.type) {
     case 'link': {
@@ -126,6 +164,14 @@ export async function runAction(
     case 'command': {
       const config = action.config as CommandActionConfig
       return runCommand(config.command, config.cwd ?? projectPath)
+    }
+    case 'terminal': {
+      const config = action.config as AppLauncherActionConfig
+      return runOpenApp(defaultApps.terminal, config.cwd ?? projectPath)
+    }
+    case 'ide': {
+      const config = action.config as AppLauncherActionConfig
+      return runOpenApp(defaultApps.ide, config.cwd ?? projectPath)
     }
     default: {
       // Exhaustiveness guard: a new ACTION_TYPES entry without a branch fails here.

@@ -7,6 +7,7 @@ import { githubRouter } from './routers/github'
 import { groupsRouter } from './routers/groups'
 import { notesRouter } from './routers/notes'
 import { projectsRouter } from './routers/projects'
+import { settingsRouter } from './routers/settings'
 
 export const appRouter = router({
   projects: projectsRouter,
@@ -16,7 +17,8 @@ export const appRouter = router({
   favicon: faviconRouter,
   browsers: browsersRouter,
   dialog: dialogRouter,
-  notes: notesRouter
+  notes: notesRouter,
+  settings: settingsRouter
 })
 
 // Consumed type-only by the renderer for a fully typed IPC client.

@@ -38,6 +38,7 @@ createRoot(rootElement).render(
               if (namespace === 'github')
                 return procedure === 'issuesForRepo' || procedure === 'pullsForRepo'
               if (namespace === 'favicon') return procedure === 'get'
+              if (namespace === 'settings') return procedure === 'appIcon'
               return false
             }
           }

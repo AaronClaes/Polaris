@@ -1,5 +1,6 @@
 import {
   IconChevronLeft,
+  IconCode,
   IconLink,
   IconPlus,
   IconTerminal2,
@@ -30,10 +31,16 @@ import {
   SelectPopup,
   SelectTrigger
 } from '@/components/ui/select'
+import { APP_ICON_KEY } from '@/lib/app-icons'
 import { FAVICON_ICON_KEY } from '@/lib/favicon'
 import type { ActionGroupRow, ProjectActionRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
-import type { ActionType, CommandActionConfig, LinkActionConfig } from '../../../main/db/schema'
+import type {
+  ActionType,
+  AppLauncherActionConfig,
+  CommandActionConfig,
+  LinkActionConfig
+} from '../../../main/db/schema'
 
 interface AddActionDialogProps {
   projectId: number
@@ -52,20 +59,52 @@ interface AddActionDialogProps {
   trigger?: ReactElement
 }
 
-/** The pickable action types, in display order, with their card presentation. */
-const ACTION_TYPE_ORDER = ['command', 'link'] as const satisfies readonly ActionType[]
+/** The pickable action types, in display order, with their card presentation.
+ *  `labelPlaceholder` seeds the Label field's placeholder. Terminal / IDE open
+ *  the project in the default app set in Settings, so they take no command. */
+const ACTION_TYPE_ORDER = [
+  'command',
+  'terminal',
+  'ide',
+  'link'
+] as const satisfies readonly ActionType[]
 const ACTION_TYPE_META: Record<
   ActionType,
-  { title: string; description: string; Icon: TablerIcon }
+  { title: string; description: string; labelPlaceholder: string; Icon: TablerIcon }
 > = {
-  command: { title: 'Command', description: 'Run a shell command', Icon: IconTerminal2 },
-  link: { title: 'Link', description: 'Open a URL in your browser', Icon: IconLink }
+  command: {
+    title: 'Command',
+    description: 'Run a shell command',
+    labelPlaceholder: 'Start dev server',
+    Icon: IconTerminal2
+  },
+  terminal: {
+    title: 'Terminal',
+    description: 'Open in your default terminal',
+    labelPlaceholder: 'Open terminal',
+    Icon: IconTerminal2
+  },
+  ide: {
+    title: 'IDE',
+    description: 'Open in your default editor',
+    labelPlaceholder: 'Open in editor',
+    Icon: IconCode
+  },
+  link: {
+    title: 'Link',
+    description: 'Open a URL in your browser',
+    labelPlaceholder: 'Open production',
+    Icon: IconLink
+  }
 }
 
 /** Sensible default icon for a freshly chosen action type. Links default to the
- *  site favicon; the user can still override to any Tabler icon. */
+ *  site favicon and terminal / IDE to the resolved app's icon; the user can
+ *  still override any of them to a Tabler icon. */
 const DEFAULT_ICON_FOR_TYPE: Record<ActionType, string> = {
   command: 'terminal',
+  terminal: APP_ICON_KEY,
+  ide: APP_ICON_KEY,
   link: FAVICON_ICON_KEY
 }
 
@@ -101,8 +140,13 @@ function seedForm(action?: ProjectActionRow): typeof EMPTY {
       profile: profileValue(config.browser, config.profileDirectory)
     }
   }
-  const config = action.config as CommandActionConfig
-  return { ...EMPTY, label: action.label, command: config.command, cwd: config.cwd ?? '' }
+  if (action.type === 'command') {
+    const config = action.config as CommandActionConfig
+    return { ...EMPTY, label: action.label, command: config.command, cwd: config.cwd ?? '' }
+  }
+  // terminal / ide — no command, just an optional working directory.
+  const config = action.config as AppLauncherActionConfig
+  return { ...EMPTY, label: action.label, cwd: config.cwd ?? '' }
 }
 
 /** The group select's initial value: the edited action's group, else a preset. */
@@ -185,9 +229,15 @@ export function AddActionDialog({
     (event: React.ChangeEvent<HTMLInputElement>): void =>
       setForm((prev) => ({ ...prev, [key]: event.target.value }))
 
+  // Label is always required; link needs a URL and command a command. Terminal
+  // and IDE carry no extra required field — their app comes from settings.
   const canSubmit =
     form.label.trim().length > 0 &&
-    (type === 'link' ? form.url.trim().length > 0 : form.command.trim().length > 0)
+    (type === 'link'
+      ? form.url.trim().length > 0
+      : type === 'command'
+        ? form.command.trim().length > 0
+        : true)
 
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault()
@@ -195,45 +245,59 @@ export function AddActionDialog({
 
     // Editing keeps the type fixed and leaves group membership alone (managed
     // via the row's "Move to" menu); creating files the new action in a group.
-    if (action) {
-      if (type === 'link') {
-        update.mutate({
-          id: action.id,
-          type: 'link',
-          label: form.label,
-          icon,
-          config: { url: form.url.trim(), ...parseProfile(form.profile) }
-        })
-      } else {
-        update.mutate({
-          id: action.id,
-          type: 'command',
-          label: form.label,
-          icon,
-          config: { command: form.command.trim(), cwd: form.cwd.trim() || undefined }
-        })
-      }
-      return
-    }
     const groupId = groupValue === NO_GROUP ? null : Number(groupValue)
-    if (type === 'link') {
-      create.mutate({
-        projectId,
-        groupId,
-        type: 'link',
-        label: form.label,
-        icon,
-        config: { url: form.url.trim(), ...parseProfile(form.profile) }
-      })
-    } else {
-      create.mutate({
-        projectId,
-        groupId,
-        type: 'command',
-        label: form.label,
-        icon,
-        config: { command: form.command.trim(), cwd: form.cwd.trim() || undefined }
-      })
+    const cwd = form.cwd.trim() || undefined
+
+    // Each branch passes its own `type` literal so the discriminated mutation
+    // input resolves to the matching config shape.
+    switch (type) {
+      case 'link': {
+        const config = { url: form.url.trim(), ...parseProfile(form.profile) }
+        if (action) update.mutate({ id: action.id, type: 'link', label: form.label, icon, config })
+        else create.mutate({ projectId, groupId, type: 'link', label: form.label, icon, config })
+        break
+      }
+      case 'command': {
+        const config = { command: form.command.trim(), cwd }
+        if (action)
+          update.mutate({ id: action.id, type: 'command', label: form.label, icon, config })
+        else create.mutate({ projectId, groupId, type: 'command', label: form.label, icon, config })
+        break
+      }
+      case 'terminal': {
+        if (action)
+          update.mutate({
+            id: action.id,
+            type: 'terminal',
+            label: form.label,
+            icon,
+            config: { cwd }
+          })
+        else
+          create.mutate({
+            projectId,
+            groupId,
+            type: 'terminal',
+            label: form.label,
+            icon,
+            config: { cwd }
+          })
+        break
+      }
+      case 'ide': {
+        if (action)
+          update.mutate({ id: action.id, type: 'ide', label: form.label, icon, config: { cwd } })
+        else
+          create.mutate({
+            projectId,
+            groupId,
+            type: 'ide',
+            label: form.label,
+            icon,
+            config: { cwd }
+          })
+        break
+      }
     }
   }
 
@@ -241,6 +305,17 @@ export function AddActionDialog({
     groupValue === NO_GROUP
       ? 'No group'
       : (groups.find((g) => String(g.id) === groupValue)?.name ?? 'No group')
+
+  // The resolved default apps drive the terminal / IDE "App icon" option — its
+  // glyph is whichever default the action will open.
+  const defaultApps = trpc.settings.defaultApps.useQuery().data
+  const appIcon =
+    type === 'terminal' || type === 'ide'
+      ? {
+          key: type === 'terminal' ? defaultApps?.terminal : defaultApps?.ide,
+          fallback: type === 'terminal' ? IconTerminal2 : IconCode
+        }
+      : undefined
 
   // Linked browsers + their profiles drive the link "Open in" picker. The field
   // is shown only when at least one linked browser exposes a profile.
@@ -323,14 +398,14 @@ export function AddActionDialog({
                 <Label htmlFor={labelId}>Label</Label>
                 <Input
                   id={labelId}
-                  placeholder={type === 'link' ? 'Open production' : 'Open in Cursor'}
+                  placeholder={ACTION_TYPE_META[type].labelPlaceholder}
                   value={form.label}
                   onChange={set('label')}
                   required
                 />
               </div>
 
-              {type === 'link' ? (
+              {type === 'link' && (
                 <>
                   <div className="grid gap-1.5">
                     <Label htmlFor={urlId}>URL</Label>
@@ -375,28 +450,33 @@ export function AddActionDialog({
                     </div>
                   )}
                 </>
-              ) : (
-                <>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor={commandId}>Command</Label>
-                    <Input
-                      id={commandId}
-                      placeholder="open -a Cursor ."
-                      value={form.command}
-                      onChange={set('command')}
-                      required
-                    />
-                  </div>
-                  <div className="grid gap-1.5">
-                    <Label htmlFor={cwdId}>Working directory (optional)</Label>
-                    <PathInput
-                      id={cwdId}
-                      placeholder={projectPath ?? 'Project default path'}
-                      value={form.cwd}
-                      onChange={(value) => setForm((prev) => ({ ...prev, cwd: value }))}
-                    />
-                  </div>
-                </>
+              )}
+
+              {type === 'command' && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor={commandId}>Command</Label>
+                  <Input
+                    id={commandId}
+                    placeholder="pnpm dev"
+                    value={form.command}
+                    onChange={set('command')}
+                    required
+                  />
+                </div>
+              )}
+
+              {/* The working directory applies to anything launched on a path:
+                  the command's cwd, or the dir the terminal / IDE opens in. */}
+              {type !== 'link' && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor={cwdId}>Working directory (optional)</Label>
+                  <PathInput
+                    id={cwdId}
+                    placeholder={projectPath ?? 'Project default path'}
+                    value={form.cwd}
+                    onChange={(value) => setForm((prev) => ({ ...prev, cwd: value }))}
+                  />
+                </div>
               )}
 
               <div className="grid gap-1.5">
@@ -405,6 +485,7 @@ export function AddActionDialog({
                   value={icon}
                   onChange={setIcon}
                   linkUrl={type === 'link' ? form.url : undefined}
+                  appIcon={appIcon}
                 />
               </div>
 

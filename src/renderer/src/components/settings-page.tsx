@@ -1,12 +1,15 @@
 import { IconPlug, IconSettings, IconX, type TablerIcon } from '@tabler/icons-react'
 import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
+import { AppIconImg } from '@/components/action-icon'
 import { BrowsersIntegration } from '@/components/browsers-integration'
 import { GitHubIntegration } from '@/components/github-integration'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
+import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { THEME_OPTIONS, type Theme, useTheme } from '@/lib/theme'
+import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 
 interface SettingsSection {
@@ -60,6 +63,81 @@ function ThemeToggle(): ReactElement {
   )
 }
 
+/** One default-app row: a title/description and a dropdown to pick the app. */
+function DefaultAppRow({
+  title,
+  description,
+  options,
+  value,
+  onChange
+}: {
+  title: string
+  description: string
+  options: { key: string; name: string }[]
+  value: string | undefined
+  onChange: (key: string) => void
+}): ReactElement {
+  const selected = options.find((option) => option.key === value)
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between gap-4">
+        <div className="grid gap-0.5">
+          <CardTitle className="text-sm">{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
+        </div>
+        <Select value={value ?? null} onValueChange={(next) => next && onChange(next)}>
+          <SelectTrigger className="w-52">
+            <span className="flex items-center gap-2 truncate">
+              {selected && <AppIconImg appKey={selected.key} size={18} />}
+              {selected?.name ?? 'Select…'}
+            </span>
+          </SelectTrigger>
+          <SelectPopup>
+            {options.map((option) => (
+              <SelectItem key={option.key} value={option.key}>
+                <span className="flex items-center gap-2 truncate">
+                  <AppIconImg appKey={option.key} size={18} />
+                  {option.name}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Default terminal + IDE pickers. These drive the "Terminal" / "IDE" actions,
+ *  which open a project's directory in the chosen app without a stored command. */
+function DefaultAppsSection(): ReactElement {
+  const utils = trpc.useUtils()
+  const { data } = trpc.settings.defaultApps.useQuery()
+  const setDefaultApp = trpc.settings.setDefaultApp.useMutation({
+    onSuccess: () => utils.settings.defaultApps.invalidate()
+  })
+
+  return (
+    <section className="grid gap-3">
+      <h3 className="font-medium text-sm">Default apps</h3>
+      <DefaultAppRow
+        title="Terminal"
+        description="Opened by Terminal actions."
+        options={data?.terminals ?? []}
+        value={data?.terminal}
+        onChange={(key) => setDefaultApp.mutate({ kind: 'terminal', key })}
+      />
+      <DefaultAppRow
+        title="IDE"
+        description="Opened by IDE actions."
+        options={data?.ides ?? []}
+        value={data?.ide}
+        onChange={(key) => setDefaultApp.mutate({ kind: 'ide', key })}
+      />
+    </section>
+  )
+}
+
 function GeneralPanel(): ReactElement {
   return (
     <PanelPlaceholder title="General" description="App-wide preferences.">
@@ -75,6 +153,7 @@ function GeneralPanel(): ReactElement {
           </CardContent>
         </Card>
       </section>
+      <DefaultAppsSection />
     </PanelPlaceholder>
   )
 }

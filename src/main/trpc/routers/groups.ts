@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { actionGroups, projectActions, projects } from '../../db/schema'
 import { maxRootSortOrder } from '../../db/sort-order'
 import { runAction } from '../../services/action-runner'
+import { readDefaultApps } from '../../services/default-apps'
 import { publicProcedure, router } from '..'
 
 const name = z.string().trim().min(1, 'Name is required')
@@ -96,9 +97,14 @@ export const groupsRouter = router({
           .where(eq(projects.id, group.projectId))
           .get()?.path ?? null
 
+      // Resolve once for the whole group so each terminal / IDE member opens the
+      // user's configured default app.
+      const apps = readDefaultApps(ctx.db)
+      const defaultApps = { terminal: apps.terminal.appName, ide: apps.ide.appName }
+
       const results = await Promise.all(
         members.map(async (action) => {
-          const result = await runAction(action, projectPath)
+          const result = await runAction(action, projectPath, defaultApps)
           return {
             id: action.id,
             label: action.label,

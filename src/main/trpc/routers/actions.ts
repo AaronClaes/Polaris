@@ -4,6 +4,7 @@ import type { DB } from '../../db/client'
 import { type ActionConfig, projectActions, projects } from '../../db/schema'
 import { maxRootSortOrder } from '../../db/sort-order'
 import { runAction } from '../../services/action-runner'
+import { readDefaultApps } from '../../services/default-apps'
 import { publicProcedure, router } from '..'
 
 // Per-type config payloads. Adding an action type means adding a variant here,
@@ -17,15 +18,22 @@ const linkConfig = z.object({
   profileDirectory: z.string().trim().min(1).nullish()
 })
 
+// Optional working-directory override; falls back to the project's default path
+// at run time. Shared by command actions and the terminal / IDE launchers.
+const cwd = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => (v ? v : null))
+
 const commandConfig = z.object({
   command: z.string().trim().min(1, 'Command is required'),
-  // Optional cwd override; falls back to the project's default path at run time.
-  cwd: z
-    .string()
-    .trim()
-    .optional()
-    .transform((v) => (v ? v : null))
+  cwd
 })
+
+// The terminal / IDE launchers carry no command — the app comes from the global
+// default-apps setting — so their config is just the optional cwd override.
+const appLauncherConfig = z.object({ cwd })
 
 const label = z.string().trim().min(1, 'Label is required')
 const icon = z.string().trim().min(1).default('bolt')
@@ -49,6 +57,22 @@ const createActionInput = z.discriminatedUnion('type', [
     label,
     icon,
     config: commandConfig
+  }),
+  z.object({
+    projectId: z.number().int(),
+    groupId,
+    type: z.literal('terminal'),
+    label,
+    icon,
+    config: appLauncherConfig
+  }),
+  z.object({
+    projectId: z.number().int(),
+    groupId,
+    type: z.literal('ide'),
+    label,
+    icon,
+    config: appLauncherConfig
   })
 ])
 
@@ -58,7 +82,21 @@ const createActionInput = z.discriminatedUnion('type', [
 // the mutation writes just label/icon/config.
 const updateActionInput = z.discriminatedUnion('type', [
   z.object({ id: z.number().int(), type: z.literal('link'), label, icon, config: linkConfig }),
-  z.object({ id: z.number().int(), type: z.literal('command'), label, icon, config: commandConfig })
+  z.object({
+    id: z.number().int(),
+    type: z.literal('command'),
+    label,
+    icon,
+    config: commandConfig
+  }),
+  z.object({
+    id: z.number().int(),
+    type: z.literal('terminal'),
+    label,
+    icon,
+    config: appLauncherConfig
+  }),
+  z.object({ id: z.number().int(), type: z.literal('ide'), label, icon, config: appLauncherConfig })
 ])
 
 /**
@@ -186,6 +224,12 @@ export const actionsRouter = router({
       .where(eq(projects.id, action.projectId))
       .get()
 
-    return runAction(action, project?.path ?? null)
+    // Resolve the default terminal / IDE so a `terminal` / `ide` action knows
+    // which app to open; ignored by link / command actions.
+    const apps = readDefaultApps(ctx.db)
+    return runAction(action, project?.path ?? null, {
+      terminal: apps.terminal.appName,
+      ide: apps.ide.appName
+    })
   })
 })

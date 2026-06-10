@@ -48,7 +48,7 @@ export const actionGroups = sqliteTable('action_groups', {
 
 /** Action kinds. Extend this tuple (and the `config` union below + the main-side
  * runner + the renderer form) to add new action types. */
-export const ACTION_TYPES = ['link', 'command'] as const
+export const ACTION_TYPES = ['link', 'command', 'terminal', 'ide'] as const
 export type ActionType = (typeof ACTION_TYPES)[number]
 
 /**
@@ -69,10 +69,20 @@ export interface CommandActionConfig {
   cwd?: string | null
 }
 
+/**
+ * Open a directory in the user's default terminal or IDE (the `terminal` / `ide`
+ * action types). The app itself is resolved from the global default-apps setting
+ * at run time, so only the working directory is stored here — `cwd` overrides
+ * the project's default `path`, exactly like a command action.
+ */
+export interface AppLauncherActionConfig {
+  cwd?: string | null
+}
+
 /** The `type`-discriminated payload stored in the `config` JSON column. The
  * discriminant lives in the row's `type` column, so each variant here is the
  * shape that pairs with that type. */
-export type ActionConfig = LinkActionConfig | CommandActionConfig
+export type ActionConfig = LinkActionConfig | CommandActionConfig | AppLauncherActionConfig
 
 /**
  * A user-defined, per-project action. Designed for extensibility: `type` is the
@@ -102,6 +112,19 @@ export const projectActions = sqliteTable('project_actions', {
   // Manual ordering within the action's container (its group, or the loose pool).
   sortOrder: integer('sort_order').notNull().default(0),
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
+/**
+ * Generic app-wide key/value preferences in plaintext — no secrets here (those
+ * live in {@link secrets}). The default-apps picker stores the chosen terminal /
+ * IDE registry keys (`defaultTerminal` / `defaultIde`) so the action runner can
+ * resolve a `terminal` / `ide` action's command. Read by the main process, so
+ * it lives in the DB rather than renderer storage.
+ */
+export const settings = sqliteTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
 
 /**
@@ -229,3 +252,5 @@ export type Browser = typeof browsers.$inferSelect
 export type NewBrowser = typeof browsers.$inferInsert
 export type Note = typeof notes.$inferSelect
 export type NewNote = typeof notes.$inferInsert
+export type Setting = typeof settings.$inferSelect
+export type NewSetting = typeof settings.$inferInsert

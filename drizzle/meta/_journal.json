@@ -71,6 +71,13 @@
       "when": 1781038591296,
       "tag": "0009_add_project_pinned",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1781113121430,
+      "tag": "0010_add_settings",
+      "breakpoints": true
     }
   ]
 }

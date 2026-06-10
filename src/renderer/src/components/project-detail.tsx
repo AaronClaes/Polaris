@@ -71,7 +71,11 @@ import { getIcon } from '@/lib/icons'
 import type { ActionGroupRow, ProjectActionRow, ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
-import type { CommandActionConfig, LinkActionConfig } from '../../../main/db/schema'
+import type {
+  AppLauncherActionConfig,
+  CommandActionConfig,
+  LinkActionConfig
+} from '../../../main/db/schema'
 
 /** The project detail tabs, in display order. Drives the `?tab=` search param
  *  (see the route) so cards and links can deep-link to a specific tab. */
@@ -80,9 +84,19 @@ export type ProjectTab = (typeof PROJECT_TABS)[number]
 const DEFAULT_TAB: ProjectTab = 'home'
 
 function actionTarget(action: ProjectActionRow): string {
-  return action.type === 'link'
-    ? (action.config as LinkActionConfig).url
-    : (action.config as CommandActionConfig).command
+  switch (action.type) {
+    case 'link':
+      return (action.config as LinkActionConfig).url
+    case 'command':
+      return (action.config as CommandActionConfig).command
+    default:
+      // terminal / ide: the directory it opens (the cwd override) or, when none
+      // is set, a label for the default app it resolves to at run time.
+      return (
+        (action.config as AppLauncherActionConfig).cwd ??
+        (action.type === 'terminal' ? 'Default terminal' : 'Default editor')
+      )
+  }
 }
 
 /**
