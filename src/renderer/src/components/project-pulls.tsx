@@ -22,6 +22,7 @@ import {
   UserAvatars
 } from '@/components/github-list'
 import { useListFilters } from '@/components/list-filter-bar'
+import { ListSort } from '@/components/list-sort-bar'
 import { Badge } from '@/components/ui/badge'
 import { useRepoPulls } from '@/lib/github-queries'
 import {
@@ -31,6 +32,7 @@ import {
   PULL_FILTER_FIELDS,
   rowMatchesFilters
 } from '@/lib/list-filters'
+import { DEFAULT_SORT, type SortState, sortRows } from '@/lib/list-sort'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { cn } from '@/lib/utils'
 
@@ -203,6 +205,7 @@ export function PullsView({
     useRepoPulls(repos)
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<ActiveFilter[]>([])
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
   // The input stays bound to `query` (instant feedback); filtering + rendering
   // run against the deferred value so a keystroke never blocks on the tables.
   const deferredQuery = useDeferredValue(query)
@@ -231,8 +234,12 @@ export function PullsView({
       else if (pull.bucket === 'review') review.push(pull)
       else other.push(pull)
     }
-    return { assigned, review, other }
-  }, [pulls, deferredQuery, compiled])
+    return {
+      assigned: sortRows(assigned, sort),
+      review: sortRows(review, sort),
+      other: sortRows(other, sort)
+    }
+  }, [pulls, deferredQuery, compiled, sort])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.assigned },
@@ -255,6 +262,7 @@ export function PullsView({
           onSearchChange={setQuery}
           searchPlaceholder="Search pull requests…"
           filter={addButton}
+          sort={<ListSort value={sort} onChange={setSort} />}
           action={toolbarAction}
         />
         {badges}

@@ -31,6 +31,7 @@ import {
   UserAvatars
 } from '@/components/github-list'
 import { useListFilters } from '@/components/list-filter-bar'
+import { ListSort } from '@/components/list-sort-bar'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { useRepoIssues } from '@/lib/github-queries'
@@ -41,6 +42,7 @@ import {
   ISSUE_FILTER_FIELDS,
   rowMatchesFilters
 } from '@/lib/list-filters'
+import { DEFAULT_SORT, type SortState, sortRows } from '@/lib/list-sort'
 import type { IssueRow, ProjectWithActions } from '@/lib/project-types'
 import { cn } from '@/lib/utils'
 
@@ -235,6 +237,7 @@ export function IssuesView({
     useRepoIssues(repos)
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<ActiveFilter[]>([])
+  const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
   // The input stays bound to `query` (instant feedback); filtering + rendering
   // run against the deferred value so a keystroke never blocks on the tables.
   const deferredQuery = useDeferredValue(query)
@@ -263,8 +266,12 @@ export function IssuesView({
       else if (issue.bucket === 'unassigned') unassigned.push(issue)
       else others.push(issue)
     }
-    return { mine, unassigned, others }
-  }, [issues, deferredQuery, compiled])
+    return {
+      mine: sortRows(mine, sort),
+      unassigned: sortRows(unassigned, sort),
+      others: sortRows(others, sort)
+    }
+  }, [issues, deferredQuery, compiled, sort])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.mine },
@@ -287,6 +294,7 @@ export function IssuesView({
           onSearchChange={setQuery}
           searchPlaceholder="Search issues…"
           filter={addButton}
+          sort={<ListSort value={sort} onChange={setSort} />}
           action={toolbarAction}
         />
         {badges}

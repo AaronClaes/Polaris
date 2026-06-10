@@ -227,8 +227,9 @@ export function EmptyHint({ children }: { children: ReactNode }): ReactElement {
 /** Toolbar: a client-side search box on the left, a manual refresh button on
  * the right. The search filters the already-loaded rows (no requery). `filter`
  * is an optional control next to the search box (the "Add filter" button — kept
- * here so it stays put as filter pills accumulate below); `action` is an
- * optional control to the right of Refresh (e.g. the "New issue" button). */
+ * here so it stays put as filter pills accumulate below); `sort` sits just to
+ * its left (the sort dropdown + direction toggle); `action` is an optional
+ * control to the right of Refresh (e.g. the "New issue" button). */
 export function ListToolbar({
   isFetching,
   onRefresh,
@@ -236,6 +237,7 @@ export function ListToolbar({
   onSearchChange,
   searchPlaceholder = 'Search…',
   filter,
+  sort,
   action
 }: {
   isFetching: boolean
@@ -244,6 +246,7 @@ export function ListToolbar({
   onSearchChange: (value: string) => void
   searchPlaceholder?: string
   filter?: ReactNode
+  sort?: ReactNode
   action?: ReactNode
 }): ReactElement {
   return (
@@ -261,6 +264,7 @@ export function ListToolbar({
             onChange={(event) => onSearchChange(event.currentTarget.value)}
           />
         </InputGroup>
+        {sort}
         {filter}
       </div>
       <div className="flex items-center gap-2">

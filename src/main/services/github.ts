@@ -351,6 +351,8 @@ export interface GitHubPullRequest {
   number: number
   title: string
   url: string
+  createdAt: string
+  updatedAt: string
   isDraft: boolean
   // UNKNOWN until GitHub finishes computing mergeability (resolves on a refresh).
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
@@ -377,6 +379,8 @@ const PULLS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
         number
         title
         url
+        createdAt
+        updatedAt
         isDraft
         mergeable
         headRefOid
@@ -401,6 +405,8 @@ interface RawPull {
   number: number
   title: string
   url: string
+  createdAt: string
+  updatedAt: string
   isDraft: boolean
   mergeable: string
   headRefOid: string
@@ -452,6 +458,8 @@ function mapPull(owner: string, name: string, raw: RawPull): GitHubPullRequest {
     number: raw.number,
     title: raw.title,
     url: raw.url,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
     isDraft: raw.isDraft,
     mergeable: raw.mergeable as GitHubPullRequest['mergeable'],
     reviewSummary: { approved, changesRequested },
