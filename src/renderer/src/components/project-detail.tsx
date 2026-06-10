@@ -89,6 +89,34 @@ export const PROJECT_TABS = ['home', 'issues', 'pulls', 'notes', 'settings'] as 
 export type ProjectTab = (typeof PROJECT_TABS)[number]
 const DEFAULT_TAB: ProjectTab = 'home'
 
+// Which tab a project opens on when no explicit `?tab=` is given: the last tab
+// the user switched to, remembered across projects for the session. Stored in
+// sessionStorage so it survives navigation but resets when the app is closed.
+const REMEMBERED_TAB_KEY = 'polaris:project-tab'
+
+/** Read the session's remembered tab, falling back to Home if absent/invalid. */
+function readRememberedTab(): ProjectTab {
+  try {
+    const stored = sessionStorage.getItem(REMEMBERED_TAB_KEY)
+    if (stored && (PROJECT_TABS as readonly string[]).includes(stored)) {
+      return stored as ProjectTab
+    }
+  } catch {
+    // sessionStorage can be unavailable (e.g. privacy modes); use the default.
+  }
+  return DEFAULT_TAB
+}
+
+/** Persist the tab as the session default. Only manual switches call this, so a
+ *  deep-link (a `?tab=` from a card) never changes where other projects open. */
+function writeRememberedTab(tab: ProjectTab): void {
+  try {
+    sessionStorage.setItem(REMEMBERED_TAB_KEY, tab)
+  } catch {
+    // Best-effort persistence; ignore storage failures.
+  }
+}
+
 function actionTarget(action: ProjectActionRow): string {
   switch (action.type) {
     case 'link':
@@ -871,15 +899,23 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
   // The shell is a pathless layout route, so the route ID is `/shell/...` even
   // though the URL stays `/projects/$projectId`.
   const { tab } = useSearch({ from: '/shell/projects/$projectId' })
-  const activeTab = tab ?? DEFAULT_TAB
+  // A `?tab=` deep-link (e.g. a card's Issues link) wins; otherwise open on the
+  // tab the user last switched to this session, remembered across projects.
+  const [rememberedTab, setRememberedTab] = useState<ProjectTab>(readRememberedTab)
+  const activeTab = tab ?? rememberedTab
 
   // Reflect the open tab in `?tab=`; the default tab clears the param to keep
-  // URLs clean. `replace` so tab switches don't pile up in history.
+  // URLs clean. `replace` so tab switches don't pile up in history. Remember the
+  // choice so it carries to the next project — a manual switch persists; a
+  // deep-link (which never reaches here) does not.
   const handleTabChange = (value: string): void => {
+    const next = value as ProjectTab
+    setRememberedTab(next)
+    writeRememberedTab(next)
     navigate({
       to: '/projects/$projectId',
       params: { projectId: String(project.id) },
-      search: { tab: value === DEFAULT_TAB ? undefined : (value as ProjectTab) },
+      search: { tab: next === DEFAULT_TAB ? undefined : next },
       replace: true
     })
   }
