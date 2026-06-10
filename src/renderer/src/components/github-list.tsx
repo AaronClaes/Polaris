@@ -226,9 +226,9 @@ export function EmptyHint({ children }: { children: ReactNode }): ReactElement {
 
 /** Toolbar: a client-side search box on the left, a manual refresh button on
  * the right. The search filters the already-loaded rows (no requery). `filter`
- * is an optional control rendered beside the search box (e.g. the global views'
- * project filter); `action` is an optional control to the right of Refresh
- * (e.g. the "New issue" / "New pull request" button). */
+ * is an optional control next to the search box (the "Add filter" button — kept
+ * here so it stays put as filter pills accumulate below); `action` is an
+ * optional control to the right of Refresh (e.g. the "New issue" button). */
 export function ListToolbar({
   isFetching,
   onRefresh,

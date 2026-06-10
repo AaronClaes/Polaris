@@ -30,9 +30,17 @@ import {
   UserAvatar,
   UserAvatars
 } from '@/components/github-list'
+import { useListFilters } from '@/components/list-filter-bar'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { useRepoIssues } from '@/lib/github-queries'
+import {
+  type ActiveFilter,
+  compileFilters,
+  type FilterField,
+  ISSUE_FILTER_FIELDS,
+  rowMatchesFilters
+} from '@/lib/list-filters'
 import type { IssueRow, ProjectWithActions } from '@/lib/project-types'
 import { cn } from '@/lib/utils'
 
@@ -209,27 +217,39 @@ export function issueMatches(issue: IssueRow, query: string): boolean {
 
 /** The issues surface for a set of repos: a toolbar + the three assignment
  * sections. Repo-list-driven and parametrized so the global issues view reuses
- * it as-is — passing a Project-prefixed `columns`, a `toolbarFilter` control,
- * and a `rowFilter` that hides deselected projects. */
+ * it as-is — passing a Project-prefixed `columns` and an extra Project filter
+ * field. */
 export function IssuesView({
   repos,
   columns = ISSUE_COLUMNS,
-  toolbarFilter,
-  toolbarAction,
-  rowFilter
+  extraFields,
+  toolbarAction
 }: {
   repos: { owner: string; name: string }[]
   columns?: TableOptions<IssueRow>['columns']
-  toolbarFilter?: ReactNode
+  /** Extra filter fields appended to the defaults (e.g. Project in the global view). */
+  extraFields?: FilterField<IssueRow>[]
   toolbarAction?: ReactNode
-  rowFilter?: (issue: IssueRow) => boolean
 }): ReactElement {
   const { issues, errors, isLoading, isError, errorMessage, isFetching, refetch } =
     useRepoIssues(repos)
   const [query, setQuery] = useState('')
+  const [filters, setFilters] = useState<ActiveFilter[]>([])
   // The input stays bound to `query` (instant feedback); filtering + rendering
   // run against the deferred value so a keystroke never blocks on the tables.
   const deferredQuery = useDeferredValue(query)
+
+  const fields = useMemo(
+    () => (extraFields ? [...ISSUE_FILTER_FIELDS, ...extraFields] : ISSUE_FILTER_FIELDS),
+    [extraFields]
+  )
+  const compiled = useMemo(() => compileFilters(filters, fields), [filters, fields])
+  const { addButton, badges } = useListFilters({
+    fields,
+    rows: issues,
+    value: filters,
+    onChange: setFilters
+  })
 
   const buckets = useMemo(() => {
     const normalized = deferredQuery.trim().toLowerCase()
@@ -237,14 +257,14 @@ export function IssuesView({
     const unassigned: IssueRow[] = []
     const others: IssueRow[] = []
     for (const issue of issues) {
-      if (rowFilter && !rowFilter(issue)) continue
+      if (compiled.length > 0 && !rowMatchesFilters(issue, compiled)) continue
       if (normalized && !issueMatches(issue, normalized)) continue
       if (issue.bucket === 'mine') mine.push(issue)
       else if (issue.bucket === 'unassigned') unassigned.push(issue)
       else others.push(issue)
     }
     return { mine, unassigned, others }
-  }, [issues, deferredQuery, rowFilter])
+  }, [issues, deferredQuery, compiled])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.mine },
@@ -259,15 +279,18 @@ export function IssuesView({
 
   return (
     <div className="flex flex-col gap-4">
-      <ListToolbar
-        isFetching={isFetching}
-        onRefresh={refetch}
-        searchValue={query}
-        onSearchChange={setQuery}
-        searchPlaceholder="Search issues…"
-        filter={toolbarFilter}
-        action={toolbarAction}
-      />
+      <div className="flex flex-col gap-3">
+        <ListToolbar
+          isFetching={isFetching}
+          onRefresh={refetch}
+          searchValue={query}
+          onSearchChange={setQuery}
+          searchPlaceholder="Search issues…"
+          filter={addButton}
+          action={toolbarAction}
+        />
+        {badges}
+      </div>
       <FailuresBanner failures={errors} />
       <QueryBoundary
         isLoading={isLoading}

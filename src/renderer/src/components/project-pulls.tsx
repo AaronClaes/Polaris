@@ -21,8 +21,16 @@ import {
   UserAvatar,
   UserAvatars
 } from '@/components/github-list'
+import { useListFilters } from '@/components/list-filter-bar'
 import { Badge } from '@/components/ui/badge'
 import { useRepoPulls } from '@/lib/github-queries'
+import {
+  type ActiveFilter,
+  compileFilters,
+  type FilterField,
+  PULL_FILTER_FIELDS,
+  rowMatchesFilters
+} from '@/lib/list-filters'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { cn } from '@/lib/utils'
 
@@ -178,27 +186,38 @@ export function pullMatches(pull: PullRequestRow, query: string): boolean {
 
 /** The PR surface for a set of repos: a toolbar + the three sections. Repo-list-
  * driven and parametrized so the global pull requests view reuses it as-is —
- * passing a Project-prefixed `columns`, a `toolbarFilter` control, and a
- * `rowFilter` that hides deselected projects. */
+ * passing a Project-prefixed `columns` and an extra Project filter field. */
 export function PullsView({
   repos,
   columns = PULL_COLUMNS,
-  toolbarFilter,
-  toolbarAction,
-  rowFilter
+  extraFields,
+  toolbarAction
 }: {
   repos: { owner: string; name: string }[]
   columns?: TableOptions<PullRequestRow>['columns']
-  toolbarFilter?: ReactNode
+  /** Extra filter fields appended to the defaults (e.g. Project in the global view). */
+  extraFields?: FilterField<PullRequestRow>[]
   toolbarAction?: ReactNode
-  rowFilter?: (pull: PullRequestRow) => boolean
 }): ReactElement {
   const { pulls, errors, isLoading, isError, errorMessage, isFetching, refetch } =
     useRepoPulls(repos)
   const [query, setQuery] = useState('')
+  const [filters, setFilters] = useState<ActiveFilter[]>([])
   // The input stays bound to `query` (instant feedback); filtering + rendering
   // run against the deferred value so a keystroke never blocks on the tables.
   const deferredQuery = useDeferredValue(query)
+
+  const fields = useMemo(
+    () => (extraFields ? [...PULL_FILTER_FIELDS, ...extraFields] : PULL_FILTER_FIELDS),
+    [extraFields]
+  )
+  const compiled = useMemo(() => compileFilters(filters, fields), [filters, fields])
+  const { addButton, badges } = useListFilters({
+    fields,
+    rows: pulls,
+    value: filters,
+    onChange: setFilters
+  })
 
   const buckets = useMemo(() => {
     const normalized = deferredQuery.trim().toLowerCase()
@@ -206,14 +225,14 @@ export function PullsView({
     const review: PullRequestRow[] = []
     const other: PullRequestRow[] = []
     for (const pull of pulls) {
-      if (rowFilter && !rowFilter(pull)) continue
+      if (compiled.length > 0 && !rowMatchesFilters(pull, compiled)) continue
       if (normalized && !pullMatches(pull, normalized)) continue
       if (pull.bucket === 'assigned') assigned.push(pull)
       else if (pull.bucket === 'review') review.push(pull)
       else other.push(pull)
     }
     return { assigned, review, other }
-  }, [pulls, deferredQuery, rowFilter])
+  }, [pulls, deferredQuery, compiled])
 
   const sections = [
     { title: 'Assigned to me', rows: buckets.assigned },
@@ -228,15 +247,18 @@ export function PullsView({
 
   return (
     <div className="flex flex-col gap-4">
-      <ListToolbar
-        isFetching={isFetching}
-        onRefresh={refetch}
-        searchValue={query}
-        onSearchChange={setQuery}
-        searchPlaceholder="Search pull requests…"
-        filter={toolbarFilter}
-        action={toolbarAction}
-      />
+      <div className="flex flex-col gap-3">
+        <ListToolbar
+          isFetching={isFetching}
+          onRefresh={refetch}
+          searchValue={query}
+          onSearchChange={setQuery}
+          searchPlaceholder="Search pull requests…"
+          filter={addButton}
+          action={toolbarAction}
+        />
+        {badges}
+      </div>
       <FailuresBanner failures={errors} />
       <QueryBoundary
         isLoading={isLoading}

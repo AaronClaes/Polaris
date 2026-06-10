@@ -1,15 +1,12 @@
-import { IconFilter } from '@tabler/icons-react'
 import { createColumnHelper } from '@tanstack/react-table'
-import { type ReactElement, type ReactNode, useCallback, useMemo, useState } from 'react'
+import { type ReactElement, type ReactNode, useMemo } from 'react'
 import { CreateOnGitHubButton, type RepoGroup } from '@/components/create-on-github-button'
 import { ProjectIcon } from '@/components/project-icon'
 import { ISSUE_COLUMNS, IssuesView } from '@/components/project-issues'
 import { PULL_COLUMNS, PullsView } from '@/components/project-pulls'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Menu, MenuCheckboxItem, MenuPopup, MenuTrigger } from '@/components/ui/menu'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
+import type { FilterField } from '@/lib/list-filters'
 import type { IssueRow, ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 
@@ -64,31 +61,38 @@ function repoGroupsByProject(projects: ProjectWithActions[]): RepoGroup[] {
     .filter((group) => group.repos.length > 0)
 }
 
-/** Deselected project ids hide their rows; everything shows by default. New
- * projects appear automatically (absence from the set = visible). */
-function useProjectFilter(): { hidden: Set<number>; toggle: (id: number) => void } {
-  const [hidden, setHidden] = useState<Set<number>>(() => new Set())
-  const toggle = useCallback((id: number) => {
-    setHidden((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-  return { hidden, toggle }
-}
-
-/** Row predicate for the project filter: keep a row unless its attributed
- * project is hidden. Unattributed rows (shouldn't happen) always show. */
-function makeRowFilter(
-  projectByRepo: Map<string, ProjectRef>,
-  hidden: Set<number>
-): (row: { repo: { owner: string; name: string } }) => boolean {
-  return (row) => {
-    const project = projectByRepo.get(repoKey(row.repo.owner, row.repo.name))
-    return project ? !hidden.has(project.id) : true
-  }
+/** A "Project" filter field for the global views: its options are the projects
+ * present in the rows (attributed via `projectByRepo`), so the global lists gain
+ * project filtering through the same Add-filter UI as every other property. */
+function useProjectField<T extends { repo: { owner: string; name: string } }>(
+  projectByRepo: Map<string, ProjectRef>
+): FilterField<T> {
+  return useMemo(
+    () => ({
+      id: 'project',
+      label: 'Project',
+      buildOptions: (rows: T[]) => {
+        const byId = new Map<number, ProjectRef>()
+        for (const row of rows) {
+          const project = projectByRepo.get(repoKey(row.repo.owner, row.repo.name))
+          if (project && !byId.has(project.id)) byId.set(project.id, project)
+        }
+        return [...byId.values()]
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((project) => ({
+            value: String(project.id),
+            label: project.name,
+            kind: 'project' as const,
+            project: { icon: project.icon, color: project.color }
+          }))
+      },
+      matches: (row, selected) => {
+        const project = projectByRepo.get(repoKey(row.repo.owner, row.repo.name))
+        return project ? selected.has(String(project.id)) : false
+      }
+    }),
+    [projectByRepo]
+  )
 }
 
 /** The Project column cell: the project's color-tinted icon, name on hover. */
@@ -105,53 +109,6 @@ function ProjectCell({ project }: { project?: ProjectRef }): ReactElement | null
       />
       <TooltipPopup>{project.name}</TooltipPopup>
     </Tooltip>
-  )
-}
-
-/** Toolbar dropdown: every project as a checkbox — deselect to hide its rows.
- * Stays open across toggles; a badge shows the active/total count when filtered. */
-function ProjectFilterMenu({
-  projects,
-  hidden,
-  onToggle
-}: {
-  projects: ProjectWithActions[]
-  hidden: Set<number>
-  onToggle: (id: number) => void
-}): ReactElement {
-  const activeCount = projects.filter((project) => !hidden.has(project.id)).length
-  return (
-    <Menu>
-      <MenuTrigger render={<Button variant="outline" size="sm" />}>
-        <IconFilter />
-        Projects
-        {hidden.size > 0 && (
-          <Badge variant="secondary" size="sm" className="rounded-full">
-            {activeCount}/{projects.length}
-          </Badge>
-        )}
-      </MenuTrigger>
-      <MenuPopup align="start" className="min-w-52">
-        {projects.map((project) => (
-          <MenuCheckboxItem
-            key={project.id}
-            checked={!hidden.has(project.id)}
-            onCheckedChange={() => onToggle(project.id)}
-            closeOnClick={false}
-          >
-            <span className="flex items-center gap-2">
-              <ProjectIcon
-                icon={project.icon}
-                color={project.color}
-                size={13}
-                className="size-4.5"
-              />
-              <span className="truncate">{project.name}</span>
-            </span>
-          </MenuCheckboxItem>
-        ))}
-      </MenuPopup>
-    </Menu>
   )
 }
 
@@ -197,12 +154,11 @@ const issueColumnHelper = createColumnHelper<IssueRow>()
 const pullColumnHelper = createColumnHelper<PullRequestRow>()
 
 /** Open issues across every project's repos — the per-project Issues view with a
- * leading Project column and a project filter. */
+ * leading Project column and a Project filter. */
 export function AllIssues(): ReactElement {
   const projectsQuery = trpc.projects.list.useQuery()
   const projects = projectsQuery.data ?? []
   const { repos, projectByRepo } = useProjectIndex(projects)
-  const { hidden, toggle } = useProjectFilter()
   // Total open issues across all projects (unfiltered) — for the page title.
   const { issues, isLoading } = useRepoIssues(repos)
 
@@ -224,7 +180,8 @@ export function AllIssues(): ReactElement {
     ],
     [projectByRepo]
   )
-  const rowFilter = useMemo(() => makeRowFilter(projectByRepo, hidden), [projectByRepo, hidden])
+  const projectField = useProjectField<IssueRow>(projectByRepo)
+  const extraFields = useMemo(() => [projectField], [projectField])
   const createGroups = useMemo(() => repoGroupsByProject(projects), [projects])
 
   return (
@@ -237,8 +194,7 @@ export function AllIssues(): ReactElement {
       <IssuesView
         repos={repos}
         columns={columns}
-        rowFilter={rowFilter}
-        toolbarFilter={<ProjectFilterMenu projects={projects} hidden={hidden} onToggle={toggle} />}
+        extraFields={extraFields}
         toolbarAction={<CreateOnGitHubButton kind="issue" groups={createGroups} />}
       />
     </GlobalListPage>
@@ -246,12 +202,11 @@ export function AllIssues(): ReactElement {
 }
 
 /** Open pull requests across every project's repos — the per-project Pull
- * requests view with a leading Project column and a project filter. */
+ * requests view with a leading Project column and a Project filter. */
 export function AllPulls(): ReactElement {
   const projectsQuery = trpc.projects.list.useQuery()
   const projects = projectsQuery.data ?? []
   const { repos, projectByRepo } = useProjectIndex(projects)
-  const { hidden, toggle } = useProjectFilter()
   // Total open pull requests across all projects (unfiltered) — for the title.
   const { pulls, isLoading } = useRepoPulls(repos)
 
@@ -273,7 +228,8 @@ export function AllPulls(): ReactElement {
     ],
     [projectByRepo]
   )
-  const rowFilter = useMemo(() => makeRowFilter(projectByRepo, hidden), [projectByRepo, hidden])
+  const projectField = useProjectField<PullRequestRow>(projectByRepo)
+  const extraFields = useMemo(() => [projectField], [projectField])
   const createGroups = useMemo(() => repoGroupsByProject(projects), [projects])
 
   return (
@@ -286,8 +242,7 @@ export function AllPulls(): ReactElement {
       <PullsView
         repos={repos}
         columns={columns}
-        rowFilter={rowFilter}
-        toolbarFilter={<ProjectFilterMenu projects={projects} hidden={hidden} onToggle={toggle} />}
+        extraFields={extraFields}
         toolbarAction={<CreateOnGitHubButton kind="pull" groups={createGroups} />}
       />
     </GlobalListPage>
