@@ -19,6 +19,10 @@ export const projects = sqliteTable('projects', {
   path: text('path'),
   // Surfaces the project on the dashboard home (its pinned-projects section).
   pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
+  // Manual ordering across the projects list (drag-to-reorder on the Projects
+  // page). Reflected everywhere projects.list is shown — sidebar, dashboard,
+  // command palette — since they all read that one ordered query.
+  sortOrder: integer('sort_order').notNull().default(0),
   // `timestamp` mode → drizzle returns a JS Date. superjson keeps it a Date
   // across the IPC boundary (see trpc transformer wiring).
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)

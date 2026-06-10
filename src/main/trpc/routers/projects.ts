@@ -1,4 +1,4 @@
-import { asc, desc, eq } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   type ActionGroup,
@@ -31,12 +31,17 @@ export const updateProjectInput = createProjectInput.partial().extend({
 })
 
 export const projectsRouter = router({
-  // Projects newest-first, each with its action groups, actions, and linked
-  // GitHub repos. Each child set is fetched in one pass and bucketed in memory
-  // to avoid an N+1 per project. Actions carry their own `groupId`, so the
-  // renderer splits them into per-group and loose (ungrouped) lists.
+  // Projects in their manual order (drag-to-reorder on the Projects page), each
+  // with its action groups, actions, and linked GitHub repos. Each child set is
+  // fetched in one pass and bucketed in memory to avoid an N+1 per project.
+  // Actions carry their own `groupId`, so the renderer splits them into
+  // per-group and loose (ungrouped) lists.
   list: publicProcedure.query(({ ctx }) => {
-    const rows = ctx.db.select().from(projects).orderBy(desc(projects.createdAt)).all()
+    const rows = ctx.db
+      .select()
+      .from(projects)
+      .orderBy(asc(projects.sortOrder), asc(projects.id))
+      .all()
     const actions = ctx.db
       .select()
       .from(projectActions)
@@ -82,9 +87,19 @@ export const projectsRouter = router({
     }))
   }),
 
-  create: publicProcedure
-    .input(createProjectInput)
-    .mutation(({ ctx, input }) => ctx.db.insert(projects).values(input).returning().get()),
+  create: publicProcedure.input(createProjectInput).mutation(({ ctx, input }) => {
+    // Append new projects to the end of the manual order.
+    const max =
+      ctx.db
+        .select({ max: sql<number | null>`max(${projects.sortOrder})` })
+        .from(projects)
+        .get()?.max ?? -1
+    return ctx.db
+      .insert(projects)
+      .values({ ...input, sortOrder: max + 1 })
+      .returning()
+      .get()
+  }),
 
   update: publicProcedure.input(updateProjectInput).mutation(({ ctx, input }) => {
     const { id, ...values } = input
@@ -102,6 +117,26 @@ export const projectsRouter = router({
         .returning()
         .get()
     ),
+
+  // Persist a drag reorder of the project list in one transaction. The renderer
+  // sends the full post-drag arrangement, so this is an idempotent overwrite.
+  reorder: publicProcedure
+    .input(
+      z.object({
+        items: z.array(z.object({ id: z.number().int(), sortOrder: z.number().int() }))
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      ctx.db.transaction((tx) => {
+        for (const item of input.items) {
+          tx.update(projects)
+            .set({ sortOrder: item.sortOrder })
+            .where(eq(projects.id, item.id))
+            .run()
+        }
+      })
+      return { ok: true }
+    }),
 
   // Cascades to the project's actions (FK onDelete: 'cascade' + foreign_keys ON).
   delete: publicProcedure.input(z.object({ id: z.number().int() })).mutation(({ ctx, input }) => {

@@ -78,6 +78,13 @@
       "when": 1781113121430,
       "tag": "0010_add_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1781121097846,
+      "tag": "0011_add_project_sort_order",
+      "breakpoints": true
     }
   ]
 }

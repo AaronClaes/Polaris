@@ -1,7 +1,8 @@
-import { IconPlanet, IconPlus, IconSearch } from '@tabler/icons-react'
+import { IconArrowsSort, IconCheck, IconPlanet, IconPlus, IconSearch } from '@tabler/icons-react'
 import { type ReactElement, useId, useMemo, useState } from 'react'
 import { CreateProjectDialog } from '@/components/create-project-dialog'
 import { ProjectCard } from '@/components/project-card'
+import { ReorderableProjects } from '@/components/reorderable-projects'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -10,9 +11,18 @@ import { trpc } from '@/lib/trpc'
 /** The full project launcher: searchable grid of project cards with a create entry. */
 export function ProjectsPage(): ReactElement {
   const searchId = useId()
+  const utils = trpc.useUtils()
   const [query, setQuery] = useState('')
+  const [reordering, setReordering] = useState(false)
   const projectsQuery = trpc.projects.list.useQuery()
   const projects = projectsQuery.data ?? []
+
+  // Leaving reorder mode re-syncs the shared query so the grid, sidebar, and
+  // dashboard all reflect the persisted order.
+  const exitReorder = (): void => {
+    utils.projects.list.invalidate()
+    setReordering(false)
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -33,26 +43,41 @@ export function ProjectsPage(): ReactElement {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <InputGroup className="w-56">
-            <InputGroupAddon>
-              <IconSearch />
-            </InputGroupAddon>
-            <InputGroupInput
-              id={searchId}
-              type="search"
-              placeholder="Search projects…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </InputGroup>
-          <CreateProjectDialog
-            trigger={
-              <Button>
-                <IconPlus />
-                New project
-              </Button>
-            }
-          />
+          {reordering ? (
+            <Button variant="outline" size="sm" onClick={exitReorder}>
+              <IconCheck />
+              Done
+            </Button>
+          ) : (
+            <>
+              <InputGroup className="w-56">
+                <InputGroupAddon>
+                  <IconSearch />
+                </InputGroupAddon>
+                <InputGroupInput
+                  id={searchId}
+                  type="search"
+                  placeholder="Search projects…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </InputGroup>
+              {projects.length > 1 && (
+                <Button variant="ghost" size="sm" onClick={() => setReordering(true)}>
+                  <IconArrowsSort />
+                  Reorder
+                </Button>
+              )}
+              <CreateProjectDialog
+                trigger={
+                  <Button>
+                    <IconPlus />
+                    New project
+                  </Button>
+                }
+              />
+            </>
+          )}
         </div>
       </header>
 
@@ -76,6 +101,8 @@ export function ProjectsPage(): ReactElement {
             }
           />
         </Empty>
+      ) : reordering ? (
+        <ReorderableProjects projects={projects} />
       ) : filtered.length === 0 ? (
         <p className="rounded-2xl border border-border border-dashed px-4 py-12 text-center text-muted-foreground text-sm">
           No projects match “{query}”.
