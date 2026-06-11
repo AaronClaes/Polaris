@@ -84,6 +84,17 @@ export interface AppLauncherActionConfig {
 }
 
 /**
+ * The `ide` action: an {@link AppLauncherActionConfig} that can instead target a
+ * specific `.code-workspace` file. When `workspaceFile` is set the IDE opens that
+ * workspace; otherwise it opens `cwd` (or the project's default `path`). Both
+ * VS Code and Cursor register `.code-workspace` as a document type, so launching
+ * via `open -a <app> <file>` opens it as a workspace just like a folder.
+ */
+export interface IdeActionConfig extends AppLauncherActionConfig {
+  workspaceFile?: string | null
+}
+
+/**
  * Open one of the project's linked GitHub repositories on github.com. Stores a
  * snapshot of the chosen repo — its GitHub `repoId` for identity, plus
  * `owner`/`name`/`url` for display and opening — so the action renders and runs
@@ -106,6 +117,7 @@ export type ActionConfig =
   | LinkActionConfig
   | CommandActionConfig
   | AppLauncherActionConfig
+  | IdeActionConfig
   | RepoActionConfig
 
 /**

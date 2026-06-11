@@ -38,8 +38,8 @@ import type { ActionGroupRow, ProjectActionRow, ProjectRepoRow } from '@/lib/pro
 import { trpc } from '@/lib/trpc'
 import type {
   ActionType,
-  AppLauncherActionConfig,
   CommandActionConfig,
+  IdeActionConfig,
   LinkActionConfig,
   RepoActionConfig
 } from '../../../main/db/schema'
@@ -124,7 +124,15 @@ const DEFAULT_ICON_FOR_TYPE: Record<ActionType, string> = {
 const NO_GROUP = 'none'
 // Sentinel for the link "Open in" select: the OS default browser, no profile.
 const OS_DEFAULT = 'default'
-const EMPTY = { label: '', url: '', command: '', cwd: '', repoId: '', profile: OS_DEFAULT }
+const EMPTY = {
+  label: '',
+  url: '',
+  command: '',
+  cwd: '',
+  workspaceFile: '',
+  repoId: '',
+  profile: OS_DEFAULT
+}
 
 /** Encode a browser+profile as a single select value (or the OS-default sentinel). */
 function profileValue(browser?: string | null, directory?: string | null): string {
@@ -166,9 +174,15 @@ function seedForm(action?: ProjectActionRow): typeof EMPTY {
       profile: profileValue(config.browser, config.profileDirectory)
     }
   }
-  // terminal / ide — no command, just an optional working directory.
-  const config = action.config as AppLauncherActionConfig
-  return { ...EMPTY, label: action.label, cwd: config.cwd ?? '' }
+  // terminal / ide — no command, just an optional working directory (and, for
+  // IDE, an optional `.code-workspace` file to open instead of the folder).
+  const config = action.config as IdeActionConfig
+  return {
+    ...EMPTY,
+    label: action.label,
+    cwd: config.cwd ?? '',
+    workspaceFile: config.workspaceFile ?? ''
+  }
 }
 
 /** The group select's initial value: the edited action's group, else a preset. */
@@ -215,6 +229,7 @@ export function AddActionDialog({
   const urlId = useId()
   const commandId = useId()
   const cwdId = useId()
+  const workspaceFileId = useId()
 
   // Seed from the action (edit) or defaults (create) each time it opens —
   // mirroring GroupDialog — so a reopened dialog never shows stale state.
@@ -314,17 +329,9 @@ export function AddActionDialog({
         break
       }
       case 'ide': {
-        if (action)
-          update.mutate({ id: action.id, type: 'ide', label: form.label, icon, config: { cwd } })
-        else
-          create.mutate({
-            projectId,
-            groupId,
-            type: 'ide',
-            label: form.label,
-            icon,
-            config: { cwd }
-          })
+        const config = { cwd, workspaceFile: form.workspaceFile.trim() || undefined }
+        if (action) update.mutate({ id: action.id, type: 'ide', label: form.label, icon, config })
+        else create.mutate({ projectId, groupId, type: 'ide', label: form.label, icon, config })
         break
       }
       case 'repo': {
@@ -539,6 +546,27 @@ export function AddActionDialog({
                 </div>
               )}
 
+              {/* An IDE action can target a specific .code-workspace file rather
+                  than a folder; it takes precedence over the working directory. */}
+              {type === 'ide' && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor={workspaceFileId}>Workspace file (optional)</Label>
+                  <PathInput
+                    id={workspaceFileId}
+                    mode="file"
+                    fileFilters={[{ name: 'VS Code workspace', extensions: ['code-workspace'] }]}
+                    placeholder="Open a folder instead"
+                    value={form.workspaceFile}
+                    defaultPath={form.cwd.trim() || projectPath || undefined}
+                    onChange={(value) => setForm((prev) => ({ ...prev, workspaceFile: value }))}
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    Open a specific .code-workspace in your IDE. Takes precedence over the working
+                    directory.
+                  </p>
+                </div>
+              )}
+
               {/* The working directory applies to anything launched on a path:
                   the command's cwd, or the dir the terminal / IDE opens in. */}
               {(type === 'command' || type === 'terminal' || type === 'ide') && (
@@ -548,6 +576,7 @@ export function AddActionDialog({
                     id={cwdId}
                     placeholder={projectPath ?? 'Project default path'}
                     value={form.cwd}
+                    defaultPath={projectPath ?? undefined}
                     onChange={(value) => setForm((prev) => ({ ...prev, cwd: value }))}
                   />
                 </div>

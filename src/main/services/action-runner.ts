@@ -4,6 +4,7 @@ import { execa } from 'execa'
 import type {
   AppLauncherActionConfig,
   CommandActionConfig,
+  IdeActionConfig,
   LinkActionConfig,
   ProjectAction,
   RepoActionConfig
@@ -174,8 +175,11 @@ export async function runAction(
       return runOpenApp(defaultApps.terminal, config.cwd ?? projectPath)
     }
     case 'ide': {
-      const config = action.config as AppLauncherActionConfig
-      return runOpenApp(defaultApps.ide, config.cwd ?? projectPath)
+      const config = action.config as IdeActionConfig
+      // A `.code-workspace` file opens as a workspace; `open -a` passes any path
+      // to the app, so a file target works exactly like a folder. Falls back to
+      // the cwd override / project path when no workspace file is set.
+      return runOpenApp(defaultApps.ide, config.workspaceFile ?? config.cwd ?? projectPath)
     }
     default: {
       // Exhaustiveness guard: a new ACTION_TYPES entry without a branch fails here.

@@ -35,6 +35,15 @@ const commandConfig = z.object({
 // default-apps setting — so their config is just the optional cwd override.
 const appLauncherConfig = z.object({ cwd })
 
+// The IDE launcher additionally accepts an optional `.code-workspace` file to
+// open instead of a plain folder; it takes precedence over cwd at run time.
+const workspaceFile = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => (v ? v : null))
+const ideConfig = z.object({ cwd, workspaceFile })
+
 // A repo action snapshots the chosen linked repo (identity + display/url) and,
 // like a link, can target a browser/profile.
 const repoConfig = z.object({
@@ -83,7 +92,7 @@ const createActionInput = z.discriminatedUnion('type', [
     type: z.literal('ide'),
     label,
     icon,
-    config: appLauncherConfig
+    config: ideConfig
   }),
   z.object({
     projectId: z.number().int(),
@@ -120,7 +129,7 @@ const updateActionInput = z.discriminatedUnion('type', [
     type: z.literal('ide'),
     label,
     icon,
-    config: appLauncherConfig
+    config: ideConfig
   }),
   z.object({ id: z.number().int(), type: z.literal('repo'), label, icon, config: repoConfig })
 ])
