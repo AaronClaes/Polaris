@@ -225,19 +225,23 @@ export function DataTable<T>({
 
 /** A titled, collapsible box built on the vendored Collapsible. `keepMounted`
  * keeps the body in the DOM while collapsed, so toggling is a show/hide rather
- * than a table remount; the section starts open, so its rows mount once up front. */
+ * than a table remount; it starts open by default, so its rows mount once up
+ * front — pass `defaultOpen={false}` for a lower-priority section that should
+ * start collapsed. */
 export function CollapsibleSection({
   title,
   count,
+  defaultOpen = true,
   children
 }: {
   title: string
   count: number
+  defaultOpen?: boolean
   children: ReactNode
 }): ReactElement {
   return (
     <Collapsible
-      defaultOpen
+      defaultOpen={defaultOpen}
       render={<section className="overflow-hidden rounded-xl border border-border" />}
     >
       <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50 data-panel-open:border-border data-panel-open:border-b">

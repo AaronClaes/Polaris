@@ -70,7 +70,7 @@ const TYPE_ICONS: Record<string, ComponentType<{ className?: string }>> = {
 /** The issue type as a colored icon, with a tooltip naming it (Task / Bug /
  * Feature / …). When no type is set, falls back to GitHub's standard open-issue
  * marker: a green circle-dot. Memoized so a search re-render skips unchanged rows. */
-const IssueTypeIcon = memo(function IssueTypeIcon({
+export const IssueTypeIcon = memo(function IssueTypeIcon({
   type
 }: {
   type: IssueRow['type']
