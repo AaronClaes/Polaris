@@ -201,8 +201,10 @@ async function graphql<T>(
   return body.data
 }
 
-/** An open issue, normalized for the renderer. `linkedPr` reflects the GitHub
- * "Development" link (a PR referencing the issue with a closing keyword). */
+/** An open issue, normalized for the renderer. The two "Development" links are
+ * kept separate: `linkedPr` is a PR referencing the issue with a closing
+ * keyword, while `linkedBranches` are branches linked to it directly — which can
+ * exist before any PR does. */
 export interface GitHubIssue {
   id: string
   number: number
@@ -216,11 +218,16 @@ export interface GitHubIssue {
   labels: { name: string; color: string }[]
   type: { name: string; color: string } | null
   linkedPr: { number: number; url: string; state: string } | null
+  // Branches linked via the issue's Development panel ("link/create a branch"),
+  // each as a ready-to-open GitHub tree URL. Empty when none are linked.
+  linkedBranches: { name: string; url: string }[]
 }
 
 // `repository.issues` returns issues only (never PRs), unlike the REST endpoint.
 // Issue Types are GA — `issueType` needs no preview header and is null on
-// personal repos. `closedByPullRequestsReferences` is the linked-PR signal.
+// personal repos. `closedByPullRequestsReferences` is the linked-PR signal;
+// `linkedBranches` is the separate linked-branch signal (the issue's Development
+// panel), GA too and resolved with Issues + Contents read.
 // NOTE: GitHub Projects (v2) "Status" is intentionally NOT queried here. Projects
 // is an org-only fine-grained-PAT permission with no user-account equivalent, and
 // even the org case is unreliable over GraphQL — including `projectItems` would
@@ -244,6 +251,9 @@ const ISSUES_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
           totalCount
           nodes { number url state }
         }
+        linkedBranches(first: 5) {
+          nodes { ref { name repository { url } } }
+        }
       }
     }
   }
@@ -262,6 +272,10 @@ interface RawIssue {
   closedByPullRequestsReferences: {
     totalCount: number
     nodes: { number: number; url: string; state: string }[]
+  }
+  linkedBranches: {
+    // `ref` is null for a linked branch that's since been deleted.
+    nodes: { ref: { name: string; repository: { url: string } } | null }[]
   }
 }
 
@@ -299,7 +313,14 @@ function mapIssue(owner: string, name: string, raw: RawIssue): GitHubIssue {
             url: pr.nodes[0].url,
             state: pr.nodes[0].state
           }
-        : null
+        : null,
+    // Drop links to deleted branches, then build the tree URL from the ref's repo
+    // (a linked branch can live in a fork, so use its own repository, not ours).
+    linkedBranches: raw.linkedBranches.nodes.flatMap((node) =>
+      node.ref
+        ? [{ name: node.ref.name, url: `${node.ref.repository.url}/tree/${node.ref.name}` }]
+        : []
+    )
   }
 }
 
@@ -362,6 +383,9 @@ export interface GitHubPullRequest {
   author: { login: string; avatarUrl: string | null } | null
   assignees: { login: string; avatarUrl: string }[]
   reviewers: { login: string; avatarUrl: string | null }[]
+  // The PR's head (source) branch as a ready-to-open GitHub tree URL — points
+  // into the fork for a cross-repo PR. Null only if the head repository is gone.
+  headBranch: { name: string; url: string } | null
   // GitHub Actions status, fetched separately via the Actions REST API.
   checks: CheckSummary | null
 }
@@ -384,6 +408,8 @@ const PULLS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
         isDraft
         mergeable
         headRefOid
+        headRefName
+        headRepository { url }
         author { login avatarUrl }
         assignees(first: 10) { nodes { login avatarUrl } }
         reviewRequests(first: 10) {
@@ -410,6 +436,10 @@ interface RawPull {
   isDraft: boolean
   mergeable: string
   headRefOid: string
+  headRefName: string
+  // The repo the head branch lives in — the fork, for a cross-repo PR. Null only
+  // if that repository is gone.
+  headRepository: { url: string } | null
   author: { login: string; avatarUrl: string } | null
   assignees: { nodes: { login: string; avatarUrl: string }[] }
   reviewRequests: {
@@ -471,6 +501,9 @@ function mapPull(owner: string, name: string, raw: RawPull): GitHubPullRequest {
       avatarUrl: a.avatarUrl
     })),
     reviewers,
+    headBranch: raw.headRepository
+      ? { name: raw.headRefName, url: `${raw.headRepository.url}/tree/${raw.headRefName}` }
+      : null,
     // Filled in by listPullRequestsForRepo after the head SHAs are known.
     checks: null
   }

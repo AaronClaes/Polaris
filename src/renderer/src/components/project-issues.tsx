@@ -19,6 +19,7 @@ import {
 } from 'react'
 import { CreateOnGitHubButton } from '@/components/create-on-github-button'
 import {
+  BranchLink,
   CollapsibleSection,
   DataTable,
   EmptyHint,
@@ -151,6 +152,23 @@ const LinkedPrLink = memo(function LinkedPrLink({
   )
 })
 
+/** One "Development" slot per issue. GitHub promotes a linked branch into a PR
+ * the moment one is opened — the branch link is consumed, so the two never
+ * coexist in the normal flow. We mirror that as a single column: the state-
+ * colored PR icon once a PR exists, otherwise the neutral branch icon for a
+ * branch that's been created but has no PR yet. */
+const DevelopmentCell = memo(function DevelopmentCell({
+  pr,
+  branches
+}: {
+  pr: IssueRow['linkedPr']
+  branches: IssueRow['linkedBranches']
+}): ReactElement | null {
+  if (pr) return <LinkedPrLink pr={pr} />
+  if (branches.length > 0) return <BranchLink branches={branches} />
+  return null
+})
+
 const columnHelper = createColumnHelper<IssueRow>()
 
 // Defined once and shared by every section's table — the column model is the
@@ -187,14 +205,16 @@ export const ISSUE_COLUMNS = [
     meta: { width: '6rem' },
     cell: (cell) => <UserAvatars users={cell.getValue()} />
   }),
-  columnHelper.accessor((row) => row.linkedPr, {
-    id: 'pr',
-    header: 'PR',
+  columnHelper.display({
+    id: 'dev',
+    header: 'Dev',
     meta: { width: '3.5rem' },
-    cell: (cell) => {
-      const pr = cell.getValue()
-      return pr ? <LinkedPrLink pr={pr} /> : null
-    }
+    cell: (cell) => (
+      <DevelopmentCell
+        pr={cell.row.original.linkedPr}
+        branches={cell.row.original.linkedBranches}
+      />
+    )
   }),
   columnHelper.display({
     id: 'open',
@@ -213,6 +233,7 @@ export function issueMatches(issue: IssueRow, query: string): boolean {
     (issue.author?.login.toLowerCase().includes(query) ?? false) ||
     issue.assignees.some((person) => person.login.toLowerCase().includes(query)) ||
     issue.labels.some((label) => label.name.toLowerCase().includes(query)) ||
+    issue.linkedBranches.some((branch) => branch.name.toLowerCase().includes(query)) ||
     (issue.type?.name.toLowerCase().includes(query) ?? false)
   )
 }

@@ -10,6 +10,7 @@ import { createColumnHelper, type TableOptions } from '@tanstack/react-table'
 import { memo, type ReactElement, type ReactNode, useDeferredValue, useMemo, useState } from 'react'
 import { CreateOnGitHubButton } from '@/components/create-on-github-button'
 import {
+  BranchLink,
   CollapsibleSection,
   DataTable,
   EmptyHint,
@@ -166,6 +167,15 @@ export const PULL_COLUMNS = [
     meta: { width: '6rem' },
     cell: (cell) => <UserAvatars users={cell.getValue()} />
   }),
+  columnHelper.accessor((row) => row.headBranch, {
+    id: 'dev',
+    header: 'Dev',
+    meta: { width: '3.5rem' },
+    cell: (cell) => {
+      const branch = cell.getValue()
+      return <BranchLink branches={branch ? [branch] : []} />
+    }
+  }),
   columnHelper.display({
     id: 'open',
     meta: { width: '3.5rem' },
@@ -182,7 +192,8 @@ export function pullMatches(pull: PullRequestRow, query: string): boolean {
     `${pull.repo.owner}/${pull.repo.name}`.toLowerCase().includes(query) ||
     (pull.author?.login.toLowerCase().includes(query) ?? false) ||
     pull.assignees.some((person) => person.login.toLowerCase().includes(query)) ||
-    pull.reviewers.some((person) => person.login.toLowerCase().includes(query))
+    pull.reviewers.some((person) => person.login.toLowerCase().includes(query)) ||
+    (pull.headBranch?.name.toLowerCase().includes(query) ?? false)
   )
 }
 

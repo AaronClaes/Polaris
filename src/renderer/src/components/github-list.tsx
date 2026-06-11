@@ -1,4 +1,4 @@
-import { IconChevronDown, IconExternalLink, IconSearch } from '@tabler/icons-react'
+import { IconChevronDown, IconExternalLink, IconGitBranch, IconSearch } from '@tabler/icons-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -67,6 +67,37 @@ export const UserAvatars = memo(function UserAvatars({
       ))}
       {extra > 0 && <span className="pl-2.5 text-muted-foreground text-xs">+{extra}</span>}
     </div>
+  )
+})
+
+/** A neutral branch marker: a git-branch icon linking to the (first) branch on
+ * GitHub, with every branch name in the tooltip. Shared by the Dev column in both
+ * lists — an issue's linked-but-no-PR-yet branch, and a PR's head (source)
+ * branch. Renders nothing when there are no branches. */
+export const BranchLink = memo(function BranchLink({
+  branches
+}: {
+  branches: { name: string; url: string }[]
+}): ReactElement | null {
+  if (branches.length === 0) return null
+  const label = branches.map((branch) => branch.name).join(', ')
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <a
+            href={branches[0].url}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`Branch ${label} — open on GitHub`}
+            className="inline-flex text-muted-foreground transition-opacity hover:opacity-70"
+          >
+            <IconGitBranch className="size-4" />
+          </a>
+        }
+      />
+      <TooltipPopup>{label}</TooltipPopup>
+    </Tooltip>
   )
 })
 
