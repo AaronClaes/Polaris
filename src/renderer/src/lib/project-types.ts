@@ -26,3 +26,7 @@ export type PullRequestRow = RouterOutputs['github']['pullsForRepo']['pulls'][nu
 export type NoteRow = RouterOutputs['notes']['list'][number]
 /** The stored ProseMirror/TipTap document (the note's `body`). */
 export type NoteDoc = NoteRow['body']
+/** A project todo, as returned by `todos.list`. */
+export type TodoRow = RouterOutputs['todos']['list'][number]
+/** A todo plus its owning project, as returned by `todos.listAll` (global view). */
+export type GlobalTodoRow = RouterOutputs['todos']['listAll'][number]

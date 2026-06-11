@@ -2,6 +2,7 @@ import {
   IconCircleDot,
   IconGitPullRequest,
   IconLayoutDashboard,
+  IconListCheck,
   IconPlus,
   IconSelector,
   IconSettings
@@ -137,6 +138,13 @@ export function AppSidebar(): ReactElement {
   }, [projects])
   const counts = useRepoCounts(allRepos)
 
+  // Open todos across every project — the Todos nav badge. Shares the same
+  // cache as the global Todos view, so it adds no fetch. `loaded` gates the
+  // badge so it doesn't flash "0" before the query resolves.
+  const todosQuery = trpc.todos.listAll.useQuery()
+  const openTodos = (todosQuery.data ?? []).filter((todo) => !todo.completed).length
+  const todosLoaded = !todosQuery.isLoading
+
   return (
     <Sidebar collapsible="none" className="border-sidebar-border border-r">
       <SidebarContent>
@@ -162,6 +170,13 @@ export function AppSidebar(): ReactElement {
                   <span>Pull requests</span>
                 </SidebarMenuButton>
                 {counts.pullsLoaded && <SidebarMenuBadge>{counts.pulls}</SidebarMenuBadge>}
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={pathname === '/todos'} render={<Link to="/todos" />}>
+                  <IconListCheck />
+                  <span>Todos</span>
+                </SidebarMenuButton>
+                {todosLoaded && <SidebarMenuBadge>{openTodos}</SidebarMenuBadge>}
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

@@ -262,6 +262,29 @@ export const notes = sqliteTable('notes', {
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
 
+/**
+ * A per-project to-do. The catch-all for work that doesn't belong in a GitHub
+ * issue. Deliberately minimal for now — a title, an optional due date, and a
+ * completed flag — with room to grow (sorting, filtering, rich content) later.
+ * `completedAt` records when the box was checked (cleared when unchecked) so a
+ * future view can show or sort by completion time; `updatedAt` is bumped on
+ * every edit.
+ */
+export const todos = sqliteTable('todos', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  projectId: integer('project_id')
+    .notNull()
+    .references(() => projects.id, { onDelete: 'cascade' }),
+  title: text('title').notNull().default(''),
+  // Optional target date. Date-only in the UI; stored as a timestamp.
+  dueDate: integer('due_date', { mode: 'timestamp' }),
+  completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
+  // Stamped when `completed` flips true, nulled when it flips back.
+  completedAt: integer('completed_at', { mode: 'timestamp' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
 export type ProjectRepo = typeof projectRepos.$inferSelect
@@ -276,5 +299,7 @@ export type Browser = typeof browsers.$inferSelect
 export type NewBrowser = typeof browsers.$inferInsert
 export type Note = typeof notes.$inferSelect
 export type NewNote = typeof notes.$inferInsert
+export type Todo = typeof todos.$inferSelect
+export type NewTodo = typeof todos.$inferInsert
 export type Setting = typeof settings.$inferSelect
 export type NewSetting = typeof settings.$inferInsert

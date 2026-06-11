@@ -38,6 +38,7 @@ import { ProjectIssues } from '@/components/project-issues'
 import { ProjectNotes } from '@/components/project-notes'
 import { ProjectPulls } from '@/components/project-pulls'
 import { ProjectRepos } from '@/components/project-repos'
+import { ProjectTodos } from '@/components/project-todos'
 import { ReorderableActions } from '@/components/reorderable-actions'
 import {
   AlertDialog,
@@ -85,7 +86,7 @@ import type {
 
 /** The project detail tabs, in display order. Drives the `?tab=` search param
  *  (see the route) so cards and links can deep-link to a specific tab. */
-export const PROJECT_TABS = ['home', 'issues', 'pulls', 'notes', 'settings'] as const
+export const PROJECT_TABS = ['home', 'issues', 'pulls', 'todos', 'notes', 'settings'] as const
 export type ProjectTab = (typeof PROJECT_TABS)[number]
 const DEFAULT_TAB: ProjectTab = 'home'
 
@@ -943,6 +944,12 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
   )
   const counts = useRepoCounts(repos)
 
+  // Open-todo count for the tab badge. Shares the Todos tab's own query cache.
+  // `loaded` gates the badge so it doesn't flash "0" before the query resolves.
+  const todosQuery = trpc.todos.list.useQuery({ projectId: project.id })
+  const openTodos = (todosQuery.data ?? []).filter((todo) => !todo.completed).length
+  const todosLoaded = !todosQuery.isLoading
+
   // Fullscreen note mode: the active note fills the project page. Gate on the
   // Notes tab being open so navigating elsewhere always restores the chrome.
   const expanded = notesExpanded && activeTab === 'notes'
@@ -1027,6 +1034,14 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
                 </Badge>
               )}
             </TabsTab>
+            <TabsTab value="todos" className="grow-0">
+              Todos
+              {todosLoaded && (
+                <Badge variant="secondary" size="sm" className="rounded-full">
+                  {openTodos}
+                </Badge>
+              )}
+            </TabsTab>
             <TabsTab value="notes" className="grow-0">
               Notes
             </TabsTab>
@@ -1046,6 +1061,10 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
 
         <TabsPanel value="pulls" className="pt-5" keepMounted>
           <ProjectPulls project={project} />
+        </TabsPanel>
+
+        <TabsPanel value="todos" className="pt-5" keepMounted>
+          <ProjectTodos key={project.id} project={project} />
         </TabsPanel>
 
         <TabsPanel value="notes" className={cn('min-h-0 flex-1', !expanded && 'pt-5')} keepMounted>

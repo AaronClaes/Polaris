@@ -8,6 +8,7 @@ import { groupsRouter } from './routers/groups'
 import { notesRouter } from './routers/notes'
 import { projectsRouter } from './routers/projects'
 import { settingsRouter } from './routers/settings'
+import { todosRouter } from './routers/todos'
 
 export const appRouter = router({
   projects: projectsRouter,
@@ -18,6 +19,7 @@ export const appRouter = router({
   browsers: browsersRouter,
   dialog: dialogRouter,
   notes: notesRouter,
+  todos: todosRouter,
   settings: settingsRouter
 })
 

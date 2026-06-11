@@ -1,9 +1,10 @@
 import { createColumnHelper } from '@tanstack/react-table'
-import { type ReactElement, type ReactNode, useMemo } from 'react'
+import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react'
 import { CreateOnGitHubButton, type RepoGroup } from '@/components/create-on-github-button'
 import { ProjectIcon } from '@/components/project-icon'
 import { ISSUE_COLUMNS, IssuesView } from '@/components/project-issues'
 import { PULL_COLUMNS, PullsView } from '@/components/project-pulls'
+import { TodosView } from '@/components/project-todos'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
 import type { FilterField } from '@/lib/list-filters'
@@ -113,19 +114,22 @@ function ProjectCell({ project }: { project?: ProjectRef }): ReactElement | null
 }
 
 /** Full-screen page chrome for a global list: title + the list, or an empty
- * hint when no project has a linked repo yet. */
+ * hint when there's nothing to show yet. */
 function GlobalListPage({
   title,
   subtitle,
   count,
-  hasRepos,
+  hasContent,
+  emptyHint = 'Link a repository to a project to see it here.',
   children
 }: {
   title: string
   subtitle: string
   // Total across all projects; omitted while still loading (no flash of 0).
   count?: number
-  hasRepos: boolean
+  // Whether there's anything to render; otherwise `emptyHint` shows instead.
+  hasContent: boolean
+  emptyHint?: string
   children: ReactNode
 }): ReactElement {
   return (
@@ -139,11 +143,11 @@ function GlobalListPage({
         </h1>
         <p className="mt-0.5 text-muted-foreground text-sm">{subtitle}</p>
       </header>
-      {hasRepos ? (
+      {hasContent ? (
         children
       ) : (
         <p className="rounded-xl border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-sm">
-          Link a repository to a project to see it here.
+          {emptyHint}
         </p>
       )}
     </div>
@@ -189,7 +193,7 @@ export function AllIssues(): ReactElement {
       title="Issues"
       subtitle="Open issues across all your projects."
       count={isLoading ? undefined : issues.length}
-      hasRepos={repos.length > 0}
+      hasContent={repos.length > 0}
     >
       <IssuesView
         repos={repos}
@@ -237,13 +241,65 @@ export function AllPulls(): ReactElement {
       title="Pull requests"
       subtitle="Open pull requests across all your projects."
       count={isLoading ? undefined : pulls.length}
-      hasRepos={repos.length > 0}
+      hasContent={repos.length > 0}
     >
       <PullsView
         repos={repos}
         columns={columns}
         extraFields={extraFields}
         toolbarAction={<CreateOnGitHubButton kind="pull" groups={createGroups} />}
+      />
+    </GlobalListPage>
+  )
+}
+
+/** Every project's todos in one flat list, each tagged with its project. The add
+ * row carries a project picker (todos can be created here, not just in a tab). */
+export function AllTodos(): ReactElement {
+  const utils = trpc.useUtils()
+  const projectsQuery = trpc.projects.list.useQuery()
+  const projects = projectsQuery.data ?? []
+  const todosQuery = trpc.todos.listAll.useQuery()
+  const rows = todosQuery.data ?? []
+  // The page count is open todos (matches the nav badge), not the total.
+  const openCount = rows.filter((todo) => !todo.completed).length
+
+  const addProjects = useMemo(
+    () =>
+      projects.map((project) => ({
+        id: project.id,
+        name: project.name,
+        icon: project.icon,
+        color: project.color
+      })),
+    [projects]
+  )
+
+  const invalidate = useCallback(() => utils.todos.invalidate(), [utils])
+  const create = trpc.todos.create.useMutation({ onSuccess: invalidate })
+  const update = trpc.todos.update.useMutation({ onSuccess: invalidate })
+  const setCompleted = trpc.todos.setCompleted.useMutation({ onSuccess: invalidate })
+  const remove = trpc.todos.delete.useMutation({ onSuccess: invalidate })
+
+  return (
+    <GlobalListPage
+      title="Todos"
+      subtitle="Tasks across all your projects."
+      count={todosQuery.isLoading ? undefined : openCount}
+      hasContent={projects.length > 0}
+      emptyHint="Create a project to start adding todos."
+    >
+      <TodosView
+        rows={rows}
+        isLoading={todosQuery.isLoading}
+        showProject
+        addProjects={addProjects}
+        creating={create.isPending}
+        pendingDeleteId={remove.isPending ? remove.variables?.id : undefined}
+        onCreate={(input) => create.mutate(input)}
+        onUpdate={(input) => update.mutate(input)}
+        onToggle={(id, completed) => setCompleted.mutate({ id, completed })}
+        onDelete={(id) => remove.mutate({ id })}
       />
     </GlobalListPage>
   )
