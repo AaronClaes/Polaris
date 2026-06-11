@@ -75,18 +75,14 @@ export function ProjectHome({ project }: { project: ProjectWithActions }): React
     errors: pullErrors,
     isLoading: pullsLoading,
     isError: pullsError,
-    errorMessage: pullsErrorMessage,
-    isFetching: pullsFetching,
-    refetch: refetchPulls
+    errorMessage: pullsErrorMessage
   } = useRepoPulls(repos)
   const {
     issues,
     errors: issueErrors,
     isLoading: issuesLoading,
     isError: issuesError,
-    errorMessage: issuesErrorMessage,
-    isFetching: issuesFetching,
-    refetch: refetchIssues
+    errorMessage: issuesErrorMessage
   } = useRepoIssues(repos)
 
   // Todos are local (no repos needed); shares the cache the Todos tab fills.
@@ -130,13 +126,10 @@ export function ProjectHome({ project }: { project: ProjectWithActions }): React
     )
   }
 
-  // Merge the two queries into one surface: refresh refetches both, a spinner
-  // shows until both first loads finish, and we only fall back to the error
-  // screen if both fail outright — a single source failing shows in the banner.
-  const refresh = (): void => {
-    refetchPulls()
-    refetchIssues()
-  }
+  // Merge the two queries into one surface: a spinner shows until both first
+  // loads finish, and we only fall back to the error screen if both fail
+  // outright — a single source failing shows in the banner. Refresh lives in
+  // the project header now, refetching this project's repos for every tab.
   const failures = dedupeByRepo([...pullErrors, ...issueErrors])
 
   const hasRepos = repos.length > 0
@@ -146,8 +139,6 @@ export function ProjectHome({ project }: { project: ProjectWithActions }): React
   return (
     <div className="flex flex-col gap-4">
       <ListToolbar
-        isFetching={pullsFetching || issuesFetching}
-        onRefresh={refresh}
         searchValue={query}
         onSearchChange={setQuery}
         searchPlaceholder="Search what needs you…"

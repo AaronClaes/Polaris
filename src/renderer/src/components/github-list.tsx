@@ -1,4 +1,4 @@
-import { IconChevronDown, IconExternalLink, IconRefresh, IconSearch } from '@tabler/icons-react'
+import { IconChevronDown, IconExternalLink, IconSearch } from '@tabler/icons-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -224,15 +224,14 @@ export function EmptyHint({ children }: { children: ReactNode }): ReactElement {
   return <p className="px-3 py-4 text-center text-muted-foreground text-xs">{children}</p>
 }
 
-/** Toolbar: a client-side search box on the left, a manual refresh button on
- * the right. The search filters the already-loaded rows (no requery). `filter`
- * is an optional control next to the search box (the "Add filter" button — kept
+/** Toolbar: a client-side search box on the left, optional controls on the
+ * right. The search filters the already-loaded rows (no requery). `filter` is
+ * an optional control next to the search box (the "Add filter" button — kept
  * here so it stays put as filter pills accumulate below); `sort` sits just to
  * its left (the sort dropdown + direction toggle); `action` is an optional
- * control to the right of Refresh (e.g. the "New issue" button). */
+ * control on the right (e.g. the "New issue" button). Refreshing is handled
+ * elsewhere — globally by the top bar, per project by the project header. */
 export function ListToolbar({
-  isFetching,
-  onRefresh,
   searchValue,
   onSearchChange,
   searchPlaceholder = 'Search…',
@@ -240,8 +239,6 @@ export function ListToolbar({
   sort,
   action
 }: {
-  isFetching: boolean
-  onRefresh: () => void
   searchValue: string
   onSearchChange: (value: string) => void
   searchPlaceholder?: string
@@ -267,13 +264,7 @@ export function ListToolbar({
         {sort}
         {filter}
       </div>
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" loading={isFetching} onClick={onRefresh}>
-          <IconRefresh />
-          Refresh
-        </Button>
-        {action}
-      </div>
+      <div className="flex items-center gap-2">{action}</div>
     </div>
   )
 }

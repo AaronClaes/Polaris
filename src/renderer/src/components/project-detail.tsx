@@ -10,6 +10,7 @@ import {
   IconPin,
   IconPlayerPlay,
   IconPlus,
+  IconRefresh,
   IconSettings,
   IconTrash,
   type TablerIcon
@@ -67,7 +68,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import { buildRootEntries } from '@/lib/action-tree'
-import { useRepoCounts } from '@/lib/github-queries'
+import { useRepoCounts, useRepoRefresh } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type {
   ActionGroupRow,
@@ -172,6 +173,38 @@ function PinButton({
         <IconPin />
       </TooltipTrigger>
       <TooltipPopup>{tip}</TooltipPopup>
+    </Tooltip>
+  )
+}
+
+/**
+ * Refetches this project's GitHub data (issues + PRs across its linked repos)
+ * from the project header, so a single control covers every tab. Icon-only with
+ * a tooltip; the spinner runs while any of those per-repo queries are in flight.
+ */
+function RefreshButton({
+  loading,
+  onRefresh
+}: {
+  loading: boolean
+  onRefresh: () => void
+}): ReactElement {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            loading={loading}
+            aria-label="Refresh"
+            onClick={onRefresh}
+          />
+        }
+      >
+        <IconRefresh />
+      </TooltipTrigger>
+      <TooltipPopup>Refresh</TooltipPopup>
     </Tooltip>
   )
 }
@@ -943,6 +976,8 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
     [project.repos]
   )
   const counts = useRepoCounts(repos)
+  // Project-level GitHub refresh, surfaced in the header so it covers every tab.
+  const { refresh, isFetching } = useRepoRefresh(repos)
 
   // Open-todo count for the tab badge. Shares the Todos tab's own query cache.
   // `loaded` gates the badge so it doesn't flash "0" before the query resolves.
@@ -978,6 +1013,8 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
                   loading={setPinned.isPending}
                   onToggle={() => setPinned.mutate({ id: project.id, pinned: !project.pinned })}
                 />
+                {/* Only when there are repos to refresh — todos/notes are local. */}
+                {repos.length > 0 && <RefreshButton loading={isFetching} onRefresh={refresh} />}
               </div>
               {project.description && (
                 <p className="mt-0.5 text-muted-foreground text-sm">{project.description}</p>

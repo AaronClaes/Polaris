@@ -55,12 +55,13 @@ export function TopBar(): ReactElement {
       <div className="no-drag absolute right-2 flex items-center gap-1">
         <Button
           variant="outline"
-          size="sm"
+          size="icon-sm"
           loading={refreshing > 0}
+          aria-label="Refresh"
+          title="Refresh"
           onClick={() => utils.github.invalidate()}
         >
           <IconRefresh />
-          Refresh
         </Button>
         <Button
           variant="outline"

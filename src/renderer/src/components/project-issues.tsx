@@ -233,8 +233,7 @@ export function IssuesView({
   extraFields?: FilterField<IssueRow>[]
   toolbarAction?: ReactNode
 }): ReactElement {
-  const { issues, errors, isLoading, isError, errorMessage, isFetching, refetch } =
-    useRepoIssues(repos)
+  const { issues, errors, isLoading, isError, errorMessage } = useRepoIssues(repos)
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<ActiveFilter[]>([])
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
@@ -288,8 +287,6 @@ export function IssuesView({
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
         <ListToolbar
-          isFetching={isFetching}
-          onRefresh={refetch}
           searchValue={query}
           onSearchChange={setQuery}
           searchPlaceholder="Search issues…"

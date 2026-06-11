@@ -201,8 +201,7 @@ export function PullsView({
   extraFields?: FilterField<PullRequestRow>[]
   toolbarAction?: ReactNode
 }): ReactElement {
-  const { pulls, errors, isLoading, isError, errorMessage, isFetching, refetch } =
-    useRepoPulls(repos)
+  const { pulls, errors, isLoading, isError, errorMessage } = useRepoPulls(repos)
   const [query, setQuery] = useState('')
   const [filters, setFilters] = useState<ActiveFilter[]>([])
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT)
@@ -256,8 +255,6 @@ export function PullsView({
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
         <ListToolbar
-          isFetching={isFetching}
-          onRefresh={refetch}
           searchValue={query}
           onSearchChange={setQuery}
           searchPlaceholder="Search pull requests…"

@@ -24,7 +24,7 @@ type Aggregated<TRow> = {
   // Hard failure: every repo errored. A partial failure stays in `errors`.
   isError: boolean
   errorMessage?: string
-  // Any repo is fetching — drives the toolbar's refresh spinner.
+  // Any repo is fetching — drives the refresh button's spinner.
   isFetching: boolean
   // Refetch just these repos (a project-level refresh).
   refetch: () => void
@@ -105,6 +105,22 @@ export function useRepoPulls(repos: Repo[]): Omit<Aggregated<PullRequestRow>, 'r
   )
   const { rows, ...rest } = useAggregated(repos, results, (data) => data.pulls)
   return { pulls: rows, ...rest }
+}
+
+/** A project-level refresh: refetch both the issue and PR queries for `repos`,
+ * with one combined in-flight flag for a refresh button's spinner. Reads the
+ * same per-repo cache entries the views and counts use, so wiring it up adds no
+ * extra fetch — it only re-triggers the ones already there. */
+export function useRepoRefresh(repos: Repo[]): { refresh: () => void; isFetching: boolean } {
+  const { isFetching: issuesFetching, refetch: refetchIssues } = useRepoIssues(repos)
+  const { isFetching: pullsFetching, refetch: refetchPulls } = useRepoPulls(repos)
+  return {
+    refresh: () => {
+      refetchIssues()
+      refetchPulls()
+    },
+    isFetching: issuesFetching || pullsFetching
+  }
 }
 
 /** Open issue and PR counts for `repos`, for the dashboard cards and tab badges.
