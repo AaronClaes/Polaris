@@ -170,8 +170,7 @@ export function AllIssues(): ReactElement {
     () => [
       issueColumnHelper.display({
         id: 'project',
-        header: 'Project',
-        meta: { width: '5rem' },
+        meta: { width: '3rem' },
         cell: (cell) => (
           <ProjectCell
             project={projectByRepo.get(
@@ -218,8 +217,7 @@ export function AllPulls(): ReactElement {
     () => [
       pullColumnHelper.display({
         id: 'project',
-        header: 'Project',
-        meta: { width: '5rem' },
+        meta: { width: '3rem' },
         cell: (cell) => (
           <ProjectCell
             project={projectByRepo.get(

@@ -235,8 +235,9 @@ function TodoAddRow({
 }
 
 /** A single todo row: completion checkbox, click-to-edit title, optional project
- *  chip, due-date picker, and a delete button revealed on hover. */
-function TodoRowItem({
+ *  chip, due-date picker, and a delete button revealed on hover. Exported so the
+ *  project Home tab can render its open todos with the same row. */
+export function TodoRowItem({
   todo,
   showProject,
   pendingDelete,
@@ -267,6 +268,7 @@ function TodoRowItem({
         todo.completed && 'opacity-60'
       )}
     >
+      {showProject && todo.project && <TodoProjectChip project={todo.project} />}
       <Checkbox
         checked={todo.completed}
         aria-label={todo.completed ? 'Mark as not done' : 'Mark as done'}
@@ -306,7 +308,6 @@ function TodoRowItem({
           {todo.title}
         </button>
       )}
-      {showProject && todo.project && <TodoProjectChip project={todo.project} />}
       <DueDatePicker
         value={todo.dueDate}
         completed={todo.completed}
@@ -317,7 +318,7 @@ function TodoRowItem({
         size="icon-sm"
         aria-label="Delete todo"
         loading={pendingDelete}
-        className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+        className="shrink-0 text-destructive-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive-foreground group-hover:opacity-100"
         onClick={() => onDelete(todo.id)}
       >
         <IconTrash />
