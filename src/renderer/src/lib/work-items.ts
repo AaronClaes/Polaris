@@ -235,12 +235,13 @@ function makeTodoItem(todo: WorkTodo, now: Date): WorkItem {
 }
 
 /** Order two items already known to share a court. Tier wins; the time tiebreak
- * runs oldest-first where forgotten work should surface (Act now, and dated items
- * Up next) and newest-first where the most recently touched matters most — what
- * you're on (In flight), the latest movement (Waiting), or the undated backlog. */
+ * runs newest-first where the most recently touched matters most — what needs you
+ * (Act now), what you're on (In flight), the latest movement (Waiting), and the
+ * undated backlog — and oldest-first only for dated items Up next, so the soonest
+ * deadline surfaces. */
 function compareWithin(court: Court, a: WorkItem, b: WorkItem): number {
   if (a.tier !== b.tier) return a.tier - b.tier
-  const oldestFirst = court === 'act' || (court === 'next' && a.tier === 0)
+  const oldestFirst = court === 'next' && a.tier === 0
   return oldestFirst ? a.sortMs - b.sortMs : b.sortMs - a.sortMs
 }
 
