@@ -1,4 +1,4 @@
-import { IconCircleDot, IconGitPullRequest } from '@tabler/icons-react'
+import { IconCircleDot, IconGitPullRequest, IconListCheck } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
 import { type ReactElement, useMemo, useState } from 'react'
 import { ActionLaunchButton } from '@/components/action-launch-button'
@@ -23,6 +23,17 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
   )
   const counts = useRepoCounts(repos)
   const showCounts = repos.length > 0 && counts.issuesLoaded && counts.pullsLoaded
+
+  // Open-todo count for the Todos deep-link. Same query key the project's Todos
+  // tab uses, so it's shared/cached rather than an extra fetch. Unlike issues/PRs
+  // (gated on linked repos), every project can have todos — so this is shown only
+  // when there's at least one open one, to avoid a "0" on every card.
+  const todos = trpc.todos.list.useQuery({ projectId: project.id })
+  const openTodos = useMemo(
+    () => (todos.data ?? []).filter((todo) => !todo.completed).length,
+    [todos.data]
+  )
+  const showTodos = openTodos > 0
 
   // Only pinned items appear on the dashboard.
   const looseActions = useMemo(
@@ -75,28 +86,44 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
           {project.description && (
             <p className="mt-1 line-clamp-2 text-muted-foreground text-xs">{project.description}</p>
           )}
-          {showCounts && (
+          {(showCounts || showTodos) && (
             <div className="relative z-10 mt-2 flex w-fit items-center gap-3 text-muted-foreground text-xs">
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: String(project.id) }}
-                search={{ tab: 'issues' }}
-                className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-                title={`${counts.issues} open issues`}
-              >
-                <IconCircleDot className="size-3.5" />
-                {counts.issues}
-              </Link>
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: String(project.id) }}
-                search={{ tab: 'pulls' }}
-                className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-                title={`${counts.pulls} open pull requests`}
-              >
-                <IconGitPullRequest className="size-3.5" />
-                {counts.pulls}
-              </Link>
+              {showCounts && (
+                <>
+                  <Link
+                    to="/projects/$projectId"
+                    params={{ projectId: String(project.id) }}
+                    search={{ tab: 'issues' }}
+                    className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                    title={`${counts.issues} open issues`}
+                  >
+                    <IconCircleDot className="size-3.5" />
+                    {counts.issues}
+                  </Link>
+                  <Link
+                    to="/projects/$projectId"
+                    params={{ projectId: String(project.id) }}
+                    search={{ tab: 'pulls' }}
+                    className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                    title={`${counts.pulls} open pull requests`}
+                  >
+                    <IconGitPullRequest className="size-3.5" />
+                    {counts.pulls}
+                  </Link>
+                </>
+              )}
+              {showTodos && (
+                <Link
+                  to="/projects/$projectId"
+                  params={{ projectId: String(project.id) }}
+                  search={{ tab: 'todos' }}
+                  className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                  title={`${openTodos} open todos`}
+                >
+                  <IconListCheck className="size-3.5" />
+                  {openTodos}
+                </Link>
+              )}
             </div>
           )}
         </div>
