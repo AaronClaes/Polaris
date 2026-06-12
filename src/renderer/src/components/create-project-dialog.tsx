@@ -3,6 +3,7 @@ import { type FormEvent, type ReactElement, useId, useState } from 'react'
 import { ColorPicker } from '@/components/color-picker'
 import { IconPicker } from '@/components/icon-picker'
 import { PathInput } from '@/components/path-input'
+import { TagSelect } from '@/components/tag-select'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -27,6 +28,7 @@ const EMPTY_FORM = {
   description: '',
   icon: DEFAULT_ICON_KEY,
   color: DEFAULT_COLOR_KEY,
+  tagId: null as number | null,
   path: ''
 }
 
@@ -39,6 +41,7 @@ interface CreateProjectDialogProps {
 export function CreateProjectDialog({ trigger }: CreateProjectDialogProps): ReactElement {
   const navigate = useNavigate()
   const utils = trpc.useUtils()
+  const tags = trpc.tags.list.useQuery().data ?? []
   const [open, setOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const nameId = useId()
@@ -110,6 +113,17 @@ export function CreateProjectDialog({ trigger }: CreateProjectDialogProps): Reac
                 />
               </div>
             </div>
+
+            {tags.length > 0 && (
+              <div className="grid gap-1.5">
+                <Label>Tag</Label>
+                <TagSelect
+                  tags={tags}
+                  value={form.tagId}
+                  onChange={(tagId) => setForm((p) => ({ ...p, tagId }))}
+                />
+              </div>
+            )}
 
             <div className="grid gap-1.5">
               <Label htmlFor={pathId}>Default path (optional)</Label>

@@ -29,6 +29,7 @@ import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { formatRelative } from '@/lib/relative-time'
 import { trpc } from '@/lib/trpc'
+import { useVisibleProjects, useVisibleTodos } from '@/lib/use-visible-projects'
 import { cn } from '@/lib/utils'
 import {
   buildWorkItems,
@@ -274,7 +275,7 @@ function WorkItemRow({
  * next. Reads the same per-repo caches the lists use, so it adds no fetches.
  */
 export function Dashboard(): ReactElement {
-  const projectsQuery = trpc.projects.list.useQuery()
+  const projectsQuery = useVisibleProjects()
   const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data])
   const pinned = projects.filter((project) => project.pinned)
 
@@ -323,8 +324,10 @@ export function Dashboard(): ReactElement {
     isLoading: pullsLoading,
     isError: pullsError
   } = useRepoPulls(allRepos)
-  const todosQuery = trpc.todos.listAll.useQuery()
-  const todos = todosQuery.data ?? []
+  // Todos filtered to the visible projects under the current tag filter
+  // (issues/PRs already are, via `allRepos`).
+  const todosQuery = useVisibleTodos()
+  const todos = useMemo(() => todosQuery.data ?? [], [todosQuery.data])
 
   // Tick a todo off straight from the feed; invalidating refetches the list, so
   // the completed one drops out on the next render.

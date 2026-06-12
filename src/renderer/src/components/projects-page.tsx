@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { trpc } from '@/lib/trpc'
+import { useVisibleProjects } from '@/lib/use-visible-projects'
 
 /** The full project launcher: searchable grid of project cards with a create entry. */
 export function ProjectsPage(): ReactElement {
@@ -14,7 +15,7 @@ export function ProjectsPage(): ReactElement {
   const utils = trpc.useUtils()
   const [query, setQuery] = useState('')
   const [reordering, setReordering] = useState(false)
-  const projectsQuery = trpc.projects.list.useQuery()
+  const projectsQuery = useVisibleProjects()
   const projects = projectsQuery.data ?? []
 
   // Leaving reorder mode re-syncs the shared query so the grid, sidebar, and

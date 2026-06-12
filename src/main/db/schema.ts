@@ -2,6 +2,22 @@ import { sql } from 'drizzle-orm'
 import { blob, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 
 /**
+ * A user-defined tag for grouping projects (e.g. "Work", "Personal"). A project
+ * carries at most one ({@link projects.tagId}). Tags exist to filter focus:
+ * turning a tag off in the header hides every project assigned to it across the
+ * whole app. Just a label + a palette color key (see renderer `colors.ts`) — the
+ * tag itself is never shown on a project, only in the settings manager and the
+ * header toggle.
+ */
+export const tags = sqliteTable('tags', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  label: text('label').notNull(),
+  // Palette color key (see renderer `colors.ts`), shared with project colors.
+  color: text('color').notNull().default('blue'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
+/**
  * A managed dev project. The core entity: identity (name/description), a bit of
  * visual identity (a Tabler icon key + a palette color key), and an optional
  * default working directory that command actions execute in unless they override
@@ -15,6 +31,9 @@ export const projects = sqliteTable('projects', {
   icon: text('icon').notNull().default('folder'),
   // Palette color key (see renderer `colors.ts`).
   color: text('color').notNull().default('blue'),
+  // Optional single tag for focus-filtering (see {@link tags}). `set null` on
+  // delete: removing a tag un-tags its projects rather than deleting them.
+  tagId: integer('tag_id').references(() => tags.id, { onDelete: 'set null' }),
   // Default working directory for command actions; per-action cwd can override.
   path: text('path'),
   // Surfaces the project on the dashboard home (its pinned-projects section).
@@ -317,3 +336,5 @@ export type Todo = typeof todos.$inferSelect
 export type NewTodo = typeof todos.$inferInsert
 export type Setting = typeof settings.$inferSelect
 export type NewSetting = typeof settings.$inferInsert
+export type Tag = typeof tags.$inferSelect
+export type NewTag = typeof tags.$inferInsert

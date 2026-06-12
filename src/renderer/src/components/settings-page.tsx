@@ -1,9 +1,10 @@
-import { IconPlug, IconSettings, IconX, type TablerIcon } from '@tabler/icons-react'
+import { IconPlug, IconSettings, IconTags, IconX, type TablerIcon } from '@tabler/icons-react'
 import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { AppIconImg } from '@/components/action-icon'
 import { BrowsersIntegration } from '@/components/browsers-integration'
 import { GitHubIntegration } from '@/components/github-integration'
+import { TagsSettings } from '@/components/tags-settings'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
@@ -158,6 +159,17 @@ function GeneralPanel(): ReactElement {
   )
 }
 
+function TagsPanel(): ReactElement {
+  return (
+    <PanelPlaceholder
+      title="Tags"
+      description="Group projects under a tag, then turn a tag off in the header to hide its projects everywhere — a quick way to focus on just work or just personal."
+    >
+      <TagsSettings />
+    </PanelPlaceholder>
+  )
+}
+
 function IntegrationsPanel(): ReactElement {
   return (
     <PanelPlaceholder
@@ -174,6 +186,7 @@ function IntegrationsPanel(): ReactElement {
 
 const SECTIONS: SettingsSection[] = [
   { id: 'general', label: 'General', Icon: IconSettings, render: GeneralPanel },
+  { id: 'tags', label: 'Tags', Icon: IconTags, render: TagsPanel },
   {
     id: 'integrations',
     label: 'Integrations',

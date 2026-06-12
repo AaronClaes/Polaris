@@ -10,6 +10,7 @@ import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
 import type { FilterField } from '@/lib/list-filters'
 import type { IssueRow, ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
+import { useVisibleProjects, useVisibleTodos } from '@/lib/use-visible-projects'
 
 /** The display bits of a project, attached to each repo for the Project column. */
 type ProjectRef = { id: number; name: string; icon: string; color: string }
@@ -160,7 +161,7 @@ const pullColumnHelper = createColumnHelper<PullRequestRow>()
 /** Open issues across every project's repos — the per-project Issues view with a
  * leading Project column and a Project filter. */
 export function AllIssues(): ReactElement {
-  const projectsQuery = trpc.projects.list.useQuery()
+  const projectsQuery = useVisibleProjects()
   const projects = projectsQuery.data ?? []
   const { repos, projectByRepo } = useProjectIndex(projects)
   // Total open issues across all projects (unfiltered) — for the page title.
@@ -207,7 +208,7 @@ export function AllIssues(): ReactElement {
 /** Open pull requests across every project's repos — the per-project Pull
  * requests view with a leading Project column and a Project filter. */
 export function AllPulls(): ReactElement {
-  const projectsQuery = trpc.projects.list.useQuery()
+  const projectsQuery = useVisibleProjects()
   const projects = projectsQuery.data ?? []
   const { repos, projectByRepo } = useProjectIndex(projects)
   // Total open pull requests across all projects (unfiltered) — for the title.
@@ -255,10 +256,11 @@ export function AllPulls(): ReactElement {
  * row carries a project picker (todos can be created here, not just in a tab). */
 export function AllTodos(): ReactElement {
   const utils = trpc.useUtils()
-  const projectsQuery = trpc.projects.list.useQuery()
+  const projectsQuery = useVisibleProjects()
   const projects = projectsQuery.data ?? []
-  const todosQuery = trpc.todos.listAll.useQuery()
-  const rows = todosQuery.data ?? []
+  // Todos filtered to the visible projects under the current tag filter.
+  const todosQuery = useVisibleTodos()
+  const rows = useMemo(() => todosQuery.data ?? [], [todosQuery.data])
   // The page count is open todos (matches the nav badge), not the total.
   const openCount = rows.filter((todo) => !todo.completed).length
 

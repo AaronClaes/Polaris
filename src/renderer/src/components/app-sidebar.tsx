@@ -31,6 +31,7 @@ import { useRepoCounts } from '@/lib/github-queries'
 import { getIcon } from '@/lib/icons'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
+import { useVisibleProjects, useVisibleTodos } from '@/lib/use-visible-projects'
 import { cn } from '@/lib/utils'
 
 function ProjectRow({
@@ -118,7 +119,7 @@ function AccountInfo(): ReactElement {
 export function AppSidebar(): ReactElement {
   const params = useParams({ strict: false }) as { projectId?: string }
   const pathname = useLocation({ select: (location) => location.pathname })
-  const projectsQuery = trpc.projects.list.useQuery()
+  const projectsQuery = useVisibleProjects()
   const projects = projectsQuery.data ?? []
 
   // Deduped union of every linked repo → total issue/PR counts for the nav
@@ -140,8 +141,9 @@ export function AppSidebar(): ReactElement {
 
   // Open todos across every project — the Todos nav badge. Shares the same
   // cache as the global Todos view, so it adds no fetch. `loaded` gates the
-  // badge so it doesn't flash "0" before the query resolves.
-  const todosQuery = trpc.todos.listAll.useQuery()
+  // badge so it doesn't flash "0" before the query resolves. Visible-project
+  // filtering (under the current tag filter) is handled by useVisibleTodos.
+  const todosQuery = useVisibleTodos()
   const openTodos = (todosQuery.data ?? []).filter((todo) => !todo.completed).length
   const todosLoaded = !todosQuery.isLoading
 

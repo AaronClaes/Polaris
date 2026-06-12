@@ -30,3 +30,5 @@ export type NoteDoc = NoteRow['body']
 export type TodoRow = RouterOutputs['todos']['list'][number]
 /** A todo plus its owning project, as returned by `todos.listAll` (global view). */
 export type GlobalTodoRow = RouterOutputs['todos']['listAll'][number]
+/** A project tag, as returned by `tags.list`. */
+export type TagRow = RouterOutputs['tags']['list'][number]

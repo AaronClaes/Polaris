@@ -18,7 +18,7 @@ import {
   CommandItem,
   CommandList
 } from '@/components/ui/command'
-import { trpc } from '@/lib/trpc'
+import { useVisibleProjects } from '@/lib/use-visible-projects'
 import { useUiStore } from '@/stores/ui-store'
 
 export function CommandPalette(): ReactElement {
@@ -28,7 +28,7 @@ export function CommandPalette(): ReactElement {
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
 
-  const projectsQuery = trpc.projects.list.useQuery()
+  const projectsQuery = useVisibleProjects()
   const projects = projectsQuery.data ?? []
 
   // Cmd/Ctrl+K opens the palette when the window is focused.

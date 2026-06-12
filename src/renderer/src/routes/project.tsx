@@ -14,6 +14,9 @@ function CenteredMessage({ children }: { children: string }): ReactElement {
 
 function ProjectDetailPage(): ReactElement {
   const { projectId } = projectRoute.useParams()
+  // Raw (unfiltered) list on purpose: resolve the open project by id even if its
+  // tag is currently hidden. Every list/aggregate surface uses useVisibleProjects
+  // (or useVisibleTodos) to apply the tag filter instead.
   const projectsQuery = trpc.projects.list.useQuery()
   const project = projectsQuery.data?.find((p) => String(p.id) === projectId)
 

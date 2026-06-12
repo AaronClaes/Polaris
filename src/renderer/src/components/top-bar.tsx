@@ -3,6 +3,7 @@ import { useIsFetching } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
 import { ProjectIcon } from '@/components/project-icon'
+import { TagFilterButton } from '@/components/tag-filter'
 import { Button } from '@/components/ui/button'
 import { THEME_OPTIONS, toggleAppearance, useAppearance } from '@/lib/theme'
 import { trpc } from '@/lib/trpc'
@@ -16,6 +17,9 @@ import { trpc } from '@/lib/trpc'
  */
 export function TopBar(): ReactElement {
   const params = useParams({ strict: false }) as { projectId?: string }
+  // Raw (unfiltered) list on purpose: this is a by-id lookup for the title, not a
+  // list of projects to show, so it must still resolve a project whose tag is
+  // hidden (e.g. open when its tag was toggled off). Lists use useVisibleProjects.
   const projectsQuery = trpc.projects.list.useQuery()
   const active = params.projectId
     ? projectsQuery.data?.find((p) => String(p.id) === params.projectId)
@@ -53,6 +57,7 @@ export function TopBar(): ReactElement {
         <span className="font-medium text-muted-foreground text-sm">Polaris</span>
       )}
       <div className="no-drag absolute right-2 flex items-center gap-1">
+        <TagFilterButton />
         <Button
           variant="outline"
           size="icon-sm"

@@ -41,6 +41,7 @@ import { ProjectPulls } from '@/components/project-pulls'
 import { ProjectRepos } from '@/components/project-repos'
 import { ProjectTodos } from '@/components/project-todos'
 import { ReorderableActions } from '@/components/reorderable-actions'
+import { TagSelect } from '@/components/tag-select'
 import {
   AlertDialog,
   AlertDialogClose,
@@ -648,6 +649,7 @@ type ProjectForm = {
   description: string
   icon: string
   color: string
+  tagId: number | null
   path: string
 }
 
@@ -658,6 +660,7 @@ function seedProjectForm(p: ProjectWithActions): ProjectForm {
     description: p.description ?? '',
     icon: p.icon,
     color: p.color,
+    tagId: p.tagId,
     path: p.path ?? ''
   }
 }
@@ -668,6 +671,7 @@ function seedProjectForm(p: ProjectWithActions): ProjectForm {
  *  blank (the field just shows a hint until it's filled back in). */
 function GeneralPanel({ project }: { project: ProjectWithActions }): ReactElement {
   const utils = trpc.useUtils()
+  const tags = trpc.tags.list.useQuery().data ?? []
   const update = trpc.projects.update.useMutation({
     onSuccess: () => utils.projects.list.invalidate()
   })
@@ -692,6 +696,7 @@ function GeneralPanel({ project }: { project: ProjectWithActions }): ReactElemen
     form.description !== persisted.description ||
     form.icon !== persisted.icon ||
     form.color !== persisted.color ||
+    form.tagId !== persisted.tagId ||
     form.path !== persisted.path
   const nameValid = form.name.trim().length > 0
 
@@ -708,6 +713,7 @@ function GeneralPanel({ project }: { project: ProjectWithActions }): ReactElemen
         description: form.description,
         icon: form.icon,
         color: form.color,
+        tagId: form.tagId,
         path: form.path
       })
     }, 500)
@@ -751,6 +757,17 @@ function GeneralPanel({ project }: { project: ProjectWithActions }): ReactElemen
           <ColorPicker value={form.color} onChange={(color) => setForm((p) => ({ ...p, color }))} />
         </div>
       </div>
+
+      {tags.length > 0 && (
+        <div className="grid gap-1.5">
+          <Label>Tag</Label>
+          <TagSelect
+            tags={tags}
+            value={form.tagId}
+            onChange={(tagId) => setForm((p) => ({ ...p, tagId }))}
+          />
+        </div>
+      )}
 
       <div className="grid gap-1.5">
         <Label htmlFor={pathId}>Default path (optional)</Label>

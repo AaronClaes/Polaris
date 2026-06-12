@@ -23,6 +23,8 @@ export const createProjectInput = z.object({
   description: optionalText,
   icon: z.string().trim().min(1).default('folder'),
   color: z.string().trim().min(1).default('blue'),
+  // Optional single tag (see tags router). Null/omitted leaves the project untagged.
+  tagId: z.number().int().nullable().optional(),
   path: optionalText
 })
 
