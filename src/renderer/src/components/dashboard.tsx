@@ -21,20 +21,19 @@ import {
 import { ProjectCard } from '@/components/project-card'
 import { ProjectIcon } from '@/components/project-icon'
 import { IssueTypeIcon } from '@/components/project-issues'
+import { formatDueDate } from '@/components/project-todos'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
-import { formatClock, formatRelative } from '@/lib/relative-time'
+import { formatRelative } from '@/lib/relative-time'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import {
   buildWorkItems,
   type Court,
-  deadlineOf,
   groupByCourt,
-  hasTime,
   type WorkItem,
   type WorkItemStatus
 } from '@/lib/work-items'
@@ -79,6 +78,15 @@ const STATUS_BADGE: Record<WorkItemStatus, { label: string; variant: BadgeProps[
   todo: { label: 'Todo', variant: 'outline' }
 }
 
+/** The status pill for a row. An overdue todo gets its own error "Overdue" pill
+ * instead of the regular warning "Due", so a missed deadline reads as a problem. */
+function statusBadge(item: WorkItem): { label: string; variant: BadgeProps['variant'] } {
+  if (item.kind === 'todo' && item.due === 'overdue') {
+    return { label: 'Overdue', variant: 'error' }
+  }
+  return STATUS_BADGE[item.status]
+}
+
 /** A fused PR is labelled by its issue — the issue describes the task, the PR
  * title describes what was done. Otherwise it's the item's own title. */
 function itemTitle(item: WorkItem): string {
@@ -93,32 +101,54 @@ function itemNumber(item: WorkItem): number | null {
   return null
 }
 
-/** The muted second line: a time cue (when it was last touched, or — for a todo
- * — when it's due, measured to its deadline: the set time, or the end of the due
- * day when none was given). */
+/** The muted second line: a time cue. A dated todo always reads "due " + the
+ * same day(+time) phrasing as the todos list — "due Today, 5:00 PM", "due
+ * Yesterday", "due Jun 15" — so you can see when it was (or is) due; an issue or
+ * PR shows when it was last touched. */
 function metaLabel(item: WorkItem): string {
   if (item.kind === 'todo') {
-    const { dueDate } = item.todo
-    if (item.due === 'overdue') return 'overdue'
-    // A timed todo due today reads better as the actual time than "due today".
-    if (item.due === 'today') {
-      return dueDate && hasTime(dueDate) ? `due ${formatClock(dueDate)}` : 'due today'
-    }
-    if (!dueDate) return ''
-    return `due ${formatRelative(new Date(deadlineOf(dueDate)).toISOString())}`
+    return item.todo.dueDate ? `due ${formatDueDate(item.todo.dueDate)}` : ''
   }
   const iso = item.kind === 'pr' ? item.pr.updatedAt : item.issue.updatedAt
   return `updated ${formatRelative(iso)}`
 }
 
-/** The leading glyph. Anything with an issue (a standalone issue or a fused PR)
- * shows that issue's type — Bug / Feature / Task — so the kind of work reads at a
- * glance; a bare PR shows the PR glyph, a todo a simple circle. */
+/** The due cue's colour: red once a todo is overdue, amber when it's due today,
+ * otherwise inherited (muted). Only todos carry a due tone. */
+function dueToneClass(item: WorkItem): string | undefined {
+  if (item.kind !== 'todo') return undefined
+  if (item.due === 'overdue') return 'text-destructive-foreground'
+  if (item.due === 'today') return 'text-warning-foreground'
+  return undefined
+}
+
+/** The leading glyph for an issue or PR. Anything with an issue (a standalone
+ * issue or a fused PR) shows that issue's type — Bug / Feature / Task — so the
+ * kind of work reads at a glance; a bare PR shows the PR glyph. (Todos use the
+ * checkable control below instead.) */
 function KindIcon({ item }: { item: WorkItem }): ReactElement {
   if (item.kind === 'issue') return <IssueTypeIcon type={item.issue.type} />
   if (item.kind === 'pr' && item.issue) return <IssueTypeIcon type={item.issue.type} />
   const Icon = item.kind === 'pr' ? IconGitPullRequest : IconCircle
   return <Icon className="size-4 shrink-0 text-muted-foreground" />
+}
+
+/** A todo's leading control: an open circle that turns into a check on hover, so
+ * the todo can be ticked off straight from the feed. The dashboard only lists
+ * open todos, so this only ever completes — a checked one drops off the list. */
+function TodoCompleteButton({ onComplete }: { onComplete: () => void }): ReactElement {
+  return (
+    <button
+      type="button"
+      aria-label="Mark as done"
+      title="Mark as done"
+      onClick={onComplete}
+      className="group/todo flex shrink-0 text-muted-foreground transition-colors hover:text-success-foreground"
+    >
+      <IconCircle className="size-4 group-hover/todo:hidden" />
+      <IconCircleCheck className="hidden size-4 group-hover/todo:block" />
+    </button>
+  )
 }
 
 /** Rolled-up CI for a PR's head, as a small colored dot. Renders nothing when
@@ -163,17 +193,23 @@ function ReasonIcons({ item }: { item: WorkItem }): ReactElement | null {
  * jump to the project's Todos tab for a todo. */
 function WorkItemRow({
   item,
-  project
+  project,
+  onCompleteTodo
 }: {
   item: WorkItem
   project: Project | undefined
+  onCompleteTodo: (id: number) => void
 }): ReactElement {
   const number = itemNumber(item)
-  const badge = STATUS_BADGE[item.status]
+  const badge = statusBadge(item)
 
   return (
     <div className="flex items-center gap-3 px-3 py-2">
-      <KindIcon item={item} />
+      {item.kind === 'todo' ? (
+        <TodoCompleteButton onComplete={() => onCompleteTodo(item.todo.id)} />
+      ) : (
+        <KindIcon item={item} />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <span className="min-w-0 truncate font-medium text-sm">{itemTitle(item)}</span>
@@ -195,7 +231,9 @@ function WorkItemRow({
               <span className="truncate">{project.name}</span>
             </span>
           )}
-          {metaLabel(item) && <span className="shrink-0">· {metaLabel(item)}</span>}
+          {metaLabel(item) && (
+            <span className={cn('shrink-0', dueToneClass(item))}>· {metaLabel(item)}</span>
+          )}
         </div>
       </div>
       {item.kind === 'pr' && item.pr.reviewers.length > 0 && (
@@ -288,6 +326,13 @@ export function Dashboard(): ReactElement {
   const todosQuery = trpc.todos.listAll.useQuery()
   const todos = todosQuery.data ?? []
 
+  // Tick a todo off straight from the feed; invalidating refetches the list, so
+  // the completed one drops out on the next render.
+  const utils = trpc.useUtils()
+  const completeTodo = trpc.todos.setCompleted.useMutation({
+    onSuccess: () => utils.todos.invalidate()
+  })
+
   const groups = useMemo(
     () => groupByCourt(buildWorkItems({ issues, pulls, todos, now: new Date() })),
     [issues, pulls, todos]
@@ -324,7 +369,7 @@ export function Dashboard(): ReactElement {
       {pinned.length > 0 && (
         <section className="flex flex-col gap-4">
           <header className="flex items-center justify-between gap-3">
-            <h2 className="font-heading font-semibold text-lg tracking-tight">Projects</h2>
+            <h2 className="font-heading font-semibold text-lg tracking-tight">Pinned projects</h2>
             <Button variant="ghost" size="sm" render={<Link to="/projects" />}>
               View all
               <IconChevronRight />
@@ -367,7 +412,12 @@ export function Dashboard(): ReactElement {
                   >
                     <div className="divide-y divide-border">
                       {rows.map((item) => (
-                        <WorkItemRow key={item.key} item={item} project={itemProject(item)} />
+                        <WorkItemRow
+                          key={item.key}
+                          item={item}
+                          project={itemProject(item)}
+                          onCompleteTodo={(id) => completeTodo.mutate({ id, completed: true })}
+                        />
                       ))}
                     </div>
                   </CollapsibleSection>

@@ -58,8 +58,9 @@ function formatDueDay(date: Date): string {
 }
 
 /** A due date, with the time appended when one was set ("Today, 5:00 PM"). A
- *  date-only todo shows just the day — its deadline is the end of that day. */
-function formatDueDate(date: Date): string {
+ *  date-only todo shows just the day — its deadline is the end of that day.
+ *  Exported so the dashboard's feed can phrase a todo's due cue the same way. */
+export function formatDueDate(date: Date): string {
   return hasTime(date) ? `${formatDueDay(date)}, ${formatClock(date)}` : formatDueDay(date)
 }
 
