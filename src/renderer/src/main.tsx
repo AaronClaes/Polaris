@@ -18,6 +18,13 @@ if (!rootElement) throw new Error('Root element #root not found')
 // A day-old snapshot is still worth showing instantly; anything older is dropped.
 const MAX_AGE = 1000 * 60 * 60 * 24
 
+// Bump whenever the persisted GitHub query shape changes. A snapshot written by
+// an older build is restored synchronously on first paint (the dashboard runs
+// buildWorkItems over it before the background refetch lands), so an out-of-date
+// shape would crash on a field that didn't exist yet. A mismatched buster makes
+// the persister throw the stale cache away on hydration instead.
+const CACHE_BUSTER = 'gh-shape-2-linked-branches'
+
 createRoot(rootElement).render(
   <StrictMode>
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
@@ -26,6 +33,7 @@ createRoot(rootElement).render(
         persistOptions={{
           persister,
           maxAge: MAX_AGE,
+          buster: CACHE_BUSTER,
           // Persist only small, Date-free payloads: the per-repo GitHub queries
           // and resolved favicons. (projects.list carries Dates that plain JSON
           // would corrupt, so it stays out.)

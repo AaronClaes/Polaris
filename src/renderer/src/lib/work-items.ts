@@ -167,8 +167,9 @@ function makePrItem(pr: PullRequestRow, issue: IssueRow | null, cls: PullClass):
 
 function makeIssueItem(issue: IssueRow): WorkItem {
   // A linked branch with no PR yet is the strongest "actively working" signal;
-  // otherwise it's a not-yet-started task in the queue.
-  const inProgress = issue.linkedBranches.length > 0
+  // otherwise it's a not-yet-started task in the queue. `?.` guards a snapshot
+  // persisted before `linkedBranches` existed — see CACHE_BUSTER in main.tsx.
+  const inProgress = (issue.linkedBranches?.length ?? 0) > 0
   return {
     kind: 'issue',
     key: `issue:${issue.id}`,
