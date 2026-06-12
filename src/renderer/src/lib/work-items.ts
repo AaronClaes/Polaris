@@ -95,6 +95,20 @@ function endOfDay(date: Date): number {
   return d.getTime()
 }
 
+/** A due date carries an explicit time when its local clock isn't midnight. A
+ * date-only todo (picked without a time) stays at 00:00 and is treated as an
+ * end-of-day deadline — the convention the whole app shares, so one timestamp
+ * can mean either "this day" or "this exact moment" without a separate flag. */
+export function hasTime(date: Date): boolean {
+  return date.getHours() !== 0 || date.getMinutes() !== 0 || date.getSeconds() !== 0
+}
+
+/** The real deadline instant for a due date: the set time when there is one,
+ * otherwise the end of that calendar day. */
+export function deadlineOf(dueDate: Date): number {
+  return hasTime(dueDate) ? dueDate.getTime() : endOfDay(dueDate)
+}
+
 type PullClass = Pick<WorkItemCommon, 'court' | 'status' | 'tier'> & { reasons: NeedsWorkReason[] }
 
 /**
@@ -183,19 +197,22 @@ function makeTodoItem(todo: WorkTodo, now: Date): WorkItem {
     }
   }
 
-  // A due date is a deadline at the END of that day, and "due / overdue" is a
-  // calendar-day comparison — a todo due tomorrow isn't urgent at 11pm tonight.
+  // "Due / overdue" is a calendar-day judgement — a todo due tomorrow isn't
+  // urgent at 11pm tonight — but the sort and the overdue refinement use the
+  // real deadline: the set time, or the end of the day when none was given.
   const dueDay = startOfDay(todo.dueDate)
   const today = startOfDay(now)
-  const deadlineMs = endOfDay(todo.dueDate)
+  const deadlineMs = deadlineOf(todo.dueDate)
 
   // Due today or already past → it needs attention now.
   if (dueDay <= today) {
+    // A timed todo whose moment has already passed today is overdue, not "due".
+    const overdue = dueDay < today || (hasTime(todo.dueDate) && deadlineMs < now.getTime())
     return {
       kind: 'todo',
       key,
       todo,
-      due: dueDay < today ? 'overdue' : 'today',
+      due: overdue ? 'overdue' : 'today',
       court: 'act',
       status: 'due',
       tier: 3,

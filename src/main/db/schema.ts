@@ -288,7 +288,9 @@ export const todos = sqliteTable('todos', {
     .notNull()
     .references(() => projects.id, { onDelete: 'cascade' }),
   title: text('title').notNull().default(''),
-  // Optional target date. Date-only in the UI; stored as a timestamp.
+  // Optional deadline, stored as a timestamp. The UI treats local midnight as
+  // "date only" (a whole-day, end-of-day deadline) and any other time as an
+  // explicit due time — see hasTime/deadlineOf in work-items.ts.
   dueDate: integer('due_date', { mode: 'timestamp' }),
   completed: integer('completed', { mode: 'boolean' }).notNull().default(false),
   // Stamped when `completed` flips true, nulled when it flips back.

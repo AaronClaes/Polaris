@@ -26,13 +26,15 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
-import { formatRelative } from '@/lib/relative-time'
+import { formatClock, formatRelative } from '@/lib/relative-time'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import {
   buildWorkItems,
   type Court,
+  deadlineOf,
   groupByCourt,
+  hasTime,
   type WorkItem,
   type WorkItemStatus
 } from '@/lib/work-items'
@@ -92,14 +94,18 @@ function itemNumber(item: WorkItem): number | null {
 }
 
 /** The muted second line: a time cue (when it was last touched, or — for a todo
- * — when it's due, measured to the end of the due day). */
+ * — when it's due, measured to its deadline: the set time, or the end of the due
+ * day when none was given). */
 function metaLabel(item: WorkItem): string {
   if (item.kind === 'todo') {
-    if (item.due) return item.due === 'overdue' ? 'overdue' : 'due today'
-    if (!item.todo.dueDate) return ''
-    const deadline = new Date(item.todo.dueDate)
-    deadline.setHours(23, 59, 59, 999)
-    return `due ${formatRelative(deadline.toISOString())}`
+    const { dueDate } = item.todo
+    if (item.due === 'overdue') return 'overdue'
+    // A timed todo due today reads better as the actual time than "due today".
+    if (item.due === 'today') {
+      return dueDate && hasTime(dueDate) ? `due ${formatClock(dueDate)}` : 'due today'
+    }
+    if (!dueDate) return ''
+    return `due ${formatRelative(new Date(deadlineOf(dueDate)).toISOString())}`
   }
   const iso = item.kind === 'pr' ? item.pr.updatedAt : item.issue.updatedAt
   return `updated ${formatRelative(iso)}`

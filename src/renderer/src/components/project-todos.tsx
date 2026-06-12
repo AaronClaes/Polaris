@@ -1,4 +1,11 @@
-import { IconCalendarPlus, IconChevronDown, IconPlus, IconTrash } from '@tabler/icons-react'
+import {
+  IconCalendarPlus,
+  IconChevronDown,
+  IconClock,
+  IconPlus,
+  IconTrash,
+  IconX
+} from '@tabler/icons-react'
 import { type ReactElement, useCallback, useMemo, useState } from 'react'
 import { ProjectIcon } from '@/components/project-icon'
 import { Button } from '@/components/ui/button'
@@ -7,10 +14,13 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from '@/components/ui/menu'
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import type { GlobalTodoRow, ProjectWithActions, TodoRow } from '@/lib/project-types'
+import { formatClock } from '@/lib/relative-time'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
+import { hasTime } from '@/lib/work-items'
 
 /** The owning-project bits a global todo row carries (icon/color for the chip). */
 type TodoProject = GlobalTodoRow['project']
@@ -30,9 +40,9 @@ function startOfDay(date: Date): number {
   return copy.getTime()
 }
 
-/** A due date as "Today" / "Tomorrow" / "Yesterday", else "Mon D" (+ year if not
- *  this one). Date-only — the time component is never shown. */
-function formatDueDate(date: Date): string {
+/** The day part of a due date: "Today" / "Tomorrow" / "Yesterday", else "Mon D"
+ *  (+ year if not this one). */
+function formatDueDay(date: Date): string {
   const today = startOfDay(new Date())
   const diff = Math.round((startOfDay(date) - today) / DAY_MS)
   if (diff === 0) return 'Today'
@@ -47,13 +57,105 @@ function formatDueDate(date: Date): string {
   ).format(date)
 }
 
-/** A pending due date is overdue if it's before today and the todo is still open. */
-function isOverdue(date: Date, completed: boolean): boolean {
-  return !completed && startOfDay(date) < startOfDay(new Date())
+/** A due date, with the time appended when one was set ("Today, 5:00 PM"). A
+ *  date-only todo shows just the day — its deadline is the end of that day. */
+function formatDueDate(date: Date): string {
+  return hasTime(date) ? `${formatDueDay(date)}, ${formatClock(date)}` : formatDueDay(date)
 }
 
-/** A calendar in a popover for picking (or clearing) a due date. When empty it
- *  shows just the calendar icon; once set it shows the date, reddened if overdue. */
+/** A pending due date is overdue once its deadline has passed: the set time if
+ *  there is one, otherwise the end of that day (so a date-only todo turns overdue
+ *  the next day, not at midnight). */
+function isOverdue(date: Date, completed: boolean): boolean {
+  if (completed) return false
+  if (hasTime(date)) return date.getTime() < Date.now()
+  return startOfDay(date) < startOfDay(new Date())
+}
+
+const MINUTE_STEP = 10
+// When you add a time to a date-only todo, start at 5pm — an end-of-workday deadline.
+const DEFAULT_HOUR = 17
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
+  hour,
+  label: new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(new Date(2000, 0, 1, hour))
+}))
+const MINUTE_OPTIONS = Array.from({ length: 60 / MINUTE_STEP }, (_, index) => index * MINUTE_STEP)
+
+/** Hour + minute (in steps of 10) selectors for a due date that has a time, plus
+ *  a button to drop the time again. Shown inside the date popover once a time is
+ *  set; only the clock changes — the selected day is preserved. */
+function TimePicker({
+  value,
+  onChange
+}: {
+  value: Date
+  onChange: (next: Date) => void
+}): ReactElement {
+  // A stored minute that isn't on the step (legacy data) snaps to the nearest one
+  // so the select always has a matching option.
+  const minute = (Math.round(value.getMinutes() / MINUTE_STEP) * MINUTE_STEP) % 60
+  const setTime = (hour: number, min: number): void => {
+    const next = new Date(value)
+    next.setHours(hour, min, 0, 0)
+    onChange(next)
+  }
+  const clearTime = (): void => {
+    const next = new Date(value)
+    next.setHours(0, 0, 0, 0)
+    onChange(next)
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <IconClock className="size-4 shrink-0 text-muted-foreground" />
+      <Select
+        value={String(value.getHours())}
+        onValueChange={(next) => next && setTime(Number(next), minute)}
+      >
+        <SelectTrigger size="sm" className="w-auto min-w-0 flex-1">
+          {HOUR_OPTIONS[value.getHours()].label}
+        </SelectTrigger>
+        <SelectPopup>
+          {HOUR_OPTIONS.map((option) => (
+            <SelectItem key={option.hour} value={String(option.hour)}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+      <Select
+        value={String(minute)}
+        onValueChange={(next) => next && setTime(value.getHours(), Number(next))}
+      >
+        <SelectTrigger size="sm" className="w-auto min-w-0 flex-1">
+          {String(minute).padStart(2, '0')}
+        </SelectTrigger>
+        <SelectPopup>
+          {MINUTE_OPTIONS.map((option) => (
+            <SelectItem key={option} value={String(option)}>
+              {String(option).padStart(2, '0')}
+            </SelectItem>
+          ))}
+        </SelectPopup>
+      </Select>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Remove time"
+        title="Remove time"
+        className="shrink-0 text-muted-foreground"
+        onClick={clearTime}
+      >
+        <IconX />
+      </Button>
+    </div>
+  )
+}
+
+/** A calendar in a popover for picking a due date, with an optional time below it
+ *  (hour + 10-minute steps). Empty shows just the calendar icon; once set it shows
+ *  the date — and time, when given — reddened if overdue. Picking a day keeps the
+ *  popover open so a time can follow; it dismisses on click-away or Escape. */
 function DueDatePicker({
   value,
   completed = false,
@@ -95,10 +197,35 @@ function DueDatePicker({
             selected={value ?? undefined}
             defaultMonth={value ?? undefined}
             onSelect={(date) => {
-              onChange(date ?? null)
-              setOpen(false)
+              if (!date) {
+                onChange(null)
+                return
+              }
+              // The calendar hands back midnight; carry over any existing time so
+              // changing the day doesn't silently drop it.
+              const next = new Date(date)
+              if (value && hasTime(value)) next.setHours(value.getHours(), value.getMinutes(), 0, 0)
+              onChange(next)
             }}
           />
+          {value &&
+            (hasTime(value) ? (
+              <TimePicker value={value} onChange={onChange} />
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="justify-start gap-1.5 text-muted-foreground"
+                onClick={() => {
+                  const next = new Date(value)
+                  next.setHours(DEFAULT_HOUR, 0, 0, 0)
+                  onChange(next)
+                }}
+              >
+                <IconClock />
+                Add time
+              </Button>
+            ))}
           {value && (
             <Button
               variant="ghost"

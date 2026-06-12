@@ -34,3 +34,8 @@ export function formatAbsolute(iso: string): string {
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleString()
 }
+
+/** Just the time of day, e.g. "5:00 PM" — for a todo's due time. */
+export function formatClock(date: Date): string {
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date)
+}
