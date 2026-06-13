@@ -123,8 +123,6 @@ export function Dashboard(): ReactElement {
         <Separator />
       </div>
 
-      <TodayAgenda />
-
       {pinned.length > 0 && (
         <section className="flex flex-col gap-4">
           <header className="flex items-center justify-between gap-3">
@@ -142,7 +140,10 @@ export function Dashboard(): ReactElement {
         </section>
       )}
 
+      <TodayAgenda />
+
       <section className="flex flex-col gap-4">
+        <h2 className="font-heading font-semibold text-lg tracking-tight">Tasks</h2>
         <FailuresBanner failures={failures} />
         <QueryBoundary
           isLoading={issuesLoading || pullsLoading}

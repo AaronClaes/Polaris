@@ -1,6 +1,6 @@
-import { IconCalendarEvent, IconExternalLink, IconVideo } from '@tabler/icons-react'
+import { IconCalendar, IconExternalLink, IconVideo } from '@tabler/icons-react'
 import type { ReactElement } from 'react'
-import { EmptyHint, FailuresBanner } from '@/components/github-list'
+import { EmptyHint, FailuresBanner, UserAvatars } from '@/components/github-list'
 import { Button } from '@/components/ui/button'
 import type { CalendarEventRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -18,43 +18,52 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 }
 
+/** "All day", or a start–end range with a shared AM/PM written once
+ *  ("2:30–3:00 PM"). In a 24-hour locale there's no meridiem, so it reads
+ *  "14:30–15:00" — the trim is a no-op. */
+function formatRange(event: CalendarEventRow): string {
+  if (event.allDay) return 'All day'
+  const start = formatTime(event.start)
+  const end = formatTime(event.end)
+  const sameMeridiem = event.start.getHours() < 12 === event.end.getHours() < 12
+  const startTrimmed = sameMeridiem ? start.replace(/\s?[AP]M$/i, '') : start
+  return `${startTrimmed}–${end}`
+}
+
+function formatDayDate(date: Date): string {
+  return date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 interface DayGroup {
   label: string
-  allDay: CalendarEventRow[]
-  timed: CalendarEventRow[]
+  date: string
+  events: CalendarEventRow[]
 }
 
-/** Split the merged, start-sorted events into Today / Tomorrow, separating
- *  all-day events (shown as chips) from timed ones (shown as rows). The window is
- *  exactly today + tomorrow, so every event falls into one of the two. */
+/** Split the merged events into Today / Tomorrow, dropping a day with nothing on
+ *  it (the window is exactly those two days). Within a day, timed events come
+ *  first (in start order) and all-day events sit at the bottom. */
 function groupByDay(events: CalendarEventRow[], now: Date): DayGroup[] {
-  const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime()
-  const today: DayGroup = { label: 'Today', allDay: [], timed: [] }
-  const tomorrow: DayGroup = { label: 'Tomorrow', allDay: [], timed: [] }
+  const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tomorrowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  const today: DayGroup = { label: 'Today', date: formatDayDate(todayDate), events: [] }
+  const tomorrow: DayGroup = { label: 'Tomorrow', date: formatDayDate(tomorrowDate), events: [] }
   for (const event of events) {
-    const group = event.start.getTime() < startOfTomorrow ? today : tomorrow
-    ;(event.allDay ? group.allDay : group.timed).push(event)
+    ;(event.start.getTime() < tomorrowDate.getTime() ? today : tomorrow).events.push(event)
   }
-  return [today, tomorrow].filter((group) => group.allDay.length > 0 || group.timed.length > 0)
+  for (const group of [today, tomorrow]) {
+    group.events.sort((a, b) => {
+      if (a.allDay !== b.allDay) return a.allDay ? 1 : -1
+      return a.start.getTime() - b.start.getTime()
+    })
+  }
+  return [today, tomorrow].filter((group) => group.events.length > 0)
 }
 
-/** An all-day event as a clickable chip (no time to show). */
-function AllDayChip({ event }: { event: CalendarEventRow }): ReactElement {
-  return (
-    <button
-      type="button"
-      onClick={() => window.open(event.htmlLink, '_blank')}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors hover:bg-accent"
-    >
-      <IconCalendarEvent className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="truncate">{event.title}</span>
-    </button>
-  )
-}
-
-/** A timed meeting row: start time, title, an optional Meet "Join" button, and
- *  an open-in-Calendar action. The current/next meeting is highlighted; a meeting
- *  that's already ended is dimmed. */
+/** One meeting: a time range, the title, the participant avatars (you excluded,
+ *  capped at 3 + "+N"), an optional Meet "Join" button, and an open-in-Calendar
+ *  action. The current/next meeting is marked by the accent rail alone; a meeting
+ *  that's ended is dimmed (its time goes muted too). */
 function EventRow({
   event,
   isNext,
@@ -65,22 +74,21 @@ function EventRow({
   isPast: boolean
 }): ReactElement {
   return (
-    <div
-      className={cn(
-        'flex items-center gap-3 px-3 py-2',
-        isNext && 'bg-accent/40',
-        isPast && 'opacity-55'
+    <div className={cn('relative flex items-center gap-3 px-3 py-2', isPast && 'opacity-55')}>
+      {/* The current/next meeting's accent rail — inset from top/bottom so it
+          never collides with the card's rounded corners. */}
+      {isNext && (
+        <span aria-hidden className="absolute inset-y-3 left-0 w-0.5 rounded-full bg-primary" />
       )}
-    >
-      <span
-        className={cn(
-          'w-16 shrink-0 text-xs tabular-nums',
-          isNext ? 'font-medium text-foreground' : 'text-muted-foreground'
-        )}
-      >
-        {formatTime(event.start)}
+      <span className="min-w-28 shrink-0 whitespace-nowrap text-foreground text-xs tabular-nums">
+        {formatRange(event)}
       </span>
       <span className="min-w-0 flex-1 truncate font-medium text-sm">{event.title}</span>
+      {event.attendees.length > 0 && (
+        <UserAvatars
+          users={event.attendees.map((attendee) => ({ login: attendee.name, avatarUrl: null }))}
+        />
+      )}
       {event.hangoutLink && (
         <Button
           variant="outline"
@@ -95,6 +103,7 @@ function EventRow({
       <Button
         variant="ghost"
         size="icon-sm"
+        className="shrink-0"
         aria-label="Open in Google Calendar"
         title="Open in Google Calendar"
         onClick={() => window.open(event.htmlLink, '_blank')}
@@ -107,11 +116,10 @@ function EventRow({
 
 /**
  * The dashboard agenda: today's and tomorrow's meetings from every linked Google
- * account, merged and sorted. Renders nothing until a Google account is linked,
- * so the dashboard is unchanged for anyone not using the integration. Past events
- * are dimmed and the current/next meeting highlighted; all-day events show as
- * chips. Meetings stay dashboard-global (not project-scoped) for now — see the
- * domain→project map planned with the email phase.
+ * account, merged and sorted, as a single list grouped by day. Renders nothing
+ * until a Google account is linked, so the dashboard is unchanged for anyone not
+ * using the integration. Meetings stay dashboard-global (not project-scoped) for
+ * now — see the domain→project map planned with the email phase.
  */
 export function TodayAgenda(): ReactElement | null {
   const accounts = trpc.google.listAccounts.useQuery()
@@ -142,33 +150,26 @@ export function TodayAgenda(): ReactElement | null {
       <div className="overflow-hidden rounded-xl border border-border">
         {agenda.isLoading ? (
           <EmptyHint>Loading your agenda…</EmptyHint>
-        ) : events.length === 0 ? (
+        ) : groups.length === 0 ? (
           <EmptyHint>Nothing on your calendar today or tomorrow.</EmptyHint>
         ) : (
           groups.map((group, i) => (
             <div key={group.label} className={cn(i > 0 && 'border-border border-t')}>
-              <div className="bg-muted/40 px-3 py-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wide">
-                {group.label}
+              <div className="flex items-center gap-2 border-border border-b px-3 py-2 text-muted-foreground">
+                <IconCalendar className="size-4 shrink-0" />
+                <span className="font-medium text-sm">{group.label}</span>
+                <span className="text-xs">{group.date}</span>
               </div>
-              {group.allDay.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 px-3 pt-1.5 pb-2">
-                  {group.allDay.map((event) => (
-                    <AllDayChip key={eventKey(event)} event={event} />
-                  ))}
-                </div>
-              )}
-              {group.timed.length > 0 && (
-                <div className="divide-y divide-border">
-                  {group.timed.map((event) => (
-                    <EventRow
-                      key={eventKey(event)}
-                      event={event}
-                      isNext={eventKey(event) === nextKey}
-                      isPast={!event.allDay && event.end.getTime() <= nowMs}
-                    />
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-col divide-y divide-border">
+                {group.events.map((event) => (
+                  <EventRow
+                    key={eventKey(event)}
+                    event={event}
+                    isNext={eventKey(event) === nextKey}
+                    isPast={!event.allDay && event.end.getTime() <= nowMs}
+                  />
+                ))}
+              </div>
             </div>
           ))
         )}

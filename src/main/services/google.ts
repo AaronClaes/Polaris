@@ -277,9 +277,17 @@ async function getAccessToken(email: string): Promise<string> {
   return refreshed.accessToken
 }
 
-/** A calendar event normalized for the renderer. `attendeeDomains` is carried so
- *  a later domain→project map can scope a meeting without touching this service
- *  (see the email phase). `allDay` events have a date-only start (local midnight). */
+/** An event participant (everyone but you, minus anyone who declined and any
+ *  rooms/resources). The Calendar API exposes no profile photos, so the renderer
+ *  shows initials; `email` is the stable identity (and lets a later domain→project
+ *  map scope the meeting by attendee domain without touching this service). */
+export interface CalendarAttendee {
+  name: string
+  email: string
+}
+
+/** A calendar event normalized for the renderer. `allDay` events have a date-only
+ *  start (local midnight). */
 export interface CalendarEvent {
   id: string
   // The linked account this event came from (its calendar can span accounts).
@@ -293,9 +301,17 @@ export interface CalendarEvent {
   hangoutLink: string | null
   // The event's page on Google Calendar, for opening out.
   htmlLink: string
-  attendeeCount: number
-  // Deduped, lowercased attendee email domains (for future project-scoping).
-  attendeeDomains: string[]
+  // Other participants (you excluded), for the avatar stack.
+  attendees: CalendarAttendee[]
+}
+
+interface RawAttendee {
+  email?: string
+  displayName?: string
+  self?: boolean
+  responseStatus?: string
+  // A meeting room / resource, not a person — kept out of the participant list.
+  resource?: boolean
 }
 
 interface RawEvent {
@@ -307,7 +323,7 @@ interface RawEvent {
   location?: string
   start?: { dateTime?: string; date?: string }
   end?: { dateTime?: string; date?: string }
-  attendees?: { email?: string; self?: boolean; responseStatus?: string }[]
+  attendees?: RawAttendee[]
 }
 
 function mapEvent(account: string, raw: RawEvent): CalendarEvent | null {
@@ -321,10 +337,14 @@ function mapEvent(account: string, raw: RawEvent): CalendarEvent | null {
   const start = allDay ? new Date(`${startRaw}T00:00:00`) : new Date(startRaw)
   const end = allDay ? new Date(`${endRaw}T00:00:00`) : new Date(endRaw)
 
-  const domains = new Set<string>()
+  // Participants: everyone but you, dropping anyone who declined and any
+  // rooms/resources. Fall back to the email when there's no display name.
+  const attendees: CalendarAttendee[] = []
   for (const attendee of raw.attendees ?? []) {
-    const domain = attendee.email?.split('@')[1]?.toLowerCase()
-    if (domain) domains.add(domain)
+    if (attendee.self || attendee.resource) continue
+    if (attendee.responseStatus === 'declined') continue
+    if (!attendee.email) continue
+    attendees.push({ name: attendee.displayName?.trim() || attendee.email, email: attendee.email })
   }
 
   return {
@@ -337,8 +357,7 @@ function mapEvent(account: string, raw: RawEvent): CalendarEvent | null {
     location: raw.location?.trim() || null,
     hangoutLink: raw.hangoutLink ?? null,
     htmlLink: raw.htmlLink ?? '',
-    attendeeCount: raw.attendees?.length ?? 0,
-    attendeeDomains: [...domains]
+    attendees
   }
 }
 
