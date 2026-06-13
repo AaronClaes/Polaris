@@ -22,6 +22,12 @@ import { trpc } from '@/lib/trpc'
 // Pre-scoped to fine-grained tokens; opens in the browser via the window-open handler.
 const TOKEN_HELP_URL = 'https://github.com/settings/personal-access-tokens/new'
 
+// The fine-grained PATs list — every token a user creates lives here regardless
+// of which owner/org it grants access to. GitHub's API never exposes a token's
+// own numeric id (the `/personal-access-tokens/<id>` deep link), so the per-row
+// "Manage" button lands here and the user clicks into the right token.
+const TOKEN_LIST_URL = 'https://github.com/settings/personal-access-tokens'
+
 /** Dialog + form to link one owner by pasting a fine-grained token. */
 function AddTokenDialog({ trigger }: { trigger: ReactElement }): ReactElement {
   const utils = trpc.useUtils()
@@ -130,6 +136,15 @@ function AccountRow({ account }: { account: GithubAccountRow }): ReactElement {
         <span className="truncate font-medium text-sm">{account.owner}</span>
         <span className="truncate text-muted-foreground text-xs">Signed in as {account.login}</span>
       </div>
+      <Button
+        variant="outline"
+        size="icon-sm"
+        aria-label={`Manage ${account.owner}'s token on GitHub`}
+        title="Manage token on GitHub"
+        onClick={() => window.open(TOKEN_LIST_URL, '_blank')}
+      >
+        <IconExternalLink />
+      </Button>
       <Button
         variant="destructive-outline"
         size="icon-sm"
