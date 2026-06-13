@@ -12,12 +12,16 @@ import { getAccessToken } from './google'
  */
 
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
-// Only consider mail from the last 30 days — a command center cares about live
-// threads, not history (matches the agreed window).
-const WINDOW = 'newer_than:30d'
-// Cap matching threads per account so a busy mailbox can't fan out unbounded;
-// fetched newest-first, so this keeps the most recent.
-const MAX_THREADS = 50
+// Only consider mail from the last 60 days — wide enough to still surface a
+// thread you opened weeks ago and forgot, without scanning the whole mailbox.
+const WINDOW = 'newer_than:60d'
+// Page size for threads.list — Gmail's maximum, so the full match set pages in
+// as few calls as possible (one call unless an account has 500+ matches).
+const PAGE_SIZE = 500
+// How many thread-metadata fetches run at once. Bounded so a large result set
+// can't fire hundreds of concurrent requests and trip Gmail's rate limit, which
+// would fail the whole account and hide everything — the opposite of the goal.
+const METADATA_CONCURRENCY = 25
 // Headers we read off each message (no body, so this stays a metadata fetch).
 const HEADERS = ['From', 'To', 'Cc', 'Subject']
 
@@ -193,10 +197,11 @@ async function gmailGet<T>(path: string, accessToken: string): Promise<T> {
 }
 
 /**
- * List one account's threads matching `query`, normalized. Fetches the matching
- * thread ids (one page, capped), then each thread's metadata in parallel. Throws
- * on an API error so the caller can flag that account alone. `myAddresses` (your
- * linked account emails) is how a message is recognized as sent by you.
+ * List one account's threads matching `query`, normalized. Pages through every
+ * matching thread id (no silent cap — completeness is the whole point), then
+ * fetches each thread's metadata in bounded-concurrency batches. Throws on an API
+ * error so the caller can flag that account alone. `myAddresses` (your linked
+ * account emails) is how a message is recognized as sent by you.
  */
 export async function listThreadsForAccount(
   account: string,
@@ -205,23 +210,34 @@ export async function listThreadsForAccount(
 ): Promise<EmailThread[]> {
   const accessToken = await getAccessToken(account)
 
-  const list = await gmailGet<{ threads?: { id: string }[] }>(
-    `/threads?q=${encodeURIComponent(query)}&maxResults=${MAX_THREADS}`,
-    accessToken
-  )
-  const ids = (list.threads ?? []).map((thread) => thread.id)
-
-  const headerParams = HEADERS.map((h) => `metadataHeaders=${h}`).join('&')
-  const threads = await Promise.all(
-    ids.map((id) =>
-      gmailGet<RawThread>(`/threads/${id}?format=metadata&${headerParams}`, accessToken)
+  // Page through the full match set; terminates when Gmail returns no token.
+  const ids: string[] = []
+  let pageToken: string | undefined
+  do {
+    const tokenParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''
+    const page = await gmailGet<{ threads?: { id: string }[]; nextPageToken?: string }>(
+      `/threads?q=${encodeURIComponent(query)}&maxResults=${PAGE_SIZE}${tokenParam}`,
+      accessToken
     )
-  )
+    for (const thread of page.threads ?? []) ids.push(thread.id)
+    pageToken = page.nextPageToken
+  } while (pageToken)
 
+  // Fetch metadata in batches so a large result set can't fan out unbounded.
+  const headerParams = HEADERS.map((h) => `metadataHeaders=${h}`).join('&')
   const out: EmailThread[] = []
-  for (const raw of threads) {
-    const mapped = mapThread(account, raw, myAddresses)
-    if (mapped) out.push(mapped)
+  for (let i = 0; i < ids.length; i += METADATA_CONCURRENCY) {
+    const raws = await Promise.all(
+      ids
+        .slice(i, i + METADATA_CONCURRENCY)
+        .map((id) =>
+          gmailGet<RawThread>(`/threads/${id}?format=metadata&${headerParams}`, accessToken)
+        )
+    )
+    for (const raw of raws) {
+      const mapped = mapThread(account, raw, myAddresses)
+      if (mapped) out.push(mapped)
+    }
   }
   return out
 }
