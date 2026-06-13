@@ -2,6 +2,7 @@ import {
   IconCalendarPlus,
   IconChevronDown,
   IconClock,
+  IconInbox,
   IconPlus,
   IconTrash,
   IconX
@@ -22,14 +23,21 @@ import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import { hasTime } from '@/lib/work-items'
 
-/** The owning-project bits a global todo row carries (icon/color for the chip). */
-type TodoProject = GlobalTodoRow['project']
-/** A row the list can render: a todo, plus its project when shown globally. */
-type TodoItem = TodoRow & { project?: TodoProject }
+/** The owning-project bits a global todo row carries (icon/color for the chip).
+ *  Non-nullable: the join is left, so a global row's `project` can be null (an
+ *  unlinked todo), but the chip/picker only ever deal with real projects. */
+type TodoProject = NonNullable<GlobalTodoRow['project']>
+/** A row the list can render: a todo, plus its project when shown globally
+ *  (null for an unlinked todo). */
+type TodoItem = TodoRow & { project?: TodoProject | null }
 
 // Inputs the view hands back up; the wrappers wire these to the todos router.
-type CreateInput = { projectId: number; title: string; dueDate: Date | null }
+// `projectId: null` creates an unlinked todo (only the global add row offers it).
+type CreateInput = { projectId: number | null; title: string; dueDate: Date | null }
 type UpdateInput = { id: number; title?: string; dueDate?: Date | null }
+
+// The "No project" radio value — a sentinel distinct from any project id string.
+const NO_PROJECT = 'none'
 
 const DAY_MS = 86_400_000
 
@@ -261,8 +269,30 @@ function TodoProjectChip({ project }: { project: TodoProject }): ReactElement {
   )
 }
 
-/** Picks which project a new todo lands in (the global add row). Shows the
- *  selected project's icon + name; a radio menu of every project. */
+/** The chip slot for an unlinked todo: a muted inbox tile that matches a project
+ *  chip's footprint, so checkboxes stay aligned in the global list. Uses the same
+ *  inbox glyph as the add row's "No project" picker, so the symbol reads the same
+ *  in both places. */
+function NoProjectChip(): ReactElement {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex w-fit shrink-0">
+            <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <IconInbox size={13} stroke={1.75} />
+            </span>
+          </span>
+        }
+      />
+      <TooltipPopup>No project</TooltipPopup>
+    </Tooltip>
+  )
+}
+
+/** Picks which project a new todo lands in (the global add row), or "No project"
+ *  for an unlinked todo. Shows the selection's icon + name; a radio menu with a
+ *  "No project" choice on top, then every project. */
 function ProjectPicker({
   projects,
   value,
@@ -270,23 +300,31 @@ function ProjectPicker({
 }: {
   projects: TodoProject[]
   value: number | null
-  onChange: (projectId: number) => void
+  onChange: (projectId: number | null) => void
 }): ReactElement {
-  const active = projects.find((project) => project.id === value) ?? projects[0]
+  const active = value != null ? projects.find((project) => project.id === value) : undefined
   return (
     <Menu>
       <MenuTrigger render={<Button variant="outline" size="sm" className="shrink-0 gap-1.5" />}>
-        {active && (
+        {active ? (
           <ProjectIcon icon={active.icon} color={active.color} size={11} className="size-4" />
+        ) : (
+          <IconInbox className="size-4 text-muted-foreground" />
         )}
-        <span className="max-w-28 truncate">{active?.name ?? 'Project'}</span>
+        <span className="max-w-28 truncate">{active?.name ?? 'No project'}</span>
         <IconChevronDown />
       </MenuTrigger>
       <MenuPopup align="end" className="min-w-44">
         <MenuRadioGroup
-          value={value != null ? String(value) : undefined}
-          onValueChange={(next) => onChange(Number(next))}
+          value={value != null ? String(value) : NO_PROJECT}
+          onValueChange={(next) => onChange(next === NO_PROJECT ? null : Number(next))}
         >
+          <MenuRadioItem value={NO_PROJECT}>
+            <span className="flex items-center gap-2">
+              <IconInbox className="size-4 text-muted-foreground" />
+              <span className="truncate">No project</span>
+            </span>
+          </MenuRadioItem>
           {projects.map((project) => (
             <MenuRadioItem key={project.id} value={String(project.id)}>
               <span className="flex items-center gap-2">
@@ -321,14 +359,14 @@ function TodoAddRow({
 }): ReactElement {
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState<Date | null>(null)
-  const [projectId, setProjectId] = useState<number | null>(
-    fixedProjectId ?? addProjects?.[0]?.id ?? null
-  )
+  // The global add row starts on "No project" (null) — the inbox for quick,
+  // unlinked todos; pick a project to file it. The project tab pins its project.
+  const [projectId, setProjectId] = useState<number | null>(fixedProjectId ?? null)
   const targetId = fixedProjectId ?? projectId
-  const canAdd = title.trim().length > 0 && targetId != null
+  const canAdd = title.trim().length > 0
 
   const submit = (): void => {
-    if (!canAdd || targetId == null) return
+    if (!canAdd) return
     onCreate({ projectId: targetId, title: title.trim(), dueDate })
     setTitle('')
     setDueDate(null)
@@ -396,7 +434,8 @@ export function TodoRowItem({
         todo.completed && 'opacity-60'
       )}
     >
-      {showProject && todo.project && <TodoProjectChip project={todo.project} />}
+      {showProject &&
+        (todo.project ? <TodoProjectChip project={todo.project} /> : <NoProjectChip />)}
       <Checkbox
         checked={todo.completed}
         aria-label={todo.completed ? 'Mark as not done' : 'Mark as done'}

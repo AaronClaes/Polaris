@@ -284,10 +284,10 @@ export function AllTodos(): ReactElement {
   return (
     <GlobalListPage
       title="Todos"
-      subtitle="Tasks across all your projects."
+      subtitle="Tasks across all your projects, plus quick todos linked to none."
       count={todosQuery.isLoading ? undefined : openCount}
-      hasContent={projects.length > 0}
-      emptyHint="Create a project to start adding todos."
+      // Always rendered: even with no projects you can add an unlinked todo.
+      hasContent
     >
       <TodosView
         rows={rows}

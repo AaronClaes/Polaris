@@ -222,7 +222,9 @@ function WorkItemRow({
           {badge.label}
         </Badge>
       )}
-      {item.kind === 'todo' ? (
+      {item.kind !== 'todo' ? (
+        <OpenButton url={item.kind === 'pr' ? item.pr.url : item.issue.url} />
+      ) : item.todo.projectId != null ? (
         <Button
           variant="ghost"
           size="icon-sm"
@@ -239,7 +241,16 @@ function WorkItemRow({
           <IconChevronRight />
         </Button>
       ) : (
-        <OpenButton url={item.kind === 'pr' ? item.pr.url : item.issue.url} />
+        // An unlinked todo lives only in the global Todos list.
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Open in todos"
+          title="Open in todos"
+          render={<Link to="/todos" />}
+        >
+          <IconChevronRight />
+        </Button>
       )}
     </div>
   )

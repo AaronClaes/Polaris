@@ -320,9 +320,10 @@ export const notes = sqliteTable('notes', {
  */
 export const todos = sqliteTable('todos', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  projectId: integer('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+  // Nullable: a null `projectId` is an unlinked todo — a quick reminder or
+  // internal task that belongs to no project. Linked todos cascade-delete with
+  // their project; unlinked ones simply have no owner to follow.
+  projectId: integer('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   title: text('title').notNull().default(''),
   // Optional deadline, stored as a timestamp. The UI treats local midnight as
   // "date only" (a whole-day, end-of-day deadline) and any other time as an

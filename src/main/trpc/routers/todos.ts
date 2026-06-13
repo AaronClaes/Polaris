@@ -28,8 +28,9 @@ export const todosRouter = router({
       .all()
   ),
 
-  // Every project's todos, each tagged with its owning project — for the global
-  // "All todos" view and the nav's open-count badge.
+  // Every todo, each tagged with its owning project — for the global "All todos"
+  // view and the nav's open-count badge. A left join so unlinked todos (null
+  // `projectId`) are included too, with a null `project`.
   listAll: publicProcedure.query(({ ctx }) =>
     ctx.db
       .select({
@@ -44,7 +45,7 @@ export const todosRouter = router({
         project: projectRef
       })
       .from(todos)
-      .innerJoin(projects, eq(todos.projectId, projects.id))
+      .leftJoin(projects, eq(todos.projectId, projects.id))
       .orderBy(...TODO_ORDER)
       .all()
   ),
@@ -52,7 +53,8 @@ export const todosRouter = router({
   create: publicProcedure
     .input(
       z.object({
-        projectId: z.number().int(),
+        // Null (or omitted) creates an unlinked todo — see the schema note.
+        projectId: z.number().int().nullable().optional(),
         title: z.string().trim().min(1),
         dueDate: z.date().nullable().optional()
       })
@@ -61,7 +63,7 @@ export const todosRouter = router({
       ctx.db
         .insert(todos)
         .values({
-          projectId: input.projectId,
+          projectId: input.projectId ?? null,
           title: input.title,
           dueDate: input.dueDate ?? null
         })

@@ -38,16 +38,18 @@ export function useVisibleProjectIds(): Set<number> {
 }
 
 /**
- * Every project's todos (`todos.listAll`), filtered to the visible projects — the
+ * Every todo (`todos.listAll`), filtered to the visible projects — the
  * cross-project counterpart of {@link useVisibleProjects}. Use this instead of
  * `todos.listAll` directly anywhere todos are shown across projects, so a hidden
- * project's todos never leak. Same shape as the raw query, with `data` filtered.
+ * project's todos never leak. Unlinked todos (null `projectId`) carry no tag, so
+ * they always show — the same rule untagged projects follow. Same shape as the
+ * raw query, with `data` filtered.
  */
 export function useVisibleTodos() {
   const query = trpc.todos.listAll.useQuery()
   const visibleIds = useVisibleProjectIds()
   const data = useMemo(
-    () => query.data?.filter((todo) => visibleIds.has(todo.projectId)),
+    () => query.data?.filter((todo) => todo.projectId == null || visibleIds.has(todo.projectId)),
     [query.data, visibleIds]
   )
   return { ...query, data }

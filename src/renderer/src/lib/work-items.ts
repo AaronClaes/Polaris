@@ -36,7 +36,8 @@ export type NeedsWorkReason = 'conflict' | 'ci-failed' | 'changes-requested'
  * same engine serves the global and per-project dashboards unchanged. */
 export interface WorkTodo {
   id: number
-  projectId: number
+  /** Null for an unlinked todo (no owning project). */
+  projectId: number | null
   title: string
   dueDate: Date | null
   completed: boolean

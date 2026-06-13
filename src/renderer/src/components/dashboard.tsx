@@ -98,7 +98,10 @@ export function Dashboard(): ReactElement {
   )
 
   function itemProject(item: WorkItem): ProjectWithActions | undefined {
-    if (item.kind === 'todo') return projectById.get(item.todo.projectId)
+    if (item.kind === 'todo') {
+      // An unlinked todo has no project chip.
+      return item.todo.projectId != null ? projectById.get(item.todo.projectId) : undefined
+    }
     const repo = item.kind === 'pr' ? item.pr.repo : item.issue.repo
     return projectByRepo.get(`${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`)
   }
