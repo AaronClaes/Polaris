@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { type ReactElement, useMemo } from 'react'
 import { FailuresBanner, QueryBoundary } from '@/components/github-list'
 import { ProjectCard } from '@/components/project-card'
+import { TodayAgenda } from '@/components/today-agenda'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { WorkItemFeed } from '@/components/work-item-feed'
@@ -121,6 +122,8 @@ export function Dashboard(): ReactElement {
         </h1>
         <Separator />
       </div>
+
+      <TodayAgenda />
 
       {pinned.length > 0 && (
         <section className="flex flex-col gap-4">

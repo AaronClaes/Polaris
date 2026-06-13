@@ -4,6 +4,7 @@ import { browsersRouter } from './routers/browsers'
 import { dialogRouter } from './routers/dialog'
 import { faviconRouter } from './routers/favicon'
 import { githubRouter } from './routers/github'
+import { googleRouter } from './routers/google'
 import { groupsRouter } from './routers/groups'
 import { notesRouter } from './routers/notes'
 import { projectsRouter } from './routers/projects'
@@ -16,6 +17,7 @@ export const appRouter = router({
   groups: groupsRouter,
   actions: actionsRouter,
   github: githubRouter,
+  google: googleRouter,
   favicon: faviconRouter,
   browsers: browsersRouter,
   dialog: dialogRouter,

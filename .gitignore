@@ -4,3 +4,8 @@ out
 .DS_Store
 .eslintcache
 *.log*
+
+# Local environment (OAuth client credentials, etc.) — keep the example tracked.
+.env
+.env.*
+!.env.example

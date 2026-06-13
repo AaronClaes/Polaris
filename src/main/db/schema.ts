@@ -212,6 +212,22 @@ export const githubAccounts = sqliteTable('github_accounts', {
 })
 
 /**
+ * A linked Google account (e.g. your work Workspace account). Metadata only —
+ * the OAuth tokens live in {@link secrets} under `google:tokens:<email>` as a
+ * JSON blob (refresh token + cached access token + expiry). One row per account;
+ * the dashboard agenda merges events across every linked account. `email` is the
+ * unique identity and the secret's lookup key; `name`/`picture` come from the
+ * OpenID userinfo, for display.
+ */
+export const googleAccounts = sqliteTable('google_accounts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  email: text('email').notNull().unique(),
+  name: text('name'),
+  picture: text('picture'),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
+/**
  * A GitHub repository linked to a project. A project can link several (e.g. a
  * frontend and a backend repo). We keep a small display snapshot — the GitHub
  * numeric `repoId` for stable identity, plus name/description/visibility/url —
@@ -329,6 +345,8 @@ export type ActionGroup = typeof actionGroups.$inferSelect
 export type NewActionGroup = typeof actionGroups.$inferInsert
 export type GithubAccount = typeof githubAccounts.$inferSelect
 export type NewGithubAccount = typeof githubAccounts.$inferInsert
+export type GoogleAccount = typeof googleAccounts.$inferSelect
+export type NewGoogleAccount = typeof googleAccounts.$inferInsert
 export type Browser = typeof browsers.$inferSelect
 export type NewBrowser = typeof browsers.$inferInsert
 export type Note = typeof notes.$inferSelect

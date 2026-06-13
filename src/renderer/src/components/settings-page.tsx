@@ -4,6 +4,7 @@ import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { AppIconImg } from '@/components/action-icon'
 import { BrowsersIntegration } from '@/components/browsers-integration'
 import { GitHubIntegration } from '@/components/github-integration'
+import { GoogleIntegration } from '@/components/google-integration'
 import { TagsSettings } from '@/components/tags-settings'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
@@ -178,6 +179,7 @@ function IntegrationsPanel(): ReactElement {
     >
       <div className="grid gap-4">
         <GitHubIntegration />
+        <GoogleIntegration />
         <BrowsersIntegration />
       </div>
     </PanelPlaceholder>

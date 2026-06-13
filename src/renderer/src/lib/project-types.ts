@@ -12,6 +12,10 @@ export type ProjectRepoRow = ProjectWithActions['repos'][number]
 
 /** A linked GitHub owner, as returned by `github.listAccounts`. */
 export type GithubAccountRow = RouterOutputs['github']['listAccounts'][number]
+/** A linked Google account, as returned by `google.listAccounts`. */
+export type GoogleAccountRow = RouterOutputs['google']['listAccounts'][number]
+/** A calendar event in the dashboard agenda, as returned by `google.agenda`. */
+export type CalendarEventRow = RouterOutputs['google']['agenda']['events'][number]
 /** An installed Chromium browser available to link, from `browsers.listInstalled`. */
 export type InstalledBrowserRow = RouterOutputs['browsers']['listInstalled'][number]
 /** A linked browser with its profiles, as returned by `browsers.listLinked`. */
