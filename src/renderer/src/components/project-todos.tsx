@@ -1,6 +1,5 @@
 import {
   IconCalendarPlus,
-  IconChevronDown,
   IconClock,
   IconInbox,
   IconPlus,
@@ -9,11 +8,11 @@ import {
 } from '@tabler/icons-react'
 import { type ReactElement, useCallback, useMemo, useState } from 'react'
 import { ProjectIcon } from '@/components/project-icon'
+import { ProjectPicker } from '@/components/project-picker'
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from '@/components/ui/menu'
 import { Popover, PopoverPopup, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
@@ -35,9 +34,6 @@ type TodoItem = TodoRow & { project?: TodoProject | null }
 // `projectId: null` creates an unlinked todo (only the global add row offers it).
 type CreateInput = { projectId: number | null; title: string; dueDate: Date | null }
 type UpdateInput = { id: number; title?: string; dueDate?: Date | null }
-
-// The "No project" radio value — a sentinel distinct from any project id string.
-const NO_PROJECT = 'none'
 
 const DAY_MS = 86_400_000
 
@@ -287,60 +283,6 @@ function NoProjectChip(): ReactElement {
       />
       <TooltipPopup>No project</TooltipPopup>
     </Tooltip>
-  )
-}
-
-/** Picks which project a new todo lands in (the global add row), or "No project"
- *  for an unlinked todo. Shows the selection's icon + name; a radio menu with a
- *  "No project" choice on top, then every project. */
-function ProjectPicker({
-  projects,
-  value,
-  onChange
-}: {
-  projects: TodoProject[]
-  value: number | null
-  onChange: (projectId: number | null) => void
-}): ReactElement {
-  const active = value != null ? projects.find((project) => project.id === value) : undefined
-  return (
-    <Menu>
-      <MenuTrigger render={<Button variant="outline" size="sm" className="shrink-0 gap-1.5" />}>
-        {active ? (
-          <ProjectIcon icon={active.icon} color={active.color} size={11} className="size-4" />
-        ) : (
-          <IconInbox className="size-4 text-muted-foreground" />
-        )}
-        <span className="max-w-28 truncate">{active?.name ?? 'No project'}</span>
-        <IconChevronDown />
-      </MenuTrigger>
-      <MenuPopup align="end" className="min-w-44">
-        <MenuRadioGroup
-          value={value != null ? String(value) : NO_PROJECT}
-          onValueChange={(next) => onChange(next === NO_PROJECT ? null : Number(next))}
-        >
-          <MenuRadioItem value={NO_PROJECT}>
-            <span className="flex items-center gap-2">
-              <IconInbox className="size-4 text-muted-foreground" />
-              <span className="truncate">No project</span>
-            </span>
-          </MenuRadioItem>
-          {projects.map((project) => (
-            <MenuRadioItem key={project.id} value={String(project.id)}>
-              <span className="flex items-center gap-2">
-                <ProjectIcon
-                  icon={project.icon}
-                  color={project.color}
-                  size={11}
-                  className="size-4"
-                />
-                <span className="truncate">{project.name}</span>
-              </span>
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuPopup>
-    </Menu>
   )
 }
 

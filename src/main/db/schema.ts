@@ -228,6 +228,24 @@ export const googleAccounts = sqliteTable('google_accounts', {
 })
 
 /**
+ * An allowed email sender — the allowlist that decides which messages enter
+ * Polaris at all. `pattern` is either a full address (`bob@clientA.com`) or a
+ * domain wildcard (`@clientA.com`); only mail matching an entry is ingested, so
+ * ads and spam never reach the dashboard. Optionally tied to a project: a null
+ * `projectId` is a contact that still surfaces on the dashboard but belongs to
+ * no project (e.g. a one-off client). The link is `set null` on project delete —
+ * the allowlist entry outlives the project (unlike a todo, which cascades); it
+ * just becomes unlinked rather than vanishing from the whitelist.
+ */
+export const emailContacts = sqliteTable('email_contacts', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  // Normalized to lowercase and unique: a full address, or an `@domain` wildcard.
+  pattern: text('pattern').notNull().unique(),
+  projectId: integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
+/**
  * A GitHub repository linked to a project. A project can link several (e.g. a
  * frontend and a backend repo). We keep a small display snapshot — the GitHub
  * numeric `repoId` for stable identity, plus name/description/visibility/url —

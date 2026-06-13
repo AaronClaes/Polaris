@@ -2,6 +2,7 @@ import { router } from '.'
 import { actionsRouter } from './routers/actions'
 import { browsersRouter } from './routers/browsers'
 import { dialogRouter } from './routers/dialog'
+import { emailContactsRouter } from './routers/email-contacts'
 import { faviconRouter } from './routers/favicon'
 import { githubRouter } from './routers/github'
 import { googleRouter } from './routers/google'
@@ -24,7 +25,8 @@ export const appRouter = router({
   notes: notesRouter,
   todos: todosRouter,
   tags: tagsRouter,
-  settings: settingsRouter
+  settings: settingsRouter,
+  emailContacts: emailContactsRouter
 })
 
 // Consumed type-only by the renderer for a fully typed IPC client.

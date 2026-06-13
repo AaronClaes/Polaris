@@ -1,8 +1,16 @@
-import { IconPlug, IconSettings, IconTags, IconX, type TablerIcon } from '@tabler/icons-react'
+import {
+  IconMail,
+  IconPlug,
+  IconSettings,
+  IconTags,
+  IconX,
+  type TablerIcon
+} from '@tabler/icons-react'
 import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { AppIconImg } from '@/components/action-icon'
 import { BrowsersIntegration } from '@/components/browsers-integration'
+import { EmailContacts } from '@/components/email-contacts'
 import { GitHubIntegration } from '@/components/github-integration'
 import { GoogleIntegration } from '@/components/google-integration'
 import { TagsSettings } from '@/components/tags-settings'
@@ -171,6 +179,17 @@ function TagsPanel(): ReactElement {
   )
 }
 
+function EmailPanel(): ReactElement {
+  return (
+    <PanelPlaceholder
+      title="Email"
+      description="Only mail from the addresses and domains you add here reaches Polaris, so ads and spam stay out. Link a sender to a project, or leave it unlinked to surface it on the dashboard only."
+    >
+      <EmailContacts />
+    </PanelPlaceholder>
+  )
+}
+
 function IntegrationsPanel(): ReactElement {
   return (
     <PanelPlaceholder
@@ -189,6 +208,7 @@ function IntegrationsPanel(): ReactElement {
 const SECTIONS: SettingsSection[] = [
   { id: 'general', label: 'General', Icon: IconSettings, render: GeneralPanel },
   { id: 'tags', label: 'Tags', Icon: IconTags, render: TagsPanel },
+  { id: 'email', label: 'Email', Icon: IconMail, render: EmailPanel },
   {
     id: 'integrations',
     label: 'Integrations',
