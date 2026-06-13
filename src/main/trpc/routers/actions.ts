@@ -31,8 +31,9 @@ const commandConfig = z.object({
   cwd
 })
 
-// The terminal / IDE launchers carry no command — the app comes from the global
-// default-apps setting — so their config is just the optional cwd override.
+// The terminal / IDE / Finder launchers carry no command — the app is fixed
+// (Finder) or comes from the global default-apps setting — so their config is
+// just the optional cwd override.
 const appLauncherConfig = z.object({ cwd })
 
 // The IDE launcher additionally accepts an optional `.code-workspace` file to
@@ -97,6 +98,14 @@ const createActionInput = z.discriminatedUnion('type', [
   z.object({
     projectId: z.number().int(),
     groupId,
+    type: z.literal('finder'),
+    label,
+    icon,
+    config: appLauncherConfig
+  }),
+  z.object({
+    projectId: z.number().int(),
+    groupId,
     type: z.literal('repo'),
     label,
     icon,
@@ -130,6 +139,13 @@ const updateActionInput = z.discriminatedUnion('type', [
     label,
     icon,
     config: ideConfig
+  }),
+  z.object({
+    id: z.number().int(),
+    type: z.literal('finder'),
+    label,
+    icon,
+    config: appLauncherConfig
   }),
   z.object({ id: z.number().int(), type: z.literal('repo'), label, icon, config: repoConfig })
 ])

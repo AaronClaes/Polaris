@@ -174,6 +174,12 @@ export async function runAction(
       const config = action.config as AppLauncherActionConfig
       return runOpenApp(defaultApps.terminal, config.cwd ?? projectPath)
     }
+    case 'finder': {
+      // Always Finder (the macOS file browser), so unlike terminal / IDE it
+      // needs no default-app resolution — just open the directory in it.
+      const config = action.config as AppLauncherActionConfig
+      return runOpenApp('Finder', config.cwd ?? projectPath)
+    }
     case 'ide': {
       const config = action.config as IdeActionConfig
       // A `.code-workspace` file opens as a workspace; `open -a` passes any path

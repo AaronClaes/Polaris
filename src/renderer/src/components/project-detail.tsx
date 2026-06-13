@@ -130,13 +130,15 @@ function actionTarget(action: ProjectActionRow): string {
       const config = action.config as RepoActionConfig
       return `${config.owner}/${config.name}`
     }
-    default:
-      // terminal / ide: the directory it opens (the cwd override) or, when none
-      // is set, a label for the default app it resolves to at run time.
-      return (
-        (action.config as AppLauncherActionConfig).cwd ??
-        (action.type === 'terminal' ? 'Default terminal' : 'Default editor')
-      )
+    default: {
+      // terminal / ide / finder: the directory it opens (the cwd override), or a
+      // label when none is set — the default app for terminal / IDE, the project
+      // folder for Finder (which always opens in Finder).
+      const config = action.config as AppLauncherActionConfig
+      if (config.cwd) return config.cwd
+      if (action.type === 'finder') return 'Project folder'
+      return action.type === 'terminal' ? 'Default terminal' : 'Default editor'
+    }
   }
 }
 

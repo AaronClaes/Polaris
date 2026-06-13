@@ -1,6 +1,13 @@
-import { IconApps, IconCode, IconTerminal2, IconWorld, type TablerIcon } from '@tabler/icons-react'
+import {
+  IconApps,
+  IconCode,
+  IconFolder,
+  IconTerminal2,
+  IconWorld,
+  type TablerIcon
+} from '@tabler/icons-react'
 import type { ReactElement } from 'react'
-import { APP_ICON_KEY, APP_ICON_STALE_TIME } from '@/lib/app-icons'
+import { APP_ICON_KEY, APP_ICON_STALE_TIME, FINDER_APP_KEY } from '@/lib/app-icons'
 import { FAVICON_ICON_KEY, FAVICON_STALE_TIME, faviconQueryUrl } from '@/lib/favicon'
 import { getIcon } from '@/lib/icons'
 import type { ProjectActionRow } from '@/lib/project-types'
@@ -104,8 +111,8 @@ function ActionAppIcon({
 
 /**
  * An action's leading glyph: the linked site's favicon for favicon-mode link
- * actions (globe fallback), the default app's icon for app-icon-mode terminal /
- * IDE actions, otherwise the chosen Tabler icon. Pass `size` for a fixed pixel
+ * actions (globe fallback), the resolved app's icon for app-icon-mode terminal /
+ * IDE / Finder actions, otherwise the chosen Tabler icon. Pass `size` for a fixed pixel
  * size, or a sizing `className` (e.g. {@link ACTION_ICON_CLASS}) for CSS-sized
  * contexts like buttons and menus.
  */
@@ -126,6 +133,12 @@ export function ActionIcon({
   }
   if ((action.type === 'terminal' || action.type === 'ide') && action.icon === APP_ICON_KEY) {
     return <ActionAppIcon kind={action.type} size={size} className={className} />
+  }
+  if (action.type === 'finder' && action.icon === APP_ICON_KEY) {
+    // Finder is fixed (not a default-apps setting), so resolve its icon directly.
+    return (
+      <AppIconImg appKey={FINDER_APP_KEY} size={size} className={className} Fallback={IconFolder} />
+    )
   }
   const Icon = getIcon(action.icon).Icon
   return <Icon size={size} className={className} />

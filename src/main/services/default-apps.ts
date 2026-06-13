@@ -42,6 +42,20 @@ export const IDES: ExternalApp[] = [
   { key: 'cursor', name: 'Cursor', appName: 'Cursor', appPath: '/Applications/Cursor.app' }
 ]
 
+/**
+ * Finder — the macOS file browser. Unlike the terminal / IDE it isn't
+ * user-selectable (there's only one Finder), so it's a fixed entry rather than a
+ * registry. Here purely so {@link findApp} can resolve its `.app` for the
+ * `finder` action's icon; the runner opens "Finder" by name directly. The key
+ * mirrors the renderer's `FINDER_APP_KEY`.
+ */
+export const FINDER_APP: ExternalApp = {
+  key: 'finder',
+  name: 'Finder',
+  appName: 'Finder',
+  appPath: '/System/Library/CoreServices/Finder.app'
+}
+
 /** The settings-table keys the chosen app registry keys are stored under. */
 export const DEFAULT_APP_SETTING_KEYS = {
   terminal: 'defaultTerminal',
@@ -76,9 +90,9 @@ export function readDefaultApps(db: DB): { terminal: ExternalApp; ide: ExternalA
   }
 }
 
-/** Look up a supported app (terminal or IDE) by its registry key. */
+/** Look up a supported app (terminal, IDE, or Finder) by its registry key. */
 export function findApp(key: string): ExternalApp | undefined {
-  return [...TERMINALS, ...IDES].find((entry) => entry.key === key)
+  return [...TERMINALS, ...IDES, FINDER_APP].find((entry) => entry.key === key)
 }
 
 /**

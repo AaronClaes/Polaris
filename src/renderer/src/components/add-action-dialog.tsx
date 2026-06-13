@@ -2,6 +2,7 @@ import {
   IconBrandGithub,
   IconChevronLeft,
   IconCode,
+  IconFolder,
   IconLink,
   IconPlus,
   IconTerminal2,
@@ -32,7 +33,7 @@ import {
   SelectPopup,
   SelectTrigger
 } from '@/components/ui/select'
-import { APP_ICON_KEY } from '@/lib/app-icons'
+import { APP_ICON_KEY, FINDER_APP_KEY } from '@/lib/app-icons'
 import { FAVICON_ICON_KEY } from '@/lib/favicon'
 import type { ActionGroupRow, ProjectActionRow, ProjectRepoRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
@@ -70,6 +71,7 @@ const ACTION_TYPE_ORDER = [
   'command',
   'terminal',
   'ide',
+  'finder',
   'repo',
   'link'
 ] as const satisfies readonly ActionType[]
@@ -95,6 +97,12 @@ const ACTION_TYPE_META: Record<
     labelPlaceholder: 'Open in editor',
     Icon: IconCode
   },
+  finder: {
+    title: 'Finder',
+    description: 'Open the folder in Finder',
+    labelPlaceholder: 'Open in Finder',
+    Icon: IconFolder
+  },
   repo: {
     title: 'GitHub repo',
     description: 'Open a linked repository on GitHub',
@@ -110,13 +118,14 @@ const ACTION_TYPE_META: Record<
 }
 
 /** Sensible default icon for a freshly chosen action type. Links default to the
- *  site favicon, terminal / IDE to the resolved app's icon, and repos to the
- *  GitHub glyph; the user can still override any of them (repos can also pick
+ *  site favicon, terminal / IDE / Finder to the resolved app's icon, and repos to
+ *  the GitHub glyph; the user can still override any of them (repos can also pick
  *  the GitHub favicon, like a link). */
 const DEFAULT_ICON_FOR_TYPE: Record<ActionType, string> = {
   command: 'terminal',
   terminal: APP_ICON_KEY,
   ide: APP_ICON_KEY,
+  finder: APP_ICON_KEY,
   repo: 'github',
   link: FAVICON_ICON_KEY
 }
@@ -174,8 +183,9 @@ function seedForm(action?: ProjectActionRow): typeof EMPTY {
       profile: profileValue(config.browser, config.profileDirectory)
     }
   }
-  // terminal / ide — no command, just an optional working directory (and, for
-  // IDE, an optional `.code-workspace` file to open instead of the folder).
+  // terminal / ide / finder — no command, just an optional working directory
+  // (and, for IDE, an optional `.code-workspace` file to open instead of the
+  // folder; absent on the others, so it reads as '').
   const config = action.config as IdeActionConfig
   return {
     ...EMPTY,
@@ -334,6 +344,20 @@ export function AddActionDialog({
         else create.mutate({ projectId, groupId, type: 'ide', label: form.label, icon, config })
         break
       }
+      case 'finder': {
+        if (action)
+          update.mutate({ id: action.id, type: 'finder', label: form.label, icon, config: { cwd } })
+        else
+          create.mutate({
+            projectId,
+            groupId,
+            type: 'finder',
+            label: form.label,
+            icon,
+            config: { cwd }
+          })
+        break
+      }
       case 'repo': {
         if (!selectedRepo) return
         const config = {
@@ -355,16 +379,17 @@ export function AddActionDialog({
       ? 'No group'
       : (groups.find((g) => String(g.id) === groupValue)?.name ?? 'No group')
 
-  // The resolved default apps drive the terminal / IDE "App icon" option — its
-  // glyph is whichever default the action will open.
+  // The "App icon" picker option: terminal / IDE track whichever default app the
+  // action will open (from settings); Finder is fixed, so its key is constant.
   const defaultApps = trpc.settings.defaultApps.useQuery().data
   const appIcon =
-    type === 'terminal' || type === 'ide'
-      ? {
-          key: type === 'terminal' ? defaultApps?.terminal : defaultApps?.ide,
-          fallback: type === 'terminal' ? IconTerminal2 : IconCode
-        }
-      : undefined
+    type === 'terminal'
+      ? { key: defaultApps?.terminal, fallback: IconTerminal2 }
+      : type === 'ide'
+        ? { key: defaultApps?.ide, fallback: IconCode }
+        : type === 'finder'
+          ? { key: FINDER_APP_KEY, fallback: IconFolder }
+          : undefined
 
   // Linked browsers + their profiles drive the link "Open in" picker. The field
   // is shown only when at least one linked browser exposes a profile.
@@ -568,8 +593,11 @@ export function AddActionDialog({
               )}
 
               {/* The working directory applies to anything launched on a path:
-                  the command's cwd, or the dir the terminal / IDE opens in. */}
-              {(type === 'command' || type === 'terminal' || type === 'ide') && (
+                  the command's cwd, or the dir the terminal / IDE / Finder opens in. */}
+              {(type === 'command' ||
+                type === 'terminal' ||
+                type === 'ide' ||
+                type === 'finder') && (
                 <div className="grid gap-1.5">
                   <Label htmlFor={cwdId}>Working directory (optional)</Label>
                   <PathInput

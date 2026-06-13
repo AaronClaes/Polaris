@@ -71,7 +71,7 @@ export const actionGroups = sqliteTable('action_groups', {
 
 /** Action kinds. Extend this tuple (and the `config` union below + the main-side
  * runner + the renderer form) to add new action types. */
-export const ACTION_TYPES = ['link', 'command', 'terminal', 'ide', 'repo'] as const
+export const ACTION_TYPES = ['link', 'command', 'terminal', 'ide', 'finder', 'repo'] as const
 export type ActionType = (typeof ACTION_TYPES)[number]
 
 /**
@@ -93,10 +93,11 @@ export interface CommandActionConfig {
 }
 
 /**
- * Open a directory in the user's default terminal or IDE (the `terminal` / `ide`
- * action types). The app itself is resolved from the global default-apps setting
- * at run time, so only the working directory is stored here — `cwd` overrides
- * the project's default `path`, exactly like a command action.
+ * Open a directory in an external app — the user's default terminal or IDE (the
+ * `terminal` / `ide` types, resolved from the global default-apps setting at run
+ * time) or macOS Finder (the `finder` type, always Finder). Only the working
+ * directory is stored here — `cwd` overrides the project's default `path`,
+ * exactly like a command action.
  */
 export interface AppLauncherActionConfig {
   cwd?: string | null
