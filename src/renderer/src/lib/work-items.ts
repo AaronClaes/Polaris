@@ -27,6 +27,7 @@ export type WorkItemStatus =
   | 'in-review-elsewhere'
   | 'to-do'
   | 'todo'
+  | 'unreplied'
 
 /** Why a "needs-work" PR needs work — several can apply at once. */
 export type NeedsWorkReason = 'conflict' | 'ci-failed' | 'changes-requested'
@@ -42,6 +43,24 @@ export interface WorkTodo {
   dueDate: Date | null
   completed: boolean
   createdAt: Date
+}
+
+/** The minimal email-thread shape the engine reads. `EmailThreadRow` from the
+ * gmail router structurally satisfies it. Already filtered to "needs a reply" by
+ * the router (latest message isn't yours, not dismissed), so the engine just
+ * places it — no completion check, unlike todos. */
+export interface WorkEmail {
+  /** Gmail thread id. */
+  id: string
+  /** The linked Google account (mailbox) the thread belongs to. */
+  account: string
+  subject: string
+  /** Null when no originating participant maps to a project (dashboard-only). */
+  projectId: number | null
+  /** Epoch ms of the latest message — what it sorts on, and the dismissal watermark. */
+  lastMessageAt: number
+  participants: { name: string; email: string }[]
+  url: string
 }
 
 interface WorkItemCommon {
@@ -75,6 +94,10 @@ export type WorkItem =
       todo: WorkTodo
       /** Only set for a 'due' (Act now) item. */
       due: 'overdue' | 'today' | null
+    })
+  | (WorkItemCommon & {
+      kind: 'email'
+      email: WorkEmail
     })
 
 const COURT_ORDER: Record<Court, number> = { act: 0, flight: 1, waiting: 2, next: 3 }
@@ -235,12 +258,29 @@ function makeTodoItem(todo: WorkTodo, now: Date): WorkItem {
   }
 }
 
-/** Order two items already known to share a court. Tier wins; the time tiebreak
- * runs newest-first where the most recently touched matters most — what needs you
- * (Act now), what you're on (In flight), the latest movement (Waiting), and the
- * undated backlog — and oldest-first only for dated items Up next, so the soonest
- * deadline surfaces. */
+/** An unreplied client email lands in "Needs you", sorted by its latest message.
+ * That court ranks purely by recency (see `compareWithin`), so `tier` doesn't
+ * affect its position here — `sortMs` (the last message) does all the ordering. */
+function makeEmailItem(email: WorkEmail): WorkItem {
+  return {
+    kind: 'email',
+    key: `email:${email.account}:${email.id}`,
+    email,
+    court: 'act',
+    status: 'unreplied',
+    tier: 0,
+    sortMs: email.lastMessageAt
+  }
+}
+
+/** Order two items already known to share a court.
+ * "Needs you" (act) sorts purely by most-recent activity, regardless of kind — a
+ * freshly-active email or PR rises above a stale one, so a 2-day email no longer
+ * hides under a 2-month PR. The other courts rank by tier first, then a time
+ * tiebreak: newest-first for In flight and Waiting (latest movement up top), and
+ * oldest-first only for dated items Up next, so the soonest deadline surfaces. */
 function compareWithin(court: Court, a: WorkItem, b: WorkItem): number {
+  if (court === 'act') return b.sortMs - a.sortMs
   if (a.tier !== b.tier) return a.tier - b.tier
   const oldestFirst = court === 'next' && a.tier === 0
   return oldestFirst ? a.sortMs - b.sortMs : b.sortMs - a.sortMs
@@ -259,9 +299,10 @@ export function buildWorkItems(input: {
   issues: IssueRow[]
   pulls: PullRequestRow[]
   todos: WorkTodo[]
+  emails: WorkEmail[]
   now: Date
 }): WorkItem[] {
-  const { issues, pulls, todos, now } = input
+  const { issues, pulls, todos, emails, now } = input
   const items: WorkItem[] = []
 
   // PRs indexed by id (`owner/name#number`) for the issue-side fusion lookup.
@@ -303,6 +344,9 @@ export function buildWorkItems(input: {
   for (const todo of todos) {
     if (!todo.completed) items.push(makeTodoItem(todo, now))
   }
+
+  // Pass 4 — emails that need a reply (already filtered by the router).
+  for (const email of emails) items.push(makeEmailItem(email))
 
   return items.sort((a, b) => {
     const byCourt = COURT_ORDER[a.court] - COURT_ORDER[b.court]

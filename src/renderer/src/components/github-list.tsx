@@ -158,14 +158,20 @@ export function Timestamps({
 }
 
 /** The trailing "open on GitHub" action button. */
-export function OpenButton({ url }: { url: string }): ReactElement {
+export function OpenButton({
+  url,
+  label = 'Open on GitHub'
+}: {
+  url: string
+  label?: string
+}): ReactElement {
   return (
     <div className="flex justify-end">
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="Open on GitHub"
-        title="Open on GitHub"
+        aria-label={label}
+        title={label}
         onClick={() => window.open(url, '_blank')}
       >
         <IconExternalLink />

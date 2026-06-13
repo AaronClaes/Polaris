@@ -40,3 +40,6 @@ export type TagRow = RouterOutputs['tags']['list'][number]
 /** An allowed email sender plus its owning project (null when unlinked), as
  *  returned by `emailContacts.list`. */
 export type EmailContactRow = RouterOutputs['emailContacts']['list'][number]
+/** A client email thread that needs a reply (attributed to a project, null when
+ *  dashboard-only), as returned by `gmail.needsMe`. */
+export type EmailThreadRow = RouterOutputs['gmail']['needsMe']['threads'][number]

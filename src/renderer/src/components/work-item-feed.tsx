@@ -7,6 +7,7 @@ import {
   IconCircleXFilled,
   IconGitPullRequest,
   IconGitPullRequestConflict,
+  IconMail,
   IconX
 } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
@@ -20,7 +21,7 @@ import { Button } from '@/components/ui/button'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { formatRelative } from '@/lib/relative-time'
 import { cn } from '@/lib/utils'
-import type { Court, WorkItem, WorkItemStatus } from '@/lib/work-items'
+import type { Court, WorkEmail, WorkItem, WorkItemStatus } from '@/lib/work-items'
 
 /** A linked project, resolved for a work item from its repo or projectId. */
 type Project = ProjectWithActions
@@ -48,7 +49,8 @@ const STATUS_BADGE: Record<WorkItemStatus, { label: string; variant: BadgeProps[
   'ci-running': { label: 'CI running', variant: 'warning' },
   'in-review-elsewhere': { label: 'In review', variant: 'secondary' },
   'to-do': { label: 'To do', variant: 'outline' },
-  todo: { label: 'Todo', variant: 'outline' }
+  todo: { label: 'Todo', variant: 'outline' },
+  unreplied: { label: 'Reply', variant: 'info' }
 }
 
 /** The status pill for a row. An overdue todo gets its own error "Overdue" pill
@@ -65,6 +67,7 @@ function statusBadge(item: WorkItem): { label: string; variant: BadgeProps['vari
 function itemTitle(item: WorkItem): string {
   if (item.kind === 'pr') return (item.issue ?? item.pr).title
   if (item.kind === 'issue') return item.issue.title
+  if (item.kind === 'email') return item.email.subject
   return item.todo.title
 }
 
@@ -81,6 +84,9 @@ function itemNumber(item: WorkItem): number | null {
 function metaLabel(item: WorkItem): string {
   if (item.kind === 'todo') {
     return item.todo.dueDate ? `due ${formatDueDate(item.todo.dueDate)}` : ''
+  }
+  if (item.kind === 'email') {
+    return `received ${formatRelative(new Date(item.email.lastMessageAt).toISOString())}`
   }
   const iso = item.kind === 'pr' ? item.pr.updatedAt : item.issue.updatedAt
   return `updated ${formatRelative(iso)}`
@@ -106,10 +112,17 @@ function KindIcon({ item }: { item: WorkItem }): ReactElement {
   return <Icon className="size-4 shrink-0 text-muted-foreground" />
 }
 
-/** A todo's leading control: an open circle that turns into a check on hover, so
- * the todo can be ticked off straight from the feed. The feed only lists open
- * todos, so this only ever completes — a checked one drops off the list. */
-function TodoCompleteButton({ onComplete }: { onComplete: () => void }): ReactElement {
+/** A click-to-complete leading control: the resting glyph (a todo's open circle,
+ * an email's envelope) turns into a check on hover, so the row can be ticked off
+ * straight from the feed. The feed only lists open todos / unreplied emails, so
+ * this only ever completes — a checked one drops off the list. */
+function CompleteButton({
+  onComplete,
+  Icon = IconCircle
+}: {
+  onComplete: () => void
+  Icon?: typeof IconCircle
+}): ReactElement {
   return (
     <button
       type="button"
@@ -118,7 +131,7 @@ function TodoCompleteButton({ onComplete }: { onComplete: () => void }): ReactEl
       onClick={onComplete}
       className="group/todo flex shrink-0 text-muted-foreground transition-colors hover:text-success-foreground"
     >
-      <IconCircle className="size-4 group-hover/todo:hidden" />
+      <Icon className="size-4 group-hover/todo:hidden" />
       <IconCircleCheck className="hidden size-4 group-hover/todo:block" />
     </button>
   )
@@ -169,11 +182,13 @@ function ReasonIcons({ item }: { item: WorkItem }): ReactElement | null {
 function WorkItemRow({
   item,
   project,
-  onCompleteTodo
+  onCompleteTodo,
+  onCompleteEmail
 }: {
   item: WorkItem
   project: Project | undefined
   onCompleteTodo: (id: number) => void
+  onCompleteEmail: (email: WorkEmail) => void
 }): ReactElement {
   const number = itemNumber(item)
   const badge = statusBadge(item)
@@ -181,7 +196,9 @@ function WorkItemRow({
   return (
     <div className="flex items-center gap-3 px-3 py-2">
       {item.kind === 'todo' ? (
-        <TodoCompleteButton onComplete={() => onCompleteTodo(item.todo.id)} />
+        <CompleteButton onComplete={() => onCompleteTodo(item.todo.id)} />
+      ) : item.kind === 'email' ? (
+        <CompleteButton Icon={IconMail} onComplete={() => onCompleteEmail(item.email)} />
       ) : (
         <KindIcon item={item} />
       )}
@@ -217,13 +234,23 @@ function WorkItemRow({
       {item.kind === 'pr' && item.pr.reviewers.length > 0 && (
         <UserAvatars users={item.pr.reviewers} />
       )}
+      {item.kind === 'email' && item.email.participants.length > 0 && (
+        <UserAvatars
+          users={item.email.participants.map((person) => ({
+            login: person.name,
+            avatarUrl: null
+          }))}
+        />
+      )}
       {item.status !== 'todo' && (
         <Badge variant={badge.variant} size="sm" className="shrink-0">
           {badge.label}
         </Badge>
       )}
-      {item.kind !== 'todo' ? (
+      {item.kind === 'pr' || item.kind === 'issue' ? (
         <OpenButton url={item.kind === 'pr' ? item.pr.url : item.issue.url} />
+      ) : item.kind === 'email' ? (
+        <OpenButton url={item.email.url} label="Open in Gmail" />
       ) : item.todo.projectId != null ? (
         <Button
           variant="ghost"
@@ -265,11 +292,13 @@ function WorkItemRow({
 export function WorkItemFeed({
   groups,
   itemProject,
-  onCompleteTodo
+  onCompleteTodo,
+  onCompleteEmail
 }: {
   groups: Record<Court, WorkItem[]>
   itemProject: (item: WorkItem) => Project | undefined
   onCompleteTodo: (id: number) => void
+  onCompleteEmail: (email: WorkEmail) => void
 }): ReactElement {
   const total = COURTS.reduce((sum, { court }) => sum + groups[court].length, 0)
 
@@ -304,6 +333,7 @@ export function WorkItemFeed({
                   item={item}
                   project={itemProject(item)}
                   onCompleteTodo={onCompleteTodo}
+                  onCompleteEmail={onCompleteEmail}
                 />
               ))}
             </div>

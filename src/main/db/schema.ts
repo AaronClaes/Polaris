@@ -246,6 +246,34 @@ export const emailContacts = sqliteTable('email_contacts', {
 })
 
 /**
+ * Local "I've handled this" state for a Gmail thread — the manual counterpart to
+ * actually replying. Emails surface as "needs you" while their latest message is
+ * from someone else; marking one done dismisses it WITHOUT touching Gmail (we're
+ * read-only). `dismissedMessageAt` is the watermark: the epoch-ms timestamp of the
+ * thread's latest message at the moment it was dismissed. The thread reappears
+ * once a newer message arrives (its latest timestamp exceeds the watermark). Keyed
+ * by (account, threadId) — Gmail thread ids are per-mailbox. No FK: the thread
+ * lives in Gmail, not our DB.
+ */
+export const emailThreadState = sqliteTable(
+  'email_thread_state',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // The linked Google account (mailbox) this thread belongs to.
+    account: text('account').notNull(),
+    // Gmail's thread id.
+    threadId: text('thread_id').notNull(),
+    // Epoch ms of the latest message when dismissed — the reopen watermark. Stored
+    // as a raw integer (a Gmail internalDate), not a timestamp-mode column.
+    dismissedMessageAt: integer('dismissed_message_at').notNull(),
+    dismissedAt: integer('dismissed_at', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`)
+  },
+  (table) => [unique('email_thread_state_account_thread_unique').on(table.account, table.threadId)]
+)
+
+/**
  * A GitHub repository linked to a project. A project can link several (e.g. a
  * frontend and a backend repo). We keep a small display snapshot — the GitHub
  * numeric `repoId` for stable identity, plus name/description/visibility/url —

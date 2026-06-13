@@ -2,6 +2,7 @@ import { type ReactElement, useMemo } from 'react'
 import { FailuresBanner, QueryBoundary } from '@/components/github-list'
 import { WorkItemFeed } from '@/components/work-item-feed'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
+import { useCompleteEmail, useNeedsMeEmails } from '@/lib/gmail-queries'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { buildWorkItems, groupByCourt } from '@/lib/work-items'
@@ -44,25 +45,39 @@ export function ProjectHome({ project }: { project: ProjectWithActions }): React
     onSuccess: () => utils.todos.invalidate()
   })
 
+  // The global email feed, filtered to threads attributed to this project — the
+  // same shared cache the dashboard reads, so no extra fetch.
+  const { emails: allEmails, errors: emailErrors } = useNeedsMeEmails()
+  const emails = useMemo(
+    () => allEmails.filter((email) => email.projectId === project.id),
+    [allEmails, project.id]
+  )
+  const completeEmail = useCompleteEmail()
+
   const groups = useMemo(
-    () => groupByCourt(buildWorkItems({ issues, pulls, todos, now: new Date() })),
-    [issues, pulls, todos]
+    () => groupByCourt(buildWorkItems({ issues, pulls, todos, emails, now: new Date() })),
+    [issues, pulls, todos, emails]
   )
 
   // Collapse per-repo failures from both queries, so a repo that fails both
   // (e.g. a bad token) is reported once rather than twice.
   const failures = useMemo(() => {
     const seen = new Set<string>()
-    return [...pullErrors, ...issueErrors].filter((failure) => {
+    const emailFailures = emailErrors.map((error) => ({
+      repo: error.account,
+      message: error.message
+    }))
+    return [...pullErrors, ...issueErrors, ...emailFailures].filter((failure) => {
       if (seen.has(failure.repo)) return false
       seen.add(failure.repo)
       return true
     })
-  }, [pullErrors, issueErrors])
+  }, [pullErrors, issueErrors, emailErrors])
 
   // Only a dead end when there's nothing at all — a repo-less project can still
-  // be all about its todos, so don't short-circuit while any todo exists.
-  if (repos.length === 0 && todos.length === 0) {
+  // be all about its todos or its client emails, so don't short-circuit while any
+  // todo or attributed email exists.
+  if (repos.length === 0 && todos.length === 0 && emails.length === 0) {
     return (
       <p className="rounded-xl border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-sm">
         Link a repository in the Settings tab, or add a todo in the Todos tab, to see what needs
@@ -86,6 +101,13 @@ export function ProjectHome({ project }: { project: ProjectWithActions }): React
           groups={groups}
           itemProject={() => undefined}
           onCompleteTodo={(id) => completeTodo.mutate({ id, completed: true })}
+          onCompleteEmail={(email) =>
+            completeEmail.mutate({
+              account: email.account,
+              threadId: email.id,
+              lastMessageAt: email.lastMessageAt
+            })
+          }
         />
       </QueryBoundary>
     </div>

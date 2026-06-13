@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { WorkItemFeed } from '@/components/work-item-feed'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
+import { useCompleteEmail, useNeedsMeEmails } from '@/lib/gmail-queries'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { useVisibleProjects, useVisibleTodos } from '@/lib/use-visible-projects'
@@ -84,6 +85,8 @@ export function Dashboard(): ReactElement {
   // (issues/PRs already are, via `allRepos`).
   const todosQuery = useVisibleTodos()
   const todos = useMemo(() => todosQuery.data ?? [], [todosQuery.data])
+  // Client emails needing a reply (empty unless a Google account is linked).
+  const { emails, errors: emailErrors } = useNeedsMeEmails()
 
   // Tick a todo off straight from the feed; invalidating refetches the list, so
   // the completed one drops out on the next render.
@@ -91,16 +94,22 @@ export function Dashboard(): ReactElement {
   const completeTodo = trpc.todos.setCompleted.useMutation({
     onSuccess: () => utils.todos.invalidate()
   })
+  // Mark an email done — optimistically removed from the feed (Gmail untouched).
+  const completeEmail = useCompleteEmail()
 
   const groups = useMemo(
-    () => groupByCourt(buildWorkItems({ issues, pulls, todos, now: new Date() })),
-    [issues, pulls, todos]
+    () => groupByCourt(buildWorkItems({ issues, pulls, todos, emails, now: new Date() })),
+    [issues, pulls, todos, emails]
   )
 
   function itemProject(item: WorkItem): ProjectWithActions | undefined {
     if (item.kind === 'todo') {
       // An unlinked todo has no project chip.
       return item.todo.projectId != null ? projectById.get(item.todo.projectId) : undefined
+    }
+    if (item.kind === 'email') {
+      // A dashboard-only email (no originating project) has no chip.
+      return item.email.projectId != null ? projectById.get(item.email.projectId) : undefined
     }
     const repo = item.kind === 'pr' ? item.pr.repo : item.issue.repo
     return projectByRepo.get(`${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`)
@@ -110,12 +119,17 @@ export function Dashboard(): ReactElement {
   // failures (deduped) into the banner.
   const failures = useMemo(() => {
     const seen = new Set<string>()
-    return [...issueErrors, ...pullErrors].filter((failure) => {
+    // Email failures are per-account; surface them in the same banner.
+    const emailFailures = emailErrors.map((error) => ({
+      repo: error.account,
+      message: error.message
+    }))
+    return [...issueErrors, ...pullErrors, ...emailFailures].filter((failure) => {
       if (seen.has(failure.repo)) return false
       seen.add(failure.repo)
       return true
     })
-  }, [issueErrors, pullErrors])
+  }, [issueErrors, pullErrors, emailErrors])
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-8 py-10">
@@ -157,6 +171,13 @@ export function Dashboard(): ReactElement {
             groups={groups}
             itemProject={itemProject}
             onCompleteTodo={(id) => completeTodo.mutate({ id, completed: true })}
+            onCompleteEmail={(email) =>
+              completeEmail.mutate({
+                account: email.account,
+                threadId: email.id,
+                lastMessageAt: email.lastMessageAt
+              })
+            }
           />
         </QueryBoundary>
       </section>

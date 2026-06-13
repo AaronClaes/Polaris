@@ -22,13 +22,17 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo'
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3'
 
-// openid/email/profile identify the account; calendar.readonly is the only data
-// scope (a "sensitive", not "restricted", scope — the gentler verification bar).
+// openid/email/profile identify the account; calendar.readonly + gmail.readonly
+// are the data scopes. gmail.readonly is a "restricted" scope (stricter than
+// calendar's "sensitive" bar) — fine for a personal app whose only user is a test
+// user. Adding it means each already-linked account must reconnect once to grant
+// it; `prompt: 'consent'` below makes a re-link re-prompt.
 const SCOPES = [
   'openid',
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
-  'https://www.googleapis.com/auth/calendar.readonly'
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/gmail.readonly'
 ]
 
 const TOKENS_PREFIX = 'google:tokens:'
@@ -246,8 +250,9 @@ export async function connectGoogleAccount(): Promise<GoogleProfile> {
  * A valid access token for an account, refreshing via the stored refresh token
  * when the cached one has (nearly) expired. Throws when the account isn't linked
  * or the refresh token was revoked — the caller surfaces that per-account.
+ * Exported so the Gmail service can authenticate against the same grant.
  */
-async function getAccessToken(email: string): Promise<string> {
+export async function getAccessToken(email: string): Promise<string> {
   const tokens = readTokens(email)
   if (!tokens) throw new Error(`No stored Google credentials for ${email}.`)
   if (tokens.expiresAt - EXPIRY_BUFFER_MS > Date.now()) return tokens.accessToken
