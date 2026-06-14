@@ -385,17 +385,17 @@ export const todos = sqliteTable('todos', {
 /**
  * A persistent record of an externally-observed work item — a GitHub issue/PR or
  * a Gmail thread — tracked across fetches so the app has a memory the live feed
- * lacks. The dashboard still renders from live queries; this table is written
- * through on every *successful* fetch (see db/tracked-items.ts) and exists to
- * power features that need history: resilience (an item survives a failed fetch),
- * staleness / dwell-time, "it came back" reopen detection, the daily brief,
- * snooze, and completion stats.
+ * lacks. The dashboard renders from this table; source fetches write through to
+ * it on every *successful* fetch, and the live fetches act as a background
+ * refresh. It also powers features that need history: resilience (an item
+ * survives a failed fetch), staleness / dwell-time, "it came back" reopen
+ * detection, the daily brief, snooze, and completion stats.
  *
  * Three orthogonal axes, deliberately not collapsed into one status:
  *  - `upstreamState`  what the source says: open, closed, or gone-from-scope.
- *  - `disposition`    what you did: snoozed / done / dismissed. Phase 1 leaves
- *                     this 'none' — the live feed's email dismissal still lives in
- *                     {@link emailThreadState}; a later phase absorbs it here.
+ *  - `disposition`    what you did: snoozed / done / dismissed. Email "mark done"
+ *                     sets 'done' — it absorbed the old {@link emailThreadState}
+ *                     watermark; 'snoozed' / 'dismissed' are reserved for later.
  *  - presence         not a column — derived from `lastSeenAt` vs the current fetch.
  *
  * Reconciliation is per source because absence means different things: a GitHub

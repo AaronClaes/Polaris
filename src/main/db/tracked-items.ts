@@ -10,10 +10,11 @@ import {
 
 /**
  * Write-through reconciler for {@link trackedItems}. Called as a side-effect of a
- * *successful* source fetch (see the github/gmail routers) so the persistent
- * store mirrors what the live feed just saw — without the feed reading from it
- * yet (Phase 1). Every entrypoint is best-effort: a reconcile failure is logged
- * and swallowed so it can never blank the feed it shadows.
+ * *successful* source fetch (see the github/gmail routers) so the store mirrors
+ * what each fetch saw. The feed renders from the store (see the trackedItems
+ * router); these fetches are its background refresh. Every entrypoint is
+ * best-effort: a reconcile failure is logged and swallowed so it can never break
+ * the feed it backs.
  *
  * The interesting part is per-source closure policy. GitHub is fetched OPEN-only,
  * so an item that vanishes from a scope's fetch has closed → we tombstone it.
@@ -244,8 +245,9 @@ export interface GmailThreadPayload {
 /**
  * Reconcile the full (unfiltered) set of fetched threads. No tombstone pass:
  * a thread absent from a later fetch has only aged past the search window, so it
- * stays in the store until you actually reply (recorded here) or, later, mark it
- * done. A reply on a previously-replied thread reopens it via applyObservations.
+ * stays in the store until you actually reply (recorded here) or mark it done
+ * (see markThreadDone). A reply on a previously-replied thread reopens it via
+ * applyObservations.
  */
 export function reconcileGmail(db: DB, threads: GmailThreadInput[]): void {
   try {

@@ -210,7 +210,8 @@ export const githubRouter = router({
       issues.push({ ...issue, repo: { owner: input.owner, name: input.name }, bucket })
     }
 
-    // Write-through to the lifecycle store (best-effort; feed reads stay live).
+    // Write-through to the lifecycle store, which the feed renders from; this
+    // live fetch is its background refresh (best-effort).
     reconcileGithub(ctx.db, { owner: input.owner, name: input.name, kind: 'issue', rows: issues })
 
     return { issues }
@@ -241,7 +242,8 @@ export const githubRouter = router({
       pulls.push({ ...pull, repo: { owner: input.owner, name: input.name }, bucket })
     }
 
-    // Write-through to the lifecycle store (best-effort; feed reads stay live).
+    // Write-through to the lifecycle store, which the feed renders from; this
+    // live fetch is its background refresh (best-effort).
     reconcileGithub(ctx.db, { owner: input.owner, name: input.name, kind: 'pr', rows: pulls })
 
     return { pulls }

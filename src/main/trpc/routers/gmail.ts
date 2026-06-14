@@ -57,12 +57,14 @@ function attributeProject(
 }
 
 export const gmailRouter = router({
-  // The client emails that need a reply: every allowlisted thread whose latest
-  // message isn't yours and that you haven't dismissed (with no newer activity
-  // since). Each is attributed to a project (null = dashboard-only). Fetched live
-  // per linked account; one account failing is collected, not thrown (mirrors
-  // google.agenda / github.listRepos). Returns nothing — no fetch — when no
-  // Google account is linked or the allowlist is empty.
+  // Background refresh for the email feed: fetch every allowlisted thread per
+  // linked account and reconcile it into the lifecycle store. The feed renders
+  // from `trackedItems.gmail`, so the `threads` returned here are vestigial (kept
+  // only to keep the response shape stable + drive the EmailThreadRow type); the
+  // `errors` are what the feed surfaces. Each thread is attributed to a project
+  // (null = dashboard-only). One account failing is collected, not thrown (mirrors
+  // google.agenda / github.listRepos). No fetch when no account is linked or the
+  // allowlist is empty.
   needsMe: publicProcedure.query(async ({ ctx }) => {
     const accounts = ctx.db.select().from(googleAccounts).all()
     if (accounts.length === 0) return { threads: [], errors: [] }
@@ -101,9 +103,9 @@ export const gmailRouter = router({
       }
     }
 
-    // Write-through to the lifecycle store from the full (unfiltered) fetch, so a
-    // replied thread is recorded as resolved and an unreplied one persists past
-    // the 60-day window. Best-effort; the live feed below is unaffected.
+    // Reconcile the full (unfiltered) fetch into the store — the feed's render
+    // source — so a replied thread is recorded as resolved and an unreplied one
+    // persists past the 60-day window. Best-effort.
     reconcileGmail(
       ctx.db,
       fetched.map((thread) => ({
