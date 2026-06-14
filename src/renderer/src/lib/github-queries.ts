@@ -1,32 +1,32 @@
 import type { UseQueryResult } from '@tanstack/react-query'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { IssueRow, PullRequestRow } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 
-/** A repo to fetch — the per-repo query's input and cache key. */
+/** A repo to fetch — the per-repo refresh query's input and cache key. */
 type Repo = { owner: string; name: string }
 
-/** A single repo whose load failed, surfaced without failing the whole view. */
+/** A single repo whose refresh failed, surfaced without failing the whole view. */
 type RepoFailure = { repo: string; message: string }
 
 // Per-repo GitHub data is considered fresh for a minute; opening a view after
-// that triggers a background refetch while the (persisted) data shows instantly.
+// that triggers a background refresh while the store data shows instantly.
 const STALE_TIME = 60_000
 
 /** The flattened, view-facing shape shared by the issues and PRs aggregators —
- * the same surface the old single batched query exposed, so the tabs are
- * source-agnostic. `rows` is the concatenation across every repo's query. */
+ * the same surface consumers already expect. `rows` come from the store (the
+ * render source); status/errors come from the live per-repo refresh. */
 type Aggregated<TRow> = {
   rows: TRow[]
   errors: RepoFailure[]
-  // First load with nothing yet to show (every repo still pending).
+  // First load with nothing yet to show (store empty and a first fetch pending).
   isLoading: boolean
-  // Hard failure: every repo errored. A partial failure stays in `errors`.
+  // Hard failure: nothing in the store to fall back on and every repo errored.
   isError: boolean
   errorMessage?: string
-  // Any repo is fetching — drives the refresh button's spinner.
+  // Any refresh is in flight — drives the refresh button's spinner.
   isFetching: boolean
-  // Refetch just these repos (a project-level refresh).
+  // Re-trigger the per-repo refresh (which reconciles, then re-reads the store).
   refetch: () => void
 }
 
@@ -34,32 +34,43 @@ function failureMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Failed to load.'
 }
 
+// Module-level so the rows useMemo dependency stays stable across renders.
+const selectIssues = (data: { issues: IssueRow[] }): IssueRow[] => data.issues
+const selectPulls = (data: { pulls: PullRequestRow[] }): PullRequestRow[] => data.pulls
+
 /**
- * Collapse a set of per-repo query results into one view-facing object. `rows`
- * and `errors` are memoized on a signature of every repo's load state, so they
- * keep a stable reference between unrelated re-renders (e.g. typing in the
- * search box) — which is what lets the views' downstream useMemo/memo work hold.
+ * Merge the store-read render query with the per-repo background refresh into one
+ * view-facing object. The store is the render source — instant and offline-ok —
+ * while the live per-repo fetches reconcile it and, once they settle, invalidate
+ * the store read so it picks up the reconciled rows. Errors and the spinner come
+ * from the live refresh; the store keeps rows visible even when a refresh fails.
  */
-function useAggregated<TData, TRow>(
+function useRepoStoreQuery<TStore, TRow>(
   repos: Repo[],
-  results: UseQueryResult<TData>[],
-  selectRows: (data: TData) => TRow[]
+  refresh: UseQueryResult<unknown, unknown>[],
+  stored: UseQueryResult<TStore, unknown>,
+  selectRows: (data: TStore) => TRow[],
+  invalidate: () => void
 ): Aggregated<TRow> {
-  // Changes only when some repo's data or error actually changes.
-  const signature = results
+  // Changes only when some repo's refresh actually settles (data or error).
+  const signature = refresh
     .map((result) => `${result.status}:${result.dataUpdatedAt}:${result.errorUpdatedAt}`)
     .join('|')
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: rows recompute only when the per-repo data signature changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read the store only when a refresh settles
+  useEffect(() => {
+    invalidate()
+  }, [signature])
+
   const rows = useMemo(
-    () => results.flatMap((result) => (result.data ? selectRows(result.data) : [])),
-    [signature]
+    () => (stored.data ? selectRows(stored.data) : []),
+    [stored.data, selectRows]
   )
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: errors recompute only when the per-repo data signature changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: errors recompute only when the refresh signature changes
   const errors = useMemo(
     () =>
-      results.flatMap((result, index) =>
+      refresh.flatMap((result, index) =>
         result.isError
           ? [
               {
@@ -72,45 +83,58 @@ function useAggregated<TData, TRow>(
     [signature, repos]
   )
 
+  const storeEmpty = rows.length === 0
+  const refreshing = refresh.length > 0
   return {
     rows,
     errors,
-    isLoading: results.length > 0 && results.every((result) => result.isPending),
-    isError: results.length > 0 && results.every((result) => result.isError),
+    // Skeleton only when there's genuinely nothing yet: the store read hasn't
+    // returned, or it's empty and a first fetch is still in flight.
+    isLoading: stored.isLoading || (storeEmpty && refreshing && refresh.every((r) => r.isPending)),
+    // Hard error only when we have nothing in the store to keep showing.
+    isError: storeEmpty && refreshing && refresh.every((r) => r.isError),
     errorMessage: errors[0]?.message,
-    isFetching: results.some((result) => result.isFetching),
+    isFetching: stored.isFetching || refresh.some((r) => r.isFetching),
     refetch: () => {
-      for (const result of results) void result.refetch()
+      for (const result of refresh) void result.refetch()
     }
   }
 }
 
-/** Open issues across `repos`, one cache entry per repo. */
+/** Open issues across `repos`: rendered from the store, refreshed per repo. */
 export function useRepoIssues(repos: Repo[]): Omit<Aggregated<IssueRow>, 'rows'> & {
   issues: IssueRow[]
 } {
-  const results = trpc.useQueries((t) =>
+  const utils = trpc.useUtils()
+  const refresh = trpc.useQueries((t) =>
     repos.map((repo) => t.github.issuesForRepo(repo, { staleTime: STALE_TIME }))
   )
-  const { rows, ...rest } = useAggregated(repos, results, (data) => data.issues)
+  const stored = trpc.trackedItems.githubIssues.useQuery({ repos })
+  const { rows, ...rest } = useRepoStoreQuery(repos, refresh, stored, selectIssues, () => {
+    void utils.trackedItems.githubIssues.invalidate({ repos })
+  })
   return { issues: rows, ...rest }
 }
 
-/** Open pull requests across `repos`, one cache entry per repo. */
+/** Open pull requests across `repos`: rendered from the store, refreshed per repo. */
 export function useRepoPulls(repos: Repo[]): Omit<Aggregated<PullRequestRow>, 'rows'> & {
   pulls: PullRequestRow[]
 } {
-  const results = trpc.useQueries((t) =>
+  const utils = trpc.useUtils()
+  const refresh = trpc.useQueries((t) =>
     repos.map((repo) => t.github.pullsForRepo(repo, { staleTime: STALE_TIME }))
   )
-  const { rows, ...rest } = useAggregated(repos, results, (data) => data.pulls)
+  const stored = trpc.trackedItems.githubPulls.useQuery({ repos })
+  const { rows, ...rest } = useRepoStoreQuery(repos, refresh, stored, selectPulls, () => {
+    void utils.trackedItems.githubPulls.invalidate({ repos })
+  })
   return { pulls: rows, ...rest }
 }
 
 /** A project-level refresh: refetch both the issue and PR queries for `repos`,
- * with one combined in-flight flag for a refresh button's spinner. Reads the
- * same per-repo cache entries the views and counts use, so wiring it up adds no
- * extra fetch — it only re-triggers the ones already there. */
+ * with one combined in-flight flag for a refresh button's spinner. Reuses the
+ * same per-repo refresh queries the views use, so it adds no extra fetch — it
+ * only re-triggers the ones already there. */
 export function useRepoRefresh(repos: Repo[]): { refresh: () => void; isFetching: boolean } {
   const { isFetching: issuesFetching, refetch: refetchIssues } = useRepoIssues(repos)
   const { isFetching: pullsFetching, refetch: refetchPulls } = useRepoPulls(repos)
@@ -124,9 +148,9 @@ export function useRepoRefresh(repos: Repo[]): { refresh: () => void; isFetching
 }
 
 /** Open issue and PR counts for `repos`, for the dashboard cards and tab badges.
- * Reads the same per-repo cache entries as the full views (no extra fetch). The
+ * Reads the same store + refresh as the full views (no extra fetch). The
  * `*Loaded` flags gate display so a count appears only once there's data —
- * avoiding a flash of "0" on a cold first launch before the snapshot exists. */
+ * avoiding a flash of "0" on a cold first launch before the store has anything. */
 export function useRepoCounts(repos: Repo[]): {
   issues: number
   pulls: number

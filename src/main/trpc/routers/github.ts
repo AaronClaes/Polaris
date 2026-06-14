@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { type GithubAccount, githubAccounts, projectRepos } from '../../db/schema'
+import { reconcileGithub } from '../../db/tracked-items'
 import {
   deleteToken,
   fetchViewer,
@@ -22,13 +23,13 @@ const token = z.string().trim().min(1, 'A token is required')
 const repoInput = z.object({ owner: z.string().min(1), name: z.string().min(1) })
 
 type IssueBucket = 'mine' | 'unassigned' | 'others'
-type IssueRow = GitHubIssue & {
+export type IssueRow = GitHubIssue & {
   repo: { owner: string; name: string }
   bucket: IssueBucket
 }
 
 type PullBucket = 'assigned' | 'review' | 'other'
-type PullRow = GitHubPullRequest & {
+export type PullRow = GitHubPullRequest & {
   repo: { owner: string; name: string }
   bucket: PullBucket
 }
@@ -209,6 +210,9 @@ export const githubRouter = router({
       issues.push({ ...issue, repo: { owner: input.owner, name: input.name }, bucket })
     }
 
+    // Write-through to the lifecycle store (best-effort; feed reads stay live).
+    reconcileGithub(ctx.db, { owner: input.owner, name: input.name, kind: 'issue', rows: issues })
+
     return { issues }
   }),
 
@@ -236,6 +240,9 @@ export const githubRouter = router({
       const bucket: PullBucket = mine ? 'assigned' : needsReview ? 'review' : 'other'
       pulls.push({ ...pull, repo: { owner: input.owner, name: input.name }, bucket })
     }
+
+    // Write-through to the lifecycle store (best-effort; feed reads stay live).
+    reconcileGithub(ctx.db, { owner: input.owner, name: input.name, kind: 'pr', rows: pulls })
 
     return { pulls }
   })

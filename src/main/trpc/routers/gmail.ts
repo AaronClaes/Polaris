@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { emailContacts, emailThreadState, googleAccounts } from '../../db/schema'
+import { markThreadDone, reconcileGmail } from '../../db/tracked-items'
 import { buildSearchQuery, type EmailThread, listThreadsForAccount } from '../../services/gmail'
 import { publicProcedure, router } from '..'
 
@@ -100,6 +101,24 @@ export const gmailRouter = router({
       }
     }
 
+    // Write-through to the lifecycle store from the full (unfiltered) fetch, so a
+    // replied thread is recorded as resolved and an unreplied one persists past
+    // the 60-day window. Best-effort; the live feed below is unaffected.
+    reconcileGmail(
+      ctx.db,
+      fetched.map((thread) => ({
+        account: thread.account,
+        threadId: thread.id,
+        subject: thread.subject,
+        participants: thread.participants,
+        lastMessageFrom: thread.lastMessageFrom,
+        lastMessageAt: thread.lastMessageAt,
+        lastMessageFromMe: thread.lastMessageFromMe,
+        url: thread.url,
+        projectId: attributeProject(thread.messages, resolve)
+      }))
+    )
+
     // Dismissal watermarks (account:threadId → last-message-at when dismissed).
     const watermarks = new Map<string, number>()
     for (const row of ctx.db.select().from(emailThreadState).all()) {
@@ -128,9 +147,11 @@ export const gmailRouter = router({
     return { threads, errors }
   }),
 
-  // Mark a thread done — local dismissal, Gmail untouched. Stores the latest
-  // message's timestamp as the watermark; a newer message reopens it. Idempotent
-  // on (account, threadId): re-dismissing just bumps the watermark.
+  // Mark a thread done — local dismissal, Gmail untouched. Records it on the
+  // tracked row as `disposition='done'` so the store-backed feed drops it; a
+  // newer, not-from-you message un-dismisses it on the next reconcile. The
+  // `lastMessageAt` input is kept for call-site compatibility (the watermark now
+  // lives on the row's `lastActivityAt`, kept current by reconcile).
   markDone: publicProcedure
     .input(
       z.object({
@@ -139,19 +160,8 @@ export const gmailRouter = router({
         lastMessageAt: z.number()
       })
     )
-    .mutation(({ ctx, input }) =>
-      ctx.db
-        .insert(emailThreadState)
-        .values({
-          account: input.account,
-          threadId: input.threadId,
-          dismissedMessageAt: input.lastMessageAt
-        })
-        .onConflictDoUpdate({
-          target: [emailThreadState.account, emailThreadState.threadId],
-          set: { dismissedMessageAt: input.lastMessageAt, dismissedAt: new Date() }
-        })
-        .returning()
-        .get()
-    )
+    .mutation(({ ctx, input }) => {
+      markThreadDone(ctx.db, input.account, input.threadId)
+      return { account: input.account, threadId: input.threadId }
+    })
 })

@@ -16,10 +16,10 @@ export const queryClient = new QueryClient({
   }
 })
 
-// IndexedDB-backed cache persistence: on launch the GitHub issue/PR data is
-// restored instantly (shown stale) while a background refetch updates it, so
-// the app never blocks on the network at open. Only the per-repo GitHub queries
-// are written out — see `shouldDehydrateQuery` in main.tsx.
+// IndexedDB-backed cache persistence: resolved favicons and the app icon are
+// restored instantly on launch so the UI never waits to draw them. GitHub
+// issue/PR data is no longer persisted here — it renders from the SQLite
+// tracked-items store. See `shouldDehydrateQuery` in main.tsx for what's written.
 export const persister = createAsyncStoragePersister({
   key: 'polaris-query-cache',
   throttleTime: 1_000,

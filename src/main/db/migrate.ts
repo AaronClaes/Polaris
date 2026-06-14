@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator'
 import { app } from 'electron'
 import { db } from './client'
+import { migrateEmailDismissals } from './tracked-items'
 
 /**
  * Apply pending migrations from the generated `drizzle/` folder, then run any
@@ -17,6 +18,7 @@ export function runMigrations(): void {
 
   migrate(db, { migrationsFolder })
   unifyRootActionOrder()
+  migrateEmailDismissals(db)
 }
 
 /**

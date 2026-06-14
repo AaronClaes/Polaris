@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { blob, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+import { blob, index, integer, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
 
 /**
  * A user-defined tag for grouping projects (e.g. "Work", "Personal"). A project
@@ -381,6 +381,96 @@ export const todos = sqliteTable('todos', {
   createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
   updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
 })
+
+/**
+ * A persistent record of an externally-observed work item — a GitHub issue/PR or
+ * a Gmail thread — tracked across fetches so the app has a memory the live feed
+ * lacks. The dashboard still renders from live queries; this table is written
+ * through on every *successful* fetch (see db/tracked-items.ts) and exists to
+ * power features that need history: resilience (an item survives a failed fetch),
+ * staleness / dwell-time, "it came back" reopen detection, the daily brief,
+ * snooze, and completion stats.
+ *
+ * Three orthogonal axes, deliberately not collapsed into one status:
+ *  - `upstreamState`  what the source says: open, closed, or gone-from-scope.
+ *  - `disposition`    what you did: snoozed / done / dismissed. Phase 1 leaves
+ *                     this 'none' — the live feed's email dismissal still lives in
+ *                     {@link emailThreadState}; a later phase absorbs it here.
+ *  - presence         not a column — derived from `lastSeenAt` vs the current fetch.
+ *
+ * Reconciliation is per source because absence means different things: a GitHub
+ * item missing from an OPEN-only fetch is closed (`upstream_closed`), while a
+ * Gmail thread missing has merely aged out of the search window — never a
+ * completion. Identity is (source, externalId): github `owner/name#number`,
+ * gmail `account:threadId`. `scopeKey` (github `owner/name`, gmail account) is the
+ * unit a successful fetch reconciles — a scope whose fetch failed is never
+ * tombstoned.
+ */
+export const trackedItems = sqliteTable(
+  'tracked_items',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    source: text('source', { enum: ['github', 'gmail'] }).notNull(),
+    kind: text('kind', { enum: ['issue', 'pr', 'thread'] }).notNull(),
+    // Stable cross-fetch identity within a source; UNIQUE together with `source`.
+    externalId: text('external_id').notNull(),
+    // The unit a successful fetch reconciles (github `owner/name`, gmail account).
+    scopeKey: text('scope_key').notNull(),
+    // Best-effort attribution; nullable and may change as a thread/repo moves.
+    projectId: integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
+    // Last-known display snapshot so the item can render when its source is
+    // unavailable. The source-specific shape lives in `payload` (this is where
+    // issues, PRs and threads differ); the generic columns carry what we query.
+    title: text('title').notNull().default(''),
+    url: text('url').notNull().default(''),
+    payload: text('payload', { mode: 'json' }).notNull(),
+    // What the source says about the item's lifecycle.
+    upstreamState: text('upstream_state', { enum: ['open', 'closed', 'gone'] })
+      .notNull()
+      .default('open'),
+    // What you did with it. Phase 1 keeps this 'none'.
+    disposition: text('disposition', { enum: ['none', 'snoozed', 'done', 'dismissed'] })
+      .notNull()
+      .default('none'),
+    // Why it left the feed — keeps the brief honest (an aged-out or unlinked item
+    // is not a completion). Null while still active.
+    closedReason: text('closed_reason', {
+      enum: ['upstream_closed', 'replied', 'manual', 'dismissed', 'aged_out', 'scope_removed']
+    }),
+    // First time we ever observed it — the basis for dwell-time / staleness.
+    firstSeenAt: integer('first_seen_at', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    // Last fetch it was present in — stale-data marker and reconciliation key.
+    lastSeenAt: integer('last_seen_at', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    // Upstream creation time when known (GitHub createdAt); null for Gmail.
+    sourceCreatedAt: integer('source_created_at', { mode: 'timestamp' }),
+    // Latest upstream activity, raw epoch ms (mirrors emailThreadState's
+    // dismissedMessageAt) — drives reopen detection and the email watermark.
+    lastActivityAt: integer('last_activity_at'),
+    // When we recorded it as left/closed/done (recap + stats).
+    closedAt: integer('closed_at', { mode: 'timestamp' }),
+    // Set when a closed item is seen open again; `reopenCount` tallies how often.
+    reopenedAt: integer('reopened_at', { mode: 'timestamp' }),
+    reopenCount: integer('reopen_count').notNull().default(0),
+    // Defer-until for snooze (a later phase).
+    snoozedUntil: integer('snoozed_until', { mode: 'timestamp' }),
+    // When you last acted on it (a later phase) — basis for "ignored for N days".
+    lastUserActionAt: integer('last_user_action_at', { mode: 'timestamp' }),
+    createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+    updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+  },
+  (table) => [
+    unique('tracked_items_source_external_unique').on(table.source, table.externalId),
+    index('tracked_items_scope_idx').on(table.source, table.kind, table.scopeKey),
+    index('tracked_items_state_idx').on(table.upstreamState, table.disposition)
+  ]
+)
+
+export type TrackedItem = typeof trackedItems.$inferSelect
+export type NewTrackedItem = typeof trackedItems.$inferInsert
 
 export type Project = typeof projects.$inferSelect
 export type NewProject = typeof projects.$inferInsert
