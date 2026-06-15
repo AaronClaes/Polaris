@@ -41,5 +41,6 @@ export type TagRow = RouterOutputs['tags']['list'][number]
  *  returned by `emailContacts.list`. */
 export type EmailContactRow = RouterOutputs['emailContacts']['list'][number]
 /** A client email thread that needs a reply (attributed to a project, null when
- *  dashboard-only), as returned by `gmail.needsMe`. */
-export type EmailThreadRow = RouterOutputs['gmail']['needsMe']['threads'][number]
+ *  dashboard-only). Sourced from `trackedItems.gmail` — the feed's render source —
+ *  so it carries the title override + matched-contact fields the store adds. */
+export type EmailThreadRow = RouterOutputs['trackedItems']['gmail']['threads'][number]

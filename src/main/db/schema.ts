@@ -422,6 +422,11 @@ export const trackedItems = sqliteTable(
     // unavailable. The source-specific shape lives in `payload` (this is where
     // issues, PRs and threads differ); the generic columns carry what we query.
     title: text('title').notNull().default(''),
+    // A user-set display title that replaces `title`/`payload` subject in the
+    // feed (email subjects are often unhelpful). Reconcile never writes it, so the
+    // original survives in `title`/`payload` as the tooltip's "was…"; null means
+    // unedited. Generic on purpose, though only emails expose editing today.
+    titleOverride: text('title_override'),
     url: text('url').notNull().default(''),
     payload: text('payload', { mode: 'json' }).notNull(),
     // What the source says about the item's lifecycle.

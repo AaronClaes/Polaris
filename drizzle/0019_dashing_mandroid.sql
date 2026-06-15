@@ -1,0 +1,1 @@
+ALTER TABLE `tracked_items` ADD `title_override` text;

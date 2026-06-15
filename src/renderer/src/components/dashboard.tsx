@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { WorkItemFeed } from '@/components/work-item-feed'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
-import { useCompleteEmail, useNeedsMeEmails } from '@/lib/gmail-queries'
+import { useCompleteEmail, useEditEmailTitle, useNeedsMeEmails } from '@/lib/gmail-queries'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { useVisibleProjects, useVisibleTodos } from '@/lib/use-visible-projects'
@@ -96,6 +96,8 @@ export function Dashboard(): ReactElement {
   })
   // Mark an email done — optimistically removed from the feed (Gmail untouched).
   const completeEmail = useCompleteEmail()
+  // Rename an email's feed title locally (Gmail untouched); blank clears it.
+  const editEmailTitle = useEditEmailTitle()
 
   const groups = useMemo(
     () => groupByCourt(buildWorkItems({ issues, pulls, todos, emails, now: new Date() })),
@@ -177,6 +179,9 @@ export function Dashboard(): ReactElement {
                 threadId: email.id,
                 lastMessageAt: email.lastMessageAt
               })
+            }
+            onEditEmailTitle={(email, title) =>
+              editEmailTitle.mutate({ account: email.account, threadId: email.id, title })
             }
           />
         </QueryBoundary>

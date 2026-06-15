@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { emailContacts, emailThreadState, googleAccounts } from '../../db/schema'
-import { markThreadDone, reconcileGmail } from '../../db/tracked-items'
+import { markThreadDone, reconcileGmail, setTitleOverride } from '../../db/tracked-items'
 import { buildSearchQuery, type EmailThread, listThreadsForAccount } from '../../services/gmail'
 import { publicProcedure, router } from '..'
 
@@ -164,6 +164,22 @@ export const gmailRouter = router({
     )
     .mutation(({ ctx, input }) => {
       markThreadDone(ctx.db, input.account, input.threadId)
+      return { account: input.account, threadId: input.threadId }
+    }),
+
+  // Set (or clear) a local display title for a thread — the email subject is often
+  // unhelpful. Stored as the tracked row's `titleOverride`; a blank title clears
+  // it, reverting the feed to the original subject. Gmail is untouched (read-only).
+  setTitle: publicProcedure
+    .input(
+      z.object({
+        account: z.string().min(1),
+        threadId: z.string().min(1),
+        title: z.string()
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      setTitleOverride(ctx.db, 'gmail', `${input.account}:${input.threadId}`, input.title)
       return { account: input.account, threadId: input.threadId }
     })
 })

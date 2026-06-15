@@ -2,7 +2,7 @@ import { type ReactElement, useMemo } from 'react'
 import { FailuresBanner, QueryBoundary } from '@/components/github-list'
 import { WorkItemFeed } from '@/components/work-item-feed'
 import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
-import { useCompleteEmail, useNeedsMeEmails } from '@/lib/gmail-queries'
+import { useCompleteEmail, useEditEmailTitle, useNeedsMeEmails } from '@/lib/gmail-queries'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
 import { buildWorkItems, groupByCourt } from '@/lib/work-items'
@@ -53,6 +53,7 @@ export function ProjectHome({ project }: { project: ProjectWithActions }): React
     [allEmails, project.id]
   )
   const completeEmail = useCompleteEmail()
+  const editEmailTitle = useEditEmailTitle()
 
   const groups = useMemo(
     () => groupByCourt(buildWorkItems({ issues, pulls, todos, emails, now: new Date() })),
@@ -107,6 +108,9 @@ export function ProjectHome({ project }: { project: ProjectWithActions }): React
               threadId: email.id,
               lastMessageAt: email.lastMessageAt
             })
+          }
+          onEditEmailTitle={(email, title) =>
+            editEmailTitle.mutate({ account: email.account, threadId: email.id, title })
           }
         />
       </QueryBoundary>

@@ -8,16 +8,19 @@ import {
   IconGitPullRequest,
   IconGitPullRequestConflict,
   IconMail,
+  IconPencil,
   IconX
 } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
-import type { ReactElement } from 'react'
+import { Fragment, type ReactElement, useState } from 'react'
 import { CollapsibleSection, OpenButton, UserAvatars } from '@/components/github-list'
 import { ProjectIcon } from '@/components/project-icon'
 import { IssueTypeIcon } from '@/components/project-issues'
 import { formatDueDate } from '@/components/project-todos'
 import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { formatRelative } from '@/lib/relative-time'
 import { cn } from '@/lib/utils'
@@ -90,6 +93,35 @@ function metaLabel(item: WorkItem): string {
   }
   const iso = item.kind === 'pr' ? item.pr.updatedAt : item.issue.updatedAt
   return `updated ${formatRelative(iso)}`
+}
+
+/** The allowlisted contact(s) that put an email on the dashboard, named in the
+ * meta line — the "who is this from" cue, shown apart from the full participant
+ * avatar stack. Each name's tooltip is its email; capped at two names then a "+N"
+ * (whose tooltip lists the rest) so a wide domain-wildcard thread stays compact. */
+function EmailContacts({ contacts }: { contacts: WorkEmail['contacts'] }): ReactElement {
+  const shown = contacts.slice(0, 2)
+  const rest = contacts.slice(2)
+  return (
+    <span className="min-w-0 truncate font-medium">
+      {'· '}
+      {shown.map((contact, index) => (
+        <Fragment key={contact.email}>
+          {index > 0 && ', '}
+          <Tooltip>
+            <TooltipTrigger render={<span>{contact.name}</span>} />
+            <TooltipPopup>{contact.email}</TooltipPopup>
+          </Tooltip>
+        </Fragment>
+      ))}
+      {rest.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger render={<span> +{rest.length}</span>} />
+          <TooltipPopup>{rest.map((contact) => contact.email).join(', ')}</TooltipPopup>
+        </Tooltip>
+      )}
+    </span>
+  )
 }
 
 /** The due cue's colour: red once a todo is overdue, amber when it's due today,
@@ -174,6 +206,81 @@ function ReasonIcons({ item }: { item: WorkItem }): ReactElement | null {
   )
 }
 
+/** An email's title, click-to-edit in place (same flow as a todo row): clicking
+ * the title opens an input, Enter/blur saves, Escape reverts. A blank value clears
+ * the override, reverting to the Gmail subject. When the title is a user override,
+ * a muted pen sits after it, its tooltip showing the original — the only "edited"
+ * affordance, keeping the row clean. */
+function EmailTitle({
+  email,
+  onEdit
+}: {
+  email: WorkEmail
+  onEdit: (title: string) => void
+}): ReactElement {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(email.subject)
+
+  const commit = (): void => {
+    setEditing(false)
+    // Persist only a real change; a blank draft clears the override upstream.
+    if (draft.trim() !== email.subject) onEdit(draft)
+  }
+
+  if (editing) {
+    // Styled (bordered + focus ring), like the todos row, so it's unmistakably an
+    // input — not just selectable text.
+    return (
+      <Input
+        autoFocus
+        size="sm"
+        className="min-w-0 flex-1"
+        value={draft}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit()
+          } else if (event.key === 'Escape') {
+            setDraft(email.subject)
+            setEditing(false)
+          }
+        }}
+      />
+    )
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        title="Edit title"
+        onClick={() => {
+          setDraft(email.subject)
+          setEditing(true)
+        }}
+        className="min-w-0 truncate text-left font-medium text-sm"
+      >
+        {email.subject}
+      </button>
+      {email.titleEdited && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="inline-flex shrink-0 text-muted-foreground">
+                <IconPencil className="size-3.5" />
+              </span>
+            }
+          />
+          <TooltipPopup>Edited · was: {email.originalSubject}</TooltipPopup>
+        </Tooltip>
+      )}
+    </>
+  )
+}
+
 /** One work item as a row: kind glyph, title + project/time, PR health + status,
  * pending reviewers, and a trailing control — open on GitHub for an issue/PR, or
  * jump to the project's Todos tab for a todo. The project chip is shown only when
@@ -183,12 +290,14 @@ function WorkItemRow({
   item,
   project,
   onCompleteTodo,
-  onCompleteEmail
+  onCompleteEmail,
+  onEditEmailTitle
 }: {
   item: WorkItem
   project: Project | undefined
   onCompleteTodo: (id: number) => void
   onCompleteEmail: (email: WorkEmail) => void
+  onEditEmailTitle: (email: WorkEmail, title: string) => void
 }): ReactElement {
   const number = itemNumber(item)
   const badge = statusBadge(item)
@@ -204,7 +313,14 @@ function WorkItemRow({
       )}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="min-w-0 truncate font-medium text-sm">{itemTitle(item)}</span>
+          {item.kind === 'email' ? (
+            <EmailTitle
+              email={item.email}
+              onEdit={(title) => onEditEmailTitle(item.email, title)}
+            />
+          ) : (
+            <span className="min-w-0 truncate font-medium text-sm">{itemTitle(item)}</span>
+          )}
           {number !== null && (
             <span className="shrink-0 text-muted-foreground text-xs">#{number}</span>
           )}
@@ -228,6 +344,9 @@ function WorkItemRow({
               {project && '· '}
               {metaLabel(item)}
             </span>
+          )}
+          {item.kind === 'email' && item.email.contacts.length > 0 && (
+            <EmailContacts contacts={item.email.contacts} />
           )}
         </div>
       </div>
@@ -293,12 +412,14 @@ export function WorkItemFeed({
   groups,
   itemProject,
   onCompleteTodo,
-  onCompleteEmail
+  onCompleteEmail,
+  onEditEmailTitle
 }: {
   groups: Record<Court, WorkItem[]>
   itemProject: (item: WorkItem) => Project | undefined
   onCompleteTodo: (id: number) => void
   onCompleteEmail: (email: WorkEmail) => void
+  onEditEmailTitle: (email: WorkEmail, title: string) => void
 }): ReactElement {
   const total = COURTS.reduce((sum, { court }) => sum + groups[court].length, 0)
 
@@ -334,6 +455,7 @@ export function WorkItemFeed({
                   project={itemProject(item)}
                   onCompleteTodo={onCompleteTodo}
                   onCompleteEmail={onCompleteEmail}
+                  onEditEmailTitle={onEditEmailTitle}
                 />
               ))}
             </div>

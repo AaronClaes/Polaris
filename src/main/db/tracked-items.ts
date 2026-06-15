@@ -331,6 +331,25 @@ export function markThreadDone(db: DB, account: string, threadId: string): void 
     .run()
 }
 
+/**
+ * Set (or clear) a user's display-title override for a tracked item, keyed by
+ * (source, externalId). A blank/whitespace value clears it, reverting the feed to
+ * the original `title`/`payload` subject. Reconcile never touches `titleOverride`,
+ * so the override survives every background refresh. No-op if the row is absent.
+ */
+export function setTitleOverride(
+  db: DB,
+  source: Source,
+  externalId: string,
+  override: string
+): void {
+  const trimmed = override.trim()
+  db.update(trackedItems)
+    .set({ titleOverride: trimmed || null, updatedAt: new Date() })
+    .where(and(eq(trackedItems.source, source), eq(trackedItems.externalId, externalId)))
+    .run()
+}
+
 /** Same Gmail deep link the service builds — replicated to keep this DB layer
  * free of a dependency on the service module. */
 function gmailThreadUrl(account: string, threadId: string): string {

@@ -74,3 +74,40 @@ export function useCompleteEmail() {
     }
   })
 }
+
+/**
+ * Set (or clear) a thread's local display title. A blank title clears the override,
+ * reverting to the original subject. Optimistically rewrites the row in the
+ * store-backed feed so the new title shows at once; on error it's restored. No
+ * refetch — the override is persisted, and the next stale refresh reconciles.
+ */
+export function useEditEmailTitle() {
+  const utils = trpc.useUtils()
+  return trpc.gmail.setTitle.useMutation({
+    onMutate: async (vars) => {
+      await utils.trackedItems.gmail.cancel()
+      const previous = utils.trackedItems.gmail.getData()
+      const title = vars.title.trim()
+      utils.trackedItems.gmail.setData(undefined, (old) =>
+        old
+          ? {
+              ...old,
+              threads: old.threads.map((thread) =>
+                thread.account === vars.account && thread.id === vars.threadId
+                  ? {
+                      ...thread,
+                      subject: title || thread.originalSubject,
+                      titleEdited: title.length > 0
+                    }
+                  : thread
+              )
+            }
+          : old
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) utils.trackedItems.gmail.setData(undefined, context.previous)
+    }
+  })
+}

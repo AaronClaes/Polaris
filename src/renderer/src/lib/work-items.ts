@@ -45,21 +45,29 @@ export interface WorkTodo {
   createdAt: Date
 }
 
-/** The minimal email-thread shape the engine reads. `EmailThreadRow` from the
- * gmail router structurally satisfies it. Already filtered to "needs a reply" by
- * the router (latest message isn't yours, not dismissed), so the engine just
- * places it — no completion check, unlike todos. */
+/** The minimal email-thread shape the engine reads. `EmailThreadRow` (from the
+ * store read, `trackedItems.gmail`) structurally satisfies it. Already filtered to
+ * "needs a reply" by the router (latest message isn't yours, not dismissed), so the
+ * engine just places it — no completion check, unlike todos. */
 export interface WorkEmail {
   /** Gmail thread id. */
   id: string
   /** The linked Google account (mailbox) the thread belongs to. */
   account: string
+  /** The display title — a user override when set, else the Gmail subject. */
   subject: string
+  /** The Gmail subject, kept for the "was…" tooltip and as the reset target. */
+  originalSubject: string
+  /** True when `subject` is a user override rather than the Gmail subject. */
+  titleEdited: boolean
   /** Null when no originating participant maps to a project (dashboard-only). */
   projectId: number | null
   /** Epoch ms of the latest message — what it sorts on, and the dismissal watermark. */
   lastMessageAt: number
+  /** Everyone on the thread but you — the avatar stack. */
   participants: { name: string; email: string }[]
+  /** The allowlisted participant(s) that put the thread on the dashboard. */
+  contacts: { name: string; email: string }[]
   url: string
 }
 
