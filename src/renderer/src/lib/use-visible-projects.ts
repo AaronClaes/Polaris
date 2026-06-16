@@ -54,3 +54,21 @@ export function useVisibleTodos() {
   )
   return { ...query, data }
 }
+
+/**
+ * Every note (`notes.listAll`), filtered to the visible projects — the notes
+ * counterpart of {@link useVisibleTodos}. Use this instead of `notes.listAll`
+ * directly anywhere notes are shown across projects, so a hidden project's notes
+ * never leak. Unlinked notes (null `projectId`) carry no tag, so they always
+ * show — the same rule untagged projects follow. Same shape as the raw query,
+ * with `data` filtered.
+ */
+export function useVisibleNotes() {
+  const query = trpc.notes.listAll.useQuery()
+  const visibleIds = useVisibleProjectIds()
+  const data = useMemo(
+    () => query.data?.filter((note) => note.projectId == null || visibleIds.has(note.projectId)),
+    [query.data, visibleIds]
+  )
+  return { ...query, data }
+}

@@ -110,7 +110,13 @@ export function NoteEditor({
 }): ReactElement {
   const utils = trpc.useUtils()
   const update = trpc.notes.update.useMutation({
-    onSuccess: () => utils.notes.list.invalidate({ projectId: note.projectId })
+    onSuccess: () => {
+      // Refresh the per-project list (when linked) and always the global list, so
+      // a save updates whichever surface is showing this note (project tab or the
+      // global Notes view) without a manual refetch.
+      if (note.projectId != null) utils.notes.list.invalidate({ projectId: note.projectId })
+      utils.notes.listAll.invalidate()
+    }
   })
 
   // The component is keyed by note.id, so these stay fixed for its lifetime.

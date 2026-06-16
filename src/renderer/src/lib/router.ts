@@ -3,6 +3,7 @@ import { RouteError } from '@/components/route-error'
 import { rootRoute } from '@/routes/__root'
 import { indexRoute } from '@/routes/index'
 import { issuesRoute } from '@/routes/issues'
+import { notesRoute } from '@/routes/notes'
 import { projectRoute } from '@/routes/project'
 import { projectsRoute } from '@/routes/projects'
 import { pullsRoute } from '@/routes/pulls'
@@ -16,6 +17,7 @@ const routeTree = rootRoute.addChildren([
     issuesRoute,
     pullsRoute,
     todosRoute,
+    notesRoute,
     projectsRoute,
     projectRoute
   ]),

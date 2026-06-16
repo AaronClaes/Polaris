@@ -1,10 +1,19 @@
 import { desc, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { type NoteDoc, notes } from '../../db/schema'
+import { type NoteDoc, notes, projects } from '../../db/schema'
 import { publicProcedure, router } from '..'
 
 // A fresh note starts as an empty TipTap document (a single empty paragraph).
 const emptyDoc: NoteDoc = { type: 'doc', content: [{ type: 'paragraph' }] }
+
+// The owning project, joined into the global list so each row can show which
+// project it belongs to (null for an unlinked note).
+const projectRef = {
+  id: projects.id,
+  name: projects.name,
+  icon: projects.icon,
+  color: projects.color
+}
 
 // The persisted editor document. Validated structurally (a non-null, non-array
 // object with a `type`) rather than fully — the renderer owns the real schema.
@@ -29,12 +38,36 @@ export const notesRouter = router({
         .all()
     ),
 
+  // Every note, each tagged with its owning project — for the global "All notes"
+  // view. A left join so unlinked notes (null `projectId`) are included too, with
+  // a null `project`. Bodies are included (same as `list`) so the editor can open
+  // a selected note without a second round-trip.
+  listAll: publicProcedure.query(({ ctx }) =>
+    ctx.db
+      .select({
+        id: notes.id,
+        projectId: notes.projectId,
+        title: notes.title,
+        body: notes.body,
+        plaintext: notes.plaintext,
+        pinned: notes.pinned,
+        createdAt: notes.createdAt,
+        updatedAt: notes.updatedAt,
+        project: projectRef
+      })
+      .from(notes)
+      .leftJoin(projects, eq(notes.projectId, projects.id))
+      .orderBy(desc(notes.pinned), desc(notes.updatedAt))
+      .all()
+  ),
+
   create: publicProcedure
-    .input(z.object({ projectId: z.number().int() }))
+    // Null (or omitted) creates an unlinked note — see the schema note.
+    .input(z.object({ projectId: z.number().int().nullable().optional() }))
     .mutation(({ ctx, input }) =>
       ctx.db
         .insert(notes)
-        .values({ projectId: input.projectId, title: '', body: emptyDoc, plaintext: '' })
+        .values({ projectId: input.projectId ?? null, title: '', body: emptyDoc, plaintext: '' })
         .returning()
         .get()
     ),
@@ -59,6 +92,20 @@ export const notesRouter = router({
         .returning()
         .get()
     }),
+
+  // (Re)file a note under a project, or unlink it (null). Like `setPinned`, this
+  // leaves `updatedAt` alone — moving a note isn't a content edit, so it shouldn't
+  // reorder it within the recency sort.
+  setProject: publicProcedure
+    .input(z.object({ id: z.number().int(), projectId: z.number().int().nullable() }))
+    .mutation(({ ctx, input }) =>
+      ctx.db
+        .update(notes)
+        .set({ projectId: input.projectId })
+        .where(eq(notes.id, input.id))
+        .returning()
+        .get()
+    ),
 
   // Pin/unpin. Deliberately leaves `updatedAt` alone — pinning isn't an edit, so
   // it shouldn't reorder the note within its group.

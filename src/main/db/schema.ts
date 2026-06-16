@@ -348,17 +348,22 @@ export const browsers = sqliteTable('browsers', {
 export type NoteDoc = { type: string; content?: unknown[]; [key: string]: unknown }
 
 /**
- * A per-project note. Free-form rich text edited in the renderer; the editor's
- * document is persisted as ProseMirror JSON in `body` (the source of truth),
- * while `title` (first line) and `plaintext` are denormalized on every save so
- * the notes list can render — and a future search can match — without parsing
- * the doc. `updatedAt` drives the recency sort; `pinned` floats a note to the top.
+ * A note. Free-form rich text edited in the renderer; the editor's document is
+ * persisted as ProseMirror JSON in `body` (the source of truth), while `title`
+ * (first line) and `plaintext` are denormalized on every save so the notes list
+ * can render — and a future search can match — without parsing the doc.
+ * `updatedAt` drives the recency sort; `pinned` floats a note to the top.
+ *
+ * Usually scoped to a project, but `projectId` is nullable: a null note is
+ * "unlinked" (created from the global Notes view, or detached when its project
+ * was deleted). Deleting a project sets its notes' `projectId` to null rather
+ * than cascading, so long-form content is never silently lost — the note just
+ * drops back to the unlinked pool. (Todos cascade; notes are too costly to lose.)
  */
 export const notes = sqliteTable('notes', {
   id: integer('id').primaryKey({ autoIncrement: true }),
-  projectId: integer('project_id')
-    .notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+  // Null = an unlinked note; see the table note on the set-null-on-delete policy.
+  projectId: integer('project_id').references(() => projects.id, { onDelete: 'set null' }),
   // Derived from the document's first line on each save; '' for an empty note.
   title: text('title').notNull().default(''),
   // The editor document (ProseMirror JSON) — the source of truth.

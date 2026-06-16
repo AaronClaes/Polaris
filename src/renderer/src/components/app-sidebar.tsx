@@ -3,6 +3,7 @@ import {
   IconGitPullRequest,
   IconLayoutDashboard,
   IconListCheck,
+  IconNotes,
   IconPlus,
   IconSelector,
   IconSettings
@@ -179,6 +180,12 @@ export function AppSidebar(): ReactElement {
                   <span>Todos</span>
                 </SidebarMenuButton>
                 {todosLoaded && <SidebarMenuBadge>{openTodos}</SidebarMenuBadge>}
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={pathname === '/notes'} render={<Link to="/notes" />}>
+                  <IconNotes />
+                  <span>Notes</span>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

@@ -26,7 +26,7 @@ import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 
 /** Compact timestamp for the list: time today, "Mon D" this year, else "Mon D, YYYY". */
-function formatNoteDate(date: Date): string {
+export function formatNoteDate(date: Date): string {
   const now = new Date()
   if (date.toDateString() === now.toDateString()) {
     return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date)
@@ -41,7 +41,7 @@ function formatNoteDate(date: Date): string {
 }
 
 /** The list preview line: the note's text after its title line, trimmed short. */
-function noteSnippet(note: NoteRow): string {
+export function noteSnippet(note: Pick<NoteRow, 'plaintext'>): string {
   const lines = note.plaintext
     .split('\n')
     .map((line) => line.trim())

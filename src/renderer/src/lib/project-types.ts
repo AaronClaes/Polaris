@@ -26,8 +26,11 @@ export type GithubRepoRow = RouterOutputs['github']['listRepos']['repos'][number
 export type IssueRow = RouterOutputs['github']['issuesForRepo']['issues'][number]
 /** An open pull request (with its bucket), as returned by `github.pullsForRepo`. */
 export type PullRequestRow = RouterOutputs['github']['pullsForRepo']['pulls'][number]
-/** A per-project note, as returned by `notes.list`. */
+/** A note, as returned by `notes.list` (a single project's notes). */
 export type NoteRow = RouterOutputs['notes']['list'][number]
+/** A note plus its owning project (null for an unlinked note), as returned by
+ *  `notes.listAll` (global view). */
+export type GlobalNoteRow = RouterOutputs['notes']['listAll'][number]
 /** The stored ProseMirror/TipTap document (the note's `body`). */
 export type NoteDoc = NoteRow['body']
 /** A project todo, as returned by `todos.list`. */
