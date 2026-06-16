@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { emailContacts, googleAccounts } from '../../db/schema'
+import { emailBlocklist, emailContacts, googleAccounts } from '../../db/schema'
 import { type GmailThreadPayload, selectActive } from '../../db/tracked-items'
 import { publicProcedure, router } from '..'
 import type { IssueRow, PullRow } from './github'
@@ -38,7 +38,7 @@ export const trackedItemsRouter = router({
       return { pulls }
     }),
 
-  // Active (unreplied, not-dismissed) client threads across all linked accounts,
+  // Active (unreplied, not-dismissed) inbox threads across all linked accounts,
   // from the store — including ones aged past the Gmail search window (the
   // retention win). `errors` is always empty (a local read can't fail per-account);
   // it mirrors `gmail.needsMe`'s shape so the feed loader treats the two alike.
@@ -49,28 +49,44 @@ export const trackedItemsRouter = router({
       .all()
       .map((a) => a.email)
 
-    // Re-apply the current allowlist at read time: the store keeps Gmail threads
-    // indefinitely (no tombstone), so without this, removing a contact would leave
-    // their retained threads showing. Patterns and participant emails are both
-    // lowercased, so set membership matches.
-    const exact = new Set<string>()
-    const domains = new Set<string>()
+    // Contacts and the blocklist are both applied at read time (the store keeps
+    // threads indefinitely, with no tombstone), so adding/removing either updates
+    // the feed without a refetch. Patterns and emails are both lowercased.
+    const contactExact = new Set<string>()
+    const contactDomains = new Set<string>()
     for (const c of ctx.db.select().from(emailContacts).all()) {
-      if (c.pattern.startsWith('@')) domains.add(c.pattern.slice(1))
-      else exact.add(c.pattern)
+      if (c.pattern.startsWith('@')) contactDomains.add(c.pattern.slice(1))
+      else contactExact.add(c.pattern)
     }
-    // The participants that match the allowlist — i.e. the contact(s) that put the
-    // thread on the dashboard. Empty means the thread no longer matches (a removed
-    // contact); such threads are filtered out below.
+    // The participants that match a contact — who files the thread under a project,
+    // and (below) what rescues it from the blocklist.
     const contactsOf = (p: GmailThreadPayload): GmailThreadPayload['participants'] =>
       p.participants.filter(
-        (pt) => exact.has(pt.email) || domains.has(pt.email.split('@')[1] ?? '')
+        (pt) => contactExact.has(pt.email) || contactDomains.has(pt.email.split('@')[1] ?? '')
       )
+
+    const blockedExact = new Set<string>()
+    const blockedDomains = new Set<string>()
+    for (const b of ctx.db.select().from(emailBlocklist).all()) {
+      if (b.pattern.startsWith('@')) blockedDomains.add(b.pattern.slice(1))
+      else blockedExact.add(b.pattern)
+    }
+    // A thread is blocked when its sender matches the blocklist. Matching the
+    // sender (not any participant) avoids hiding a real conversation just because a
+    // blocked address is cc'd.
+    const senderBlocked = (from: string): boolean => {
+      const email = from.toLowerCase()
+      return blockedExact.has(email) || blockedDomains.has(email.split('@')[1] ?? '')
+    }
 
     const threads = selectActive(ctx.db, 'gmail', 'thread', accounts)
       .map((row) => ({ row, payload: row.payload as GmailThreadPayload }))
       .map(({ row, payload }) => ({ row, payload, contacts: contactsOf(payload) }))
-      .filter(({ contacts }) => contacts.length > 0)
+      // Hide a blocked sender — unless a contact is on the thread, in which case it
+      // still matters (a domain block never buries a linked contact at that domain).
+      .filter(
+        ({ payload, contacts }) => !senderBlocked(payload.lastMessageFrom) || contacts.length > 0
+      )
       .map(({ row, payload, contacts }) => ({
         id: payload.id,
         account: payload.account,
@@ -80,8 +96,8 @@ export const trackedItemsRouter = router({
         originalSubject: payload.subject,
         titleEdited: row.titleOverride != null,
         participants: payload.participants,
-        // The allowlisted participant(s) — surfaced apart from the avatar stack so
-        // it's clear who put the thread on the dashboard.
+        // The contact(s) on the thread — surfaced apart from the avatar stack to
+        // show who files it under a project (empty for an unlinked inbox thread).
         contacts,
         projectId: row.projectId,
         lastMessageAt: payload.lastMessageAt,

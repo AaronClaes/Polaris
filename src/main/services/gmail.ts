@@ -15,6 +15,14 @@ const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 // Only consider mail from the last 60 days — wide enough to still surface a
 // thread you opened weeks ago and forgot, without scanning the whole mailbox.
 const WINDOW = 'newer_than:60d'
+// The feed's universe: every thread in your inbox within the window. `in:inbox`
+// means archiving a thread in Gmail drops it here too (a free "handled" signal).
+// No `category:primary` — Workspace inboxes (and anyone with the category tabs
+// turned off) classify nothing into Primary, so that operator can match zero mail;
+// the blocklist does the noise pruning instead. Who's a real contact (project
+// attribution) and which senders to hide (the blocklist) are applied later, not in
+// this query, so a blocked sender can still be rescued by a contact on the thread.
+const INBOX_QUERY = `in:inbox ${WINDOW}`
 // Page size for threads.list — Gmail's maximum, so the full match set pages in
 // as few calls as possible (one call unless an account has 500+ matches).
 const PAGE_SIZE = 500
@@ -57,19 +65,12 @@ export interface EmailThread {
   url: string
 }
 
-/** Build the Gmail search query from the allowlist: any thread where a contact
- * appears as From, To, or Cc, within the recency window. A full address matches
- * exactly; a wildcard (`@clientA.com`) matches its whole domain. Returns null when
- * there are no patterns, so the caller skips the fetch entirely. */
-export function buildSearchQuery(patterns: string[]): string | null {
-  if (patterns.length === 0) return null
-  const terms = patterns.map((pattern) => {
-    // `@clientA.com` → the bare domain (Gmail matches the domain); a full address
-    // is used as-is. Quote to keep the tokenizer from splitting on punctuation.
-    const value = pattern.startsWith('@') ? pattern.slice(1) : pattern
-    return `(from:${value} OR to:${value} OR cc:${value})`
-  })
-  return `${WINDOW} (${terms.join(' OR ')})`
+/** The Gmail search query for the inbox feed (see {@link INBOX_QUERY}). No longer
+ * derived from the allowlist — Polaris now pulls the whole Primary inbox and prunes
+ * with the blocklist at read time — so this always returns the same query and the
+ * caller always fetches once an account is linked. */
+export function buildInboxQuery(): string {
+  return INBOX_QUERY
 }
 
 interface RawHeader {

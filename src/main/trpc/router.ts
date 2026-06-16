@@ -2,6 +2,7 @@ import { router } from '.'
 import { actionsRouter } from './routers/actions'
 import { browsersRouter } from './routers/browsers'
 import { dialogRouter } from './routers/dialog'
+import { emailBlocklistRouter } from './routers/email-blocklist'
 import { emailContactsRouter } from './routers/email-contacts'
 import { faviconRouter } from './routers/favicon'
 import { githubRouter } from './routers/github'
@@ -30,6 +31,7 @@ export const appRouter = router({
   tags: tagsRouter,
   settings: settingsRouter,
   emailContacts: emailContactsRouter,
+  emailBlocklist: emailBlocklistRouter,
   trackedItems: trackedItemsRouter
 })
 

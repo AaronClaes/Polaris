@@ -246,6 +246,23 @@ export const emailContacts = sqliteTable('email_contacts', {
 })
 
 /**
+ * A blocked email sender — the exclusion list that prunes the inbox feed. Polaris
+ * now surfaces every unreplied thread in your primary inbox (not just allowlisted
+ * senders), so this is how noise (newsletters, no-reply addresses, …) is kept out.
+ * `pattern` is a full address (`noreply@x.com`) or a domain wildcard (`@x.com`),
+ * matched against a thread's sender. A block is overridden when the thread also
+ * involves an {@link emailContacts} entry — a known contact always matters — so a
+ * domain block can coexist with a single linked contact at that domain. Unlike
+ * contacts, a block carries no project (exclusion is global, never project-scoped).
+ */
+export const emailBlocklist = sqliteTable('email_blocklist', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  // Normalized to lowercase and unique: a full address, or an `@domain` wildcard.
+  pattern: text('pattern').notNull().unique(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
+})
+
+/**
  * Local "I've handled this" state for a Gmail thread — the manual counterpart to
  * actually replying. Emails surface as "needs you" while their latest message is
  * from someone else; marking one done dismisses it WITHOUT touching Gmail (we're
@@ -499,3 +516,5 @@ export type Setting = typeof settings.$inferSelect
 export type NewSetting = typeof settings.$inferInsert
 export type Tag = typeof tags.$inferSelect
 export type NewTag = typeof tags.$inferInsert
+export type EmailBlock = typeof emailBlocklist.$inferSelect
+export type NewEmailBlock = typeof emailBlocklist.$inferInsert

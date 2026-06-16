@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { emailContacts, emailThreadState, googleAccounts } from '../../db/schema'
+import { emailContacts, googleAccounts } from '../../db/schema'
 import { markThreadDone, reconcileGmail, setTitleOverride } from '../../db/tracked-items'
-import { buildSearchQuery, type EmailThread, listThreadsForAccount } from '../../services/gmail'
+import { buildInboxQuery, type EmailThread, listThreadsForAccount } from '../../services/gmail'
 import { publicProcedure, router } from '..'
 
 /** A contact match for one address: its project (null if unlinked) and whether it
@@ -57,24 +57,24 @@ function attributeProject(
 }
 
 export const gmailRouter = router({
-  // Background refresh for the email feed: fetch every allowlisted thread per
-  // linked account and reconcile it into the lifecycle store. The feed renders
-  // from `trackedItems.gmail`, so the `threads` returned here are vestigial (kept
-  // only to keep the response shape stable + drive the EmailThreadRow type); the
-  // `errors` are what the feed surfaces. Each thread is attributed to a project
-  // (null = dashboard-only). One account failing is collected, not thrown (mirrors
-  // google.agenda / github.listRepos). No fetch when no account is linked or the
-  // allowlist is empty.
+  // Background refresh for the email feed: fetch every Primary-inbox thread per
+  // linked account and reconcile it into the lifecycle store. Inclusion is no
+  // longer allowlisted — we pull the whole Primary inbox and prune with the
+  // blocklist at read time (see trackedItems.gmail) — so contacts are used here
+  // only to attribute each thread to a project (null = dashboard-only). The feed
+  // renders from `trackedItems.gmail`, so the returned `threads` are vestigial
+  // (kept for response-shape stability); the `errors` are what the feed surfaces.
+  // One account failing is collected, not thrown (mirrors google.agenda /
+  // github.listRepos). No fetch when no account is linked.
   needsMe: publicProcedure.query(async ({ ctx }) => {
     const accounts = ctx.db.select().from(googleAccounts).all()
     if (accounts.length === 0) return { threads: [], errors: [] }
 
     const contacts = ctx.db.select().from(emailContacts).all()
-    const query = buildSearchQuery(contacts.map((c) => c.pattern))
-    if (!query) return { threads: [], errors: [] }
+    const query = buildInboxQuery()
 
-    // Resolvers: exact address beats domain wildcard. Patterns are already stored
-    // lowercased; a wildcard is keyed by its bare domain.
+    // Resolvers for project attribution: exact address beats domain wildcard.
+    // Patterns are already stored lowercased; a wildcard is keyed by its bare domain.
     const exact = new Map<string, number | null>()
     const wildcard = new Map<string, number | null>()
     for (const contact of contacts) {
@@ -103,9 +103,9 @@ export const gmailRouter = router({
       }
     }
 
-    // Reconcile the full (unfiltered) fetch into the store — the feed's render
-    // source — so a replied thread is recorded as resolved and an unreplied one
-    // persists past the 60-day window. Best-effort.
+    // Reconcile the full fetch into the store — the feed's render source — so a
+    // replied thread is recorded as resolved and an unreplied one persists past the
+    // 60-day window. Blocklist pruning happens at read time, not here. Best-effort.
     reconcileGmail(
       ctx.db,
       fetched.map((thread) => ({
@@ -121,32 +121,7 @@ export const gmailRouter = router({
       }))
     )
 
-    // Dismissal watermarks (account:threadId → last-message-at when dismissed).
-    const watermarks = new Map<string, number>()
-    for (const row of ctx.db.select().from(emailThreadState).all()) {
-      watermarks.set(`${row.account}:${row.threadId}`, row.dismissedMessageAt)
-    }
-
-    const threads = fetched
-      .filter((thread) => {
-        // You've replied → resolved automatically.
-        if (thread.lastMessageFromMe) return false
-        // Dismissed, and nothing newer has arrived since → stay hidden.
-        const watermark = watermarks.get(`${thread.account}:${thread.id}`)
-        return watermark === undefined || thread.lastMessageAt > watermark
-      })
-      .map((thread) => ({
-        id: thread.id,
-        account: thread.account,
-        subject: thread.subject,
-        participants: thread.participants,
-        projectId: attributeProject(thread.messages, resolve),
-        lastMessageAt: thread.lastMessageAt,
-        url: thread.url
-      }))
-      .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
-
-    return { threads, errors }
+    return { threads: [], errors }
   }),
 
   // Mark a thread done — local dismissal, Gmail untouched. Records it on the

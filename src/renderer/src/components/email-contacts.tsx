@@ -118,10 +118,11 @@ function ContactRow({
 }
 
 /**
- * The email allowlist: the senders (full addresses or `@domain` wildcards) whose
- * mail Polaris ingests. Each entry can be filed under a project or left unlinked
- * (still surfaces on the dashboard). One global list — the source of truth for
- * what email ever enters the app.
+ * The email contacts: senders (full addresses or `@domain` wildcards) filed under
+ * a project, so their mail is attributed to it. No longer an inclusion gate —
+ * Polaris surfaces all unreplied Primary-inbox mail, and the blocklist prunes it;
+ * a contact just links a sender to a project (and rescues a thread from a block).
+ * An unlinked contact attributes nothing but still reads as "known".
  */
 export function EmailContacts(): ReactElement {
   const utils = trpc.useUtils()

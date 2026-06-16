@@ -10,6 +10,7 @@ import { useRouter } from '@tanstack/react-router'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { AppIconImg } from '@/components/action-icon'
 import { BrowsersIntegration } from '@/components/browsers-integration'
+import { EmailBlocklist } from '@/components/email-blocklist'
 import { EmailContacts } from '@/components/email-contacts'
 import { GitHubIntegration } from '@/components/github-integration'
 import { GoogleIntegration } from '@/components/google-integration'
@@ -183,9 +184,28 @@ function EmailPanel(): ReactElement {
   return (
     <PanelPlaceholder
       title="Email"
-      description="Only mail from the addresses and domains you add here reaches Polaris, so ads and spam stay out. Link a sender to a project, or leave it unlinked to surface it on the dashboard only."
+      description="Polaris surfaces every unreplied thread in your Primary inbox. Use contacts to file a sender's mail under a project, and the blocklist to hide senders you'd rather not see."
     >
-      <EmailContacts />
+      <section className="grid gap-3">
+        <div className="grid gap-0.5">
+          <h3 className="font-medium text-sm">Project contacts</h3>
+          <p className="text-muted-foreground text-sm">
+            Link a sender — an address or a whole domain — to a project, so their mail is filed
+            under it. Unlinked senders still surface on the dashboard.
+          </p>
+        </div>
+        <EmailContacts />
+      </section>
+      <section className="grid gap-3">
+        <div className="grid gap-0.5">
+          <h3 className="font-medium text-sm">Blocked senders</h3>
+          <p className="text-muted-foreground text-sm">
+            Hide a sender's mail from the feed — for newsletters and no-reply noise. A blocked
+            sender still shows when a contact is on the same thread.
+          </p>
+        </div>
+        <EmailBlocklist />
+      </section>
     </PanelPlaceholder>
   )
 }

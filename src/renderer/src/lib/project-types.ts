@@ -40,6 +40,9 @@ export type TagRow = RouterOutputs['tags']['list'][number]
 /** An allowed email sender plus its owning project (null when unlinked), as
  *  returned by `emailContacts.list`. */
 export type EmailContactRow = RouterOutputs['emailContacts']['list'][number]
+/** A blocked email sender (address or `@domain`), as returned by
+ *  `emailBlocklist.list`. */
+export type EmailBlockRow = RouterOutputs['emailBlocklist']['list'][number]
 /** A client email thread that needs a reply (attributed to a project, null when
  *  dashboard-only). Sourced from `trackedItems.gmail` — the feed's render source —
  *  so it carries the title override + matched-contact fields the store adds. */

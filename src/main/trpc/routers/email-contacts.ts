@@ -20,12 +20,13 @@ const DOMAIN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-
 const EMAIL = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
 
 /**
- * Normalize and validate an allowlist pattern: trim + lowercase, then accept
- * either a full address or a domain wildcard (a leading `@`, e.g. `@clientA.com`,
- * matching every sender at that domain). Throws a user-facing message on junk —
- * the caller treats a throw as "don't store this".
+ * Normalize and validate an email pattern: trim + lowercase, then accept either a
+ * full address or a domain wildcard (a leading `@`, e.g. `@clientA.com`, matching
+ * every sender at that domain). Throws a user-facing message on junk — the caller
+ * treats a throw as "don't store this". Shared by the contacts and blocklist
+ * routers, which take the same address/`@domain` shape.
  */
-function normalizePattern(raw: string): string {
+export function normalizePattern(raw: string): string {
   const value = raw.trim().toLowerCase()
   if (!value) throw new Error('Enter an email address or a domain.')
 
