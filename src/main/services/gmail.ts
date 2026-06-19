@@ -26,12 +26,24 @@ const INBOX_QUERY = `in:inbox ${WINDOW}`
 // Page size for threads.list — Gmail's maximum, so the full match set pages in
 // as few calls as possible (one call unless an account has 500+ matches).
 const PAGE_SIZE = 500
-// How many thread-metadata fetches run at once. Bounded so a large result set
-// can't fire hundreds of concurrent requests and trip Gmail's rate limit, which
-// would fail the whole account and hide everything — the opposite of the goal.
-const METADATA_CONCURRENCY = 25
+// How many thread-metadata fetches run at once. Kept small on purpose: each
+// `threads.get` costs 40 Gmail quota units and the binding limit is per-USER —
+// 6,000 units/min (~100/sec), NOT the much larger per-project quota shown in the
+// Cloud console. A wide fan-out (we once used 25 → a 1,000-unit burst) blows past
+// the per-user rate instantly and 429s; 5 keeps each burst near budget, and the
+// backoff in `gmailGet` absorbs whatever pressure is left.
+const METADATA_CONCURRENCY = 5
 // Headers we read off each message (no body, so this stays a metadata fetch).
 const HEADERS = ['From', 'To', 'Cc', 'Subject']
+// Retry budget for a rate-limited / transient request before giving up on it.
+const MAX_RETRIES = 5
+// Base for the truncated exponential backoff (ms); capped at MAX_BACKOFF.
+const BACKOFF_BASE = 500
+const MAX_BACKOFF = 32_000
+// Gmail signals a rate limit as either a 429 or a 403 with one of these reasons;
+// both are transient and should be retried (vs. a 403 for missing scope, which
+// is terminal — reconnect the account).
+const RATE_LIMIT_REASONS = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded'])
 
 /** A person on a thread (you excluded), for the avatar stack and attribution. */
 export interface ThreadParticipant {
@@ -181,20 +193,70 @@ function mapThread(account: string, raw: RawThread, myAddresses: Set<string>): E
   }
 }
 
-async function gmailGet<T>(path: string, accessToken: string): Promise<T> {
-  let res: Response
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** The first error `reason` (or status) out of a Gmail error body, for telling a
+ *  rate-limit 403 apart from a missing-scope 403. '' if the body isn't parseable. */
+async function errorReason(res: Response): Promise<string> {
   try {
-    res = await fetch(`${GMAIL_API}${path}`, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    })
+    const body = (await res.json()) as {
+      error?: { errors?: { reason?: string }[]; status?: string }
+    }
+    return body.error?.errors?.[0]?.reason ?? body.error?.status ?? ''
   } catch {
-    throw new Error('Could not reach Gmail. Check your connection and try again.')
+    return ''
   }
-  if (res.status === 401 || res.status === 403) {
-    throw new Error('Gmail access was rejected. Reconnect the account to grant email access.')
+}
+
+/** How long to wait before retrying: honor `Retry-After` if Gmail sent one, else
+ *  truncated exponential backoff with jitter (Google's recommendation for
+ *  time-based quota errors). */
+function backoffDelay(attempt: number, res: Response): number {
+  const retryAfter = Number(res.headers.get('retry-after'))
+  if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter * 1000
+  const jitter = Math.floor(Math.random() * 1000)
+  return Math.min(2 ** attempt * BACKOFF_BASE + jitter, MAX_BACKOFF)
+}
+
+/**
+ * GET a Gmail endpoint, with retry. The binding quota is per-user (6,000 units/
+ * min), so under a wide fan-out a request can come back 429 (or 403
+ * `userRateLimitExceeded`) even though the project quota is untouched. Rather than
+ * fail the whole account on a transient rate limit, we retry those — and 5xx —
+ * with truncated exponential backoff (honoring `Retry-After`). A non-rate 401/403
+ * is terminal (reconnect needed); other errors throw after the retry budget.
+ */
+async function gmailGet<T>(path: string, accessToken: string): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    let res: Response
+    try {
+      res = await fetch(`${GMAIL_API}${path}`, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      })
+    } catch {
+      throw new Error('Could not reach Gmail. Check your connection and try again.')
+    }
+    if (res.ok) return (await res.json()) as T
+
+    // Rate limits arrive as 429, or as 403 with a rate-limit reason; both retry.
+    const rateLimited =
+      res.status === 429 || (res.status === 403 && RATE_LIMIT_REASONS.has(await errorReason(res)))
+
+    // A 401/403 that isn't a rate limit means the grant is bad — reconnect.
+    if ((res.status === 401 || res.status === 403) && !rateLimited) {
+      throw new Error('Gmail access was rejected. Reconnect the account to grant email access.')
+    }
+
+    // Back off and retry transient failures (rate limits + 5xx) within budget.
+    if ((rateLimited || res.status >= 500) && attempt < MAX_RETRIES) {
+      await sleep(backoffDelay(attempt, res))
+      continue
+    }
+
+    throw new Error(`Gmail returned ${res.status}.`)
   }
-  if (!res.ok) throw new Error(`Gmail returned ${res.status}.`)
-  return (await res.json()) as T
 }
 
 /**
