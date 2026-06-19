@@ -25,14 +25,24 @@ export function TopBar(): ReactElement {
     ? projectsQuery.data?.find((p) => String(p.id) === params.projectId)
     : undefined
 
-  // Refresh re-fetches all GitHub data app-wide; invalidating the whole router
-  // namespace covers every per-repo issues/PRs query (and accounts/repos). The
-  // spinner tracks any in-flight github query.
+  // Refresh re-fetches every live dashboard source app-wide: GitHub (all per-repo
+  // issues/PRs), the email feed (gmail.needsMe), and the agenda (google.agenda).
+  // Invalidating each live namespace refetches it where mounted and reconciles the
+  // store-backed reads via their own settle effects. The spinner tracks any
+  // in-flight query from those sources.
   const utils = trpc.useUtils()
+  const refresh = (): void => {
+    void utils.github.invalidate()
+    void utils.gmail.invalidate()
+    void utils.google.agenda.invalidate()
+  }
   const refreshing = useIsFetching({
     predicate: (query) => {
       const group = query.queryKey[0]
-      return Array.isArray(group) && group[0] === 'github'
+      if (!Array.isArray(group)) return false
+      const [namespace, procedure] = group as [string, string?]
+      if (namespace === 'github' || namespace === 'gmail') return true
+      return namespace === 'google' && procedure === 'agenda'
     }
   })
 
@@ -64,7 +74,7 @@ export function TopBar(): ReactElement {
           loading={refreshing > 0}
           aria-label="Refresh"
           title="Refresh"
-          onClick={() => utils.github.invalidate()}
+          onClick={refresh}
         >
           <IconRefresh />
         </Button>
