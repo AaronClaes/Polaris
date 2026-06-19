@@ -253,7 +253,14 @@ export function AllNotes(): ReactElement {
   )
 
   return (
-    <div className={cn('flex h-full flex-col', !expanded && 'gap-4 px-8 pt-10 pb-8')}>
+    <div
+      className={cn(
+        'flex h-full flex-col',
+        // Match the other global pages' chrome (GlobalListPage): centered, width-
+        // capped, same padding — so the left/right margins line up across tabs.
+        !expanded && 'mx-auto w-full max-w-6xl gap-6 px-8 py-10'
+      )}
+    >
       {!expanded && (
         <header className="shrink-0">
           <h1 className="font-heading font-semibold text-2xl tracking-tight">
