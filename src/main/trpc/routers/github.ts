@@ -194,14 +194,10 @@ export const githubRouter = router({
 
     const issues: IssueRow[] = []
     for (const issue of await listIssuesForRepo(input.owner, input.name, repoToken)) {
-      const assigned = issue.assignees.some((a) => viewerLogins.has(a.login.toLowerCase()))
-      // An issue you opened with no one else assigned is implicitly yours — people
-      // often don't assign their own issues. Mirrors the PR bucketing below.
-      // (every() is true when the assignee list is empty or holds only your logins.)
-      const isAuthor = issue.author ? viewerLogins.has(issue.author.login.toLowerCase()) : false
-      const mine =
-        assigned ||
-        (isAuthor && issue.assignees.every((a) => viewerLogins.has(a.login.toLowerCase())))
+      // "Mine" means actually assigned to you — unlike PRs, authoring an
+      // unassigned issue does NOT make it yours (you open issues for others to
+      // act on far more often than PRs). Those fall through to "unassigned".
+      const mine = issue.assignees.some((a) => viewerLogins.has(a.login.toLowerCase()))
       const bucket: IssueBucket = mine
         ? 'mine'
         : issue.assignees.length === 0
