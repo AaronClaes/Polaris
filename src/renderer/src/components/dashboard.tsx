@@ -11,7 +11,11 @@ import { useRepoIssues, useRepoPulls } from '@/lib/github-queries'
 import { useCompleteEmail, useEditEmailTitle, useNeedsMeEmails } from '@/lib/gmail-queries'
 import type { ProjectWithActions } from '@/lib/project-types'
 import { trpc } from '@/lib/trpc'
-import { useVisibleProjects, useVisibleTodos } from '@/lib/use-visible-projects'
+import {
+  useVisibleProjectIds,
+  useVisibleProjects,
+  useVisibleTodos
+} from '@/lib/use-visible-projects'
 import { buildWorkItems, groupByCourt, type WorkItem } from '@/lib/work-items'
 
 // The dashboard greets by name; there's no user profile yet, so this is fixed.
@@ -86,7 +90,19 @@ export function Dashboard(): ReactElement {
   const todosQuery = useVisibleTodos()
   const todos = useMemo(() => todosQuery.data ?? [], [todosQuery.data])
   // Client emails needing a reply (empty unless a Google account is linked).
-  const { emails, errors: emailErrors } = useNeedsMeEmails()
+  // Scope to the visible projects like todos/issues/PRs: a thread attributed to a
+  // tag-hidden project drops out of the feed entirely (not just its badge).
+  // Unlinked threads carry no tag, so they always show — same rule as untagged
+  // projects and unlinked todos.
+  const { emails: allEmails, errors: emailErrors } = useNeedsMeEmails()
+  const visibleProjectIds = useVisibleProjectIds()
+  const emails = useMemo(
+    () =>
+      allEmails.filter(
+        (email) => email.projectId == null || visibleProjectIds.has(email.projectId)
+      ),
+    [allEmails, visibleProjectIds]
+  )
 
   // Tick a todo off straight from the feed; invalidating refetches the list, so
   // the completed one drops out on the next render.
