@@ -40,6 +40,10 @@ export type TodoRow = RouterOutputs['todos']['list'][number]
 export type GlobalTodoRow = RouterOutputs['todos']['listAll'][number]
 /** A project tag, as returned by `tags.list`. */
 export type TagRow = RouterOutputs['tags']['list'][number]
+/** A completed GitHub issue/PR for the Archive timeline (its last-known open
+ *  snapshot + when the store recorded the closure), as returned by
+ *  `trackedItems.archive`. */
+export type ArchivedItemRow = RouterOutputs['trackedItems']['archive']['items'][number]
 /** An allowed email sender plus its owning project (null when unlinked), as
  *  returned by `emailContacts.list`. */
 export type EmailContactRow = RouterOutputs['emailContacts']['list'][number]

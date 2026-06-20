@@ -1,6 +1,7 @@
 import { createHashHistory, createRouter } from '@tanstack/react-router'
 import { RouteError } from '@/components/route-error'
 import { rootRoute } from '@/routes/__root'
+import { archiveRoute } from '@/routes/archive'
 import { indexRoute } from '@/routes/index'
 import { issuesRoute } from '@/routes/issues'
 import { notesRoute } from '@/routes/notes'
@@ -18,6 +19,7 @@ const routeTree = rootRoute.addChildren([
     pullsRoute,
     todosRoute,
     notesRoute,
+    archiveRoute,
     projectsRoute,
     projectRoute
   ]),

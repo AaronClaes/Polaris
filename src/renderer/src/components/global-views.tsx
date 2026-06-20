@@ -116,7 +116,7 @@ function ProjectCell({ project }: { project?: ProjectRef }): ReactElement | null
 
 /** Full-screen page chrome for a global list: title + the list, or an empty
  * hint when there's nothing to show yet. */
-function GlobalListPage({
+export function GlobalListPage({
   title,
   subtitle,
   count,

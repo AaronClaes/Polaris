@@ -1,4 +1,5 @@
 import {
+  IconArchive,
   IconCircleDot,
   IconGitPullRequest,
   IconLayoutDashboard,
@@ -229,6 +230,14 @@ export function AppSidebar(): ReactElement {
 
       <SidebarFooter>
         <SidebarMenu>
+          {/* Not part of the working flow — a look back at what's done. Tucked at
+              the very bottom, away from the day-to-day nav. */}
+          <SidebarMenuItem>
+            <SidebarMenuButton isActive={pathname === '/archive'} render={<Link to="/archive" />}>
+              <IconArchive />
+              <span>Archive</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <Menu>
               <MenuTrigger render={<SidebarMenuButton size="lg" />}>

@@ -56,6 +56,25 @@ export function useVisibleTodos() {
 }
 
 /**
+ * The completed GitHub issues/PRs for the Archive (`trackedItems.archive`),
+ * filtered to the visible projects under the tag filter — the archive counterpart
+ * of {@link useVisibleTodos}. An item attributed to no project (null `projectId`,
+ * e.g. its repo was unlinked) always shows, the same rule untagged projects
+ * follow. `data` is the filtered item array (the raw query's `{ items }` unwrapped),
+ * matching the other `useVisible*` hooks.
+ */
+export function useVisibleArchive() {
+  const query = trpc.trackedItems.archive.useQuery()
+  const visibleIds = useVisibleProjectIds()
+  const data = useMemo(
+    () =>
+      query.data?.items.filter((item) => item.projectId == null || visibleIds.has(item.projectId)),
+    [query.data, visibleIds]
+  )
+  return { ...query, data }
+}
+
+/**
  * Every note (`notes.listAll`), filtered to the visible projects — the notes
  * counterpart of {@link useVisibleTodos}. Use this instead of `notes.listAll`
  * directly anywhere notes are shown across projects, so a hidden project's notes

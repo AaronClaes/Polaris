@@ -112,6 +112,9 @@ export function useRepoIssues(repos: Repo[]): Omit<Aggregated<IssueRow>, 'rows'>
   const stored = trpc.trackedItems.githubIssues.useQuery({ repos })
   const { rows, ...rest } = useRepoStoreQuery(repos, refresh, stored, selectIssues, () => {
     void utils.trackedItems.githubIssues.invalidate({ repos })
+    // A reconcile may have just tombstoned a newly-closed issue — refresh the
+    // Archive timeline, which reads the closed rows.
+    void utils.trackedItems.archive.invalidate()
   })
   return { issues: rows, ...rest }
 }
@@ -127,6 +130,9 @@ export function useRepoPulls(repos: Repo[]): Omit<Aggregated<PullRequestRow>, 'r
   const stored = trpc.trackedItems.githubPulls.useQuery({ repos })
   const { rows, ...rest } = useRepoStoreQuery(repos, refresh, stored, selectPulls, () => {
     void utils.trackedItems.githubPulls.invalidate({ repos })
+    // A reconcile may have just tombstoned a newly-merged/closed PR — refresh the
+    // Archive timeline, which reads the closed rows.
+    void utils.trackedItems.archive.invalidate()
   })
   return { pulls: rows, ...rest }
 }

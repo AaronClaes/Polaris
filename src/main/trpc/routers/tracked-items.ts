@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { emailBlocklist, emailContacts, googleAccounts } from '../../db/schema'
-import { type GmailThreadPayload, selectActive } from '../../db/tracked-items'
+import { type GmailThreadPayload, selectActive, selectArchivedGithub } from '../../db/tracked-items'
 import { publicProcedure, router } from '..'
 import type { IssueRow, PullRow } from './github'
 
@@ -105,5 +105,21 @@ export const trackedItemsRouter = router({
       }))
       .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
     return { threads, errors: [] as { account: string; message: string }[] }
+  }),
+
+  // Completed GitHub issues/PRs for the Archive timeline, newest completion first.
+  // The payload is the last-known OPEN snapshot (issue/PR row) — enough to render
+  // the title, link, repo and assignment bucket; `closedAt` is when the store
+  // recorded the closure (see selectArchivedGithub for the when-noticed caveat).
+  // The renderer fuses an issue with the PR that closed it and merges in completed
+  // todos, so this stays a dumb store read.
+  archive: publicProcedure.query(({ ctx }) => {
+    const items = selectArchivedGithub(ctx.db).map((row) => ({
+      kind: row.kind as 'issue' | 'pr',
+      projectId: row.projectId,
+      closedAt: row.closedAt,
+      payload: row.payload as IssueRow | PullRow
+    }))
+    return { items }
   })
 })

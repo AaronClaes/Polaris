@@ -1,4 +1,4 @@
-import { and, eq, inArray, notInArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, ne, notInArray } from 'drizzle-orm'
 import type { DB } from './client'
 import {
   emailThreadState,
@@ -305,6 +305,34 @@ export function selectActive(
         notInArray(trackedItems.disposition, ['done', 'dismissed'])
       )
     )
+    .all()
+}
+
+/**
+ * Read the completed GitHub items for the Archive timeline: rows the store saw
+ * close upstream (`closedReason='upstream_closed'`) — a genuine "this got done",
+ * as opposed to an aged-out / scope-removed / dismissed row, which the schema
+ * deliberately keeps distinct so the recap stays honest. Gmail is excluded (the
+ * archive covers issues/PRs/todos only). Newest completion first.
+ *
+ * Caveat baked into the data: `closedAt` is when we *noticed* it closed — GitHub
+ * is fetched open-only, so closure is inferred from an item leaving a fetch — not
+ * the exact upstream close/merge time, and merged-vs-closed isn't distinguished.
+ */
+export function selectArchivedGithub(db: DB): TrackedItem[] {
+  return db
+    .select()
+    .from(trackedItems)
+    .where(
+      and(
+        eq(trackedItems.source, 'github'),
+        eq(trackedItems.upstreamState, 'closed'),
+        eq(trackedItems.closedReason, 'upstream_closed'),
+        isNotNull(trackedItems.closedAt),
+        ne(trackedItems.disposition, 'dismissed')
+      )
+    )
+    .orderBy(desc(trackedItems.closedAt))
     .all()
 }
 
