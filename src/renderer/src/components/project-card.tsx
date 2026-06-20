@@ -93,22 +93,22 @@ export function ProjectCard({ project }: { project: ProjectWithActions }): React
                   <Link
                     to="/projects/$projectId"
                     params={{ projectId: String(project.id) }}
-                    search={{ tab: 'issues' }}
-                    className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
-                    title={`${counts.issues} open issues`}
-                  >
-                    <IconCircleDot className="size-3.5" />
-                    {counts.issues}
-                  </Link>
-                  <Link
-                    to="/projects/$projectId"
-                    params={{ projectId: String(project.id) }}
                     search={{ tab: 'pulls' }}
                     className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
                     title={`${counts.pulls} open pull requests`}
                   >
                     <IconGitPullRequest className="size-3.5" />
                     {counts.pulls}
+                  </Link>
+                  <Link
+                    to="/projects/$projectId"
+                    params={{ projectId: String(project.id) }}
+                    search={{ tab: 'issues' }}
+                    className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                    title={`${counts.issues} open issues`}
+                  >
+                    <IconCircleDot className="size-3.5" />
+                    {counts.issues}
                   </Link>
                 </>
               )}

@@ -2,6 +2,8 @@ import {
   IconCircleDot,
   IconGitPullRequest,
   IconLayoutDashboard,
+  IconListCheck,
+  IconNotes,
   IconSettings,
   type TablerIcon
 } from '@tabler/icons-react'
@@ -14,6 +16,7 @@ import {
   useMemo,
   useState
 } from 'react'
+import type { ProjectTab } from '@/components/project-detail'
 import { ProjectIcon } from '@/components/project-icon'
 import { AutocompleteInput } from '@/components/ui/autocomplete'
 import {
@@ -38,6 +41,18 @@ const MAX_RESULTS = 8
 // Stable empty repo list so the github hooks idle (no fetch) while the palette is
 // closed — passing a fresh [] each render would thrash their query keys.
 const NO_REPOS: { owner: string; name: string }[] = []
+
+// The tabs a scoped project exposes, in display order — the "focus mode" jump
+// targets. Each navigates with an explicit `?tab=` so it opens the named tab,
+// rather than project-detail's remembered-tab fallback when none is given.
+const PROJECT_TAB_ITEMS: { tab: ProjectTab; label: string; Icon: TablerIcon }[] = [
+  { tab: 'home', label: 'Home', Icon: IconLayoutDashboard },
+  { tab: 'pulls', label: 'Pull requests', Icon: IconGitPullRequest },
+  { tab: 'issues', label: 'Issues', Icon: IconCircleDot },
+  { tab: 'todos', label: 'Todos', Icon: IconListCheck },
+  { tab: 'notes', label: 'Notes', Icon: IconNotes },
+  { tab: 'settings', label: 'Settings', Icon: IconSettings }
+]
 
 const repoKey = (repo: { owner: string; name: string }): string =>
   `${repo.owner.toLowerCase()}/${repo.name.toLowerCase()}`
@@ -137,19 +152,24 @@ export function CommandPalette(): ReactElement {
   const filteredIssues = rank(issues) as IssueRow[]
   const filteredPulls = rank(pulls) as PullRequestRow[]
 
-  // Nav and projects only make sense unscoped — once you're inside a project the
-  // search is about its issues/PRs.
+  // Global nav and the project list only make sense unscoped. Scoped, the "Go to"
+  // section instead lists the focused project's own tabs (Home/Issues/…/Settings),
+  // filtered by the query like the global nav.
   const navItems: { label: string; Icon: TablerIcon; go: () => void }[] = [
     { label: 'Dashboard', Icon: IconLayoutDashboard, go: () => navigate({ to: '/' }) },
-    { label: 'Issues', Icon: IconCircleDot, go: () => navigate({ to: '/issues' }) },
     { label: 'Pull requests', Icon: IconGitPullRequest, go: () => navigate({ to: '/pulls' }) },
+    { label: 'Issues', Icon: IconCircleDot, go: () => navigate({ to: '/issues' }) },
     { label: 'Settings', Icon: IconSettings, go: () => navigate({ to: '/settings' }) }
   ]
   const filteredNav = scopedProject ? [] : navItems.filter((item) => matches(item.label))
   const filteredProjects = scopedProject ? [] : projects.filter((project) => matches(project.name))
+  const filteredProjectTabs = scopedProject
+    ? PROJECT_TAB_ITEMS.filter((item) => matches(item.label))
+    : []
 
   const hasResults =
     filteredNav.length > 0 ||
+    filteredProjectTabs.length > 0 ||
     filteredProjects.length > 0 ||
     filteredIssues.length > 0 ||
     filteredPulls.length > 0
@@ -220,9 +240,7 @@ export function CommandPalette(): ReactElement {
           <CommandList>
             {!hasResults && (
               <div className="py-6 text-center text-muted-foreground text-sm">
-                {scopedProject
-                  ? `No issues or pull requests in ${scopedProject.name}.`
-                  : 'No results found.'}
+                {scopedProject ? `Nothing in ${scopedProject.name}.` : 'No results found.'}
               </div>
             )}
 
@@ -235,6 +253,31 @@ export function CommandPalette(): ReactElement {
                     value={`nav:${item.label}`}
                     className="gap-2"
                     onClick={() => run(item.go)}
+                  >
+                    <item.Icon className="size-4 text-muted-foreground" />
+                    {item.label}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {scopedProject && filteredProjectTabs.length > 0 && (
+              <CommandGroup>
+                <CommandGroupLabel>Go to</CommandGroupLabel>
+                {filteredProjectTabs.map((item) => (
+                  <CommandItem
+                    key={`tab:${item.tab}`}
+                    value={`tab:${item.tab}`}
+                    className="gap-2"
+                    onClick={() =>
+                      run(() =>
+                        navigate({
+                          to: '/projects/$projectId',
+                          params: { projectId: String(scopedProject.id) },
+                          search: { tab: item.tab }
+                        })
+                      )
+                    }
                   >
                     <item.Icon className="size-4 text-muted-foreground" />
                     {item.label}
@@ -274,26 +317,6 @@ export function CommandPalette(): ReactElement {
               </CommandGroup>
             )}
 
-            {filteredIssues.length > 0 && (
-              <CommandGroup>
-                <CommandGroupLabel>Issues</CommandGroupLabel>
-                {filteredIssues.map((issue) => (
-                  <CommandItem
-                    key={`issue:${issue.url}`}
-                    value={`issue:${issue.url}`}
-                    className="gap-2"
-                    onClick={() => run(() => window.open(issue.url, '_blank'))}
-                  >
-                    <IconCircleDot className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1 truncate">{issue.title}</span>
-                    <span className="shrink-0 text-muted-foreground text-xs">
-                      {repoKey(issue.repo)} #{issue.number}
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-
             {filteredPulls.length > 0 && (
               <CommandGroup>
                 <CommandGroupLabel>Pull requests</CommandGroupLabel>
@@ -308,6 +331,26 @@ export function CommandPalette(): ReactElement {
                     <span className="min-w-0 flex-1 truncate">{pull.title}</span>
                     <span className="shrink-0 text-muted-foreground text-xs">
                       {repoKey(pull.repo)} #{pull.number}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {filteredIssues.length > 0 && (
+              <CommandGroup>
+                <CommandGroupLabel>Issues</CommandGroupLabel>
+                {filteredIssues.map((issue) => (
+                  <CommandItem
+                    key={`issue:${issue.url}`}
+                    value={`issue:${issue.url}`}
+                    className="gap-2"
+                    onClick={() => run(() => window.open(issue.url, '_blank'))}
+                  >
+                    <IconCircleDot className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">{issue.title}</span>
+                    <span className="shrink-0 text-muted-foreground text-xs">
+                      {repoKey(issue.repo)} #{issue.number}
                     </span>
                   </CommandItem>
                 ))}

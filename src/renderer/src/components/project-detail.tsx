@@ -88,7 +88,7 @@ import type {
 
 /** The project detail tabs, in display order. Drives the `?tab=` search param
  *  (see the route) so cards and links can deep-link to a specific tab. */
-export const PROJECT_TABS = ['home', 'issues', 'pulls', 'todos', 'notes', 'settings'] as const
+export const PROJECT_TABS = ['home', 'pulls', 'issues', 'todos', 'notes', 'settings'] as const
 export type ProjectTab = (typeof PROJECT_TABS)[number]
 const DEFAULT_TAB: ProjectTab = 'home'
 
@@ -1074,19 +1074,19 @@ export function ProjectDetail({ project }: { project: ProjectWithActions }): Rea
             <TabsTab value="home" className="grow-0">
               Home
             </TabsTab>
-            <TabsTab value="issues" className="grow-0">
-              Issues
-              {repos.length > 0 && counts.issuesLoaded && (
-                <Badge variant="secondary" size="sm" className="rounded-full">
-                  {counts.issues}
-                </Badge>
-              )}
-            </TabsTab>
             <TabsTab value="pulls" className="grow-0">
               Pull requests
               {repos.length > 0 && counts.pullsLoaded && (
                 <Badge variant="secondary" size="sm" className="rounded-full">
                   {counts.pulls}
+                </Badge>
+              )}
+            </TabsTab>
+            <TabsTab value="issues" className="grow-0">
+              Issues
+              {repos.length > 0 && counts.issuesLoaded && (
+                <Badge variant="secondary" size="sm" className="rounded-full">
+                  {counts.issues}
                 </Badge>
               )}
             </TabsTab>

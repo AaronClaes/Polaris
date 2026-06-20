@@ -161,18 +161,18 @@ export function AppSidebar(): ReactElement {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton isActive={pathname === '/issues'} render={<Link to="/issues" />}>
-                  <IconCircleDot />
-                  <span>Issues</span>
-                </SidebarMenuButton>
-                {counts.issuesLoaded && <SidebarMenuBadge>{counts.issues}</SidebarMenuBadge>}
-              </SidebarMenuItem>
-              <SidebarMenuItem>
                 <SidebarMenuButton isActive={pathname === '/pulls'} render={<Link to="/pulls" />}>
                   <IconGitPullRequest />
                   <span>Pull requests</span>
                 </SidebarMenuButton>
                 {counts.pullsLoaded && <SidebarMenuBadge>{counts.pulls}</SidebarMenuBadge>}
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={pathname === '/issues'} render={<Link to="/issues" />}>
+                  <IconCircleDot />
+                  <span>Issues</span>
+                </SidebarMenuButton>
+                {counts.issuesLoaded && <SidebarMenuBadge>{counts.issues}</SidebarMenuBadge>}
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton isActive={pathname === '/todos'} render={<Link to="/todos" />}>
