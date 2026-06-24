@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { openToolWindow } from '../../tool-windows'
+import { openToolWindow, setToolWindowAlwaysOnTop } from '../../tool-windows'
 import { publicProcedure, router } from '..'
 
 export const toolsRouter = router({
@@ -23,5 +23,12 @@ export const toolsRouter = router({
         height: input.height
       })
       return { ok: true as const }
-    })
+    }),
+
+  // Toggle whether a tool window floats on top of other windows. The window is
+  // looked up by tool id (one window per tool), so the renderer only sends its
+  // own toolId and the desired state, and gets back the actual resulting state.
+  setAlwaysOnTop: publicProcedure
+    .input(z.object({ toolId: z.string(), value: z.boolean() }))
+    .mutation(({ input }) => ({ pinned: setToolWindowAlwaysOnTop(input.toolId, input.value) }))
 })

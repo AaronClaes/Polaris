@@ -82,3 +82,17 @@ export function openToolWindow(options: ToolWindowOptions): void {
     win.loadFile(join(__dirname, '../renderer/index.html'), { hash })
   }
 }
+
+/**
+ * Pin/unpin a tool window so it floats over other apps' windows on the normal
+ * desktop. The `'floating'` level is the gentle one — above ordinary windows
+ * but not over the menu bar or fullscreen apps, which is all we want here.
+ * Returns the resulting state (false if the window is gone). Keyed by tool id
+ * since that's how {@link openWindows} already tracks each window.
+ */
+export function setToolWindowAlwaysOnTop(id: string, value: boolean): boolean {
+  const win = openWindows.get(id)
+  if (!win || win.isDestroyed()) return false
+  win.setAlwaysOnTop(value, 'floating')
+  return win.isAlwaysOnTop()
+}
