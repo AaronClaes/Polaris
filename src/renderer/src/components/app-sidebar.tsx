@@ -7,7 +7,8 @@ import {
   IconNotes,
   IconPlus,
   IconSelector,
-  IconSettings
+  IconSettings,
+  IconTools
 } from '@tabler/icons-react'
 import { Link, useLocation, useParams } from '@tanstack/react-router'
 import { type ReactElement, useMemo } from 'react'
@@ -230,8 +231,17 @@ export function AppSidebar(): ReactElement {
 
       <SidebarFooter>
         <SidebarMenu>
-          {/* Not part of the working flow — a look back at what's done. Tucked at
-              the very bottom, away from the day-to-day nav. */}
+          {/* Not part of the working flow — utilities and a look back at what's
+              done. Tucked at the very bottom, away from the day-to-day nav. */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname === '/tools' || pathname.startsWith('/tools/')}
+              render={<Link to="/tools" />}
+            >
+              <IconTools />
+              <span>Tools</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             <SidebarMenuButton isActive={pathname === '/archive'} render={<Link to="/archive" />}>
               <IconArchive />

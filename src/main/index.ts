@@ -4,6 +4,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { createIPCHandler } from 'electron-trpc-experimental/main'
 import icon from '../../resources/icon.png?asset'
 import { runMigrations } from './db/migrate'
+import { setIpcHandler } from './tool-windows'
 import { createContext } from './trpc'
 import { appRouter } from './trpc/router'
 import { manage as manageWindowState, read as readWindowState } from './window-state'
@@ -41,6 +42,9 @@ function createWindow(): void {
       createContext,
       windows: [mainWindow]
     })
+    // Hand the handler to the tool-window manager so popped-out tools attach to
+    // it and get the same tRPC-over-IPC bridge as the main window.
+    setIpcHandler(ipcHandler)
   } else {
     ipcHandler.attachWindow(mainWindow)
   }

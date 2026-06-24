@@ -11,6 +11,9 @@ import { pullsRoute } from '@/routes/pulls'
 import { settingsRoute } from '@/routes/settings'
 import { shellRoute } from '@/routes/shell'
 import { todosRoute } from '@/routes/todos'
+import { toolRoute } from '@/routes/tool'
+import { toolWindowRoute } from '@/routes/tool-window'
+import { toolsRoute } from '@/routes/tools'
 
 const routeTree = rootRoute.addChildren([
   shellRoute.addChildren([
@@ -19,11 +22,14 @@ const routeTree = rootRoute.addChildren([
     pullsRoute,
     todosRoute,
     notesRoute,
+    toolsRoute,
+    toolRoute,
     archiveRoute,
     projectsRoute,
     projectRoute
   ]),
-  settingsRoute
+  settingsRoute,
+  toolWindowRoute
 ])
 
 // Hash history works under both the Vite dev server and file:// in the
