@@ -1,6 +1,13 @@
-import { IconKey, type TablerIcon } from '@tabler/icons-react'
-import type { ComponentType } from 'react'
+import { IconCube, IconKey, type TablerIcon } from '@tabler/icons-react'
+import { type ComponentType, type LazyExoticComponent, lazy } from 'react'
 import { SecretsGenerator } from '@/components/tools/secrets-generator'
+
+// Heavy tools are code-split so three.js/drei (~1MB) only load when the viewer
+// opens, not at app startup. The layouts wrap every tool body in a Suspense
+// boundary, so a lazy Component just works.
+const ModelViewer = lazy(() =>
+  import('@/components/tools/model-viewer').then((m) => ({ default: m.ModelViewer }))
+)
 
 /**
  * A tool is a built-in mini app, not user data — so the registry is plain code,
@@ -15,9 +22,15 @@ export interface ToolDef {
   name: string
   description: string
   Icon: TablerIcon
-  Component: ComponentType
+  Component: ComponentType | LazyExoticComponent<ComponentType>
   /** Opening size of the standalone window launch (the in-app launch ignores it). */
   window: { width: number; height: number }
+  /**
+   * Fill the available area edge-to-edge (window) / a tall framed canvas (in-app)
+   * instead of flowing as a padded page column. For immersive tools like the 3D
+   * viewer.
+   */
+  fullBleed?: boolean
 }
 
 export const TOOLS: ToolDef[] = [
@@ -28,6 +41,15 @@ export const TOOLS: ToolDef[] = [
     Icon: IconKey,
     Component: SecretsGenerator,
     window: { width: 580, height: 680 }
+  },
+  {
+    id: 'model-viewer',
+    name: '3D model viewer',
+    description: 'Drag in a glTF/GLB or OBJ model to orbit, inspect, and light it.',
+    Icon: IconCube,
+    Component: ModelViewer,
+    window: { width: 1000, height: 760 },
+    fullBleed: true
   }
 ]
 

@@ -1,6 +1,7 @@
 import { IconArrowLeft } from '@tabler/icons-react'
 import { Link } from '@tanstack/react-router'
-import type { ReactElement } from 'react'
+import { type ReactElement, Suspense } from 'react'
+import { ToolLoading } from '@/components/tool-loading'
 import type { ToolDef } from '@/lib/tools'
 
 /**
@@ -8,10 +9,11 @@ import type { ToolDef } from '@/lib/tools'
  * and the tool's identity header, wrapping the tool's own body. Laid out as a
  * standard padded page column so it reads like the rest of the app; the windowed
  * launch ({@link ToolWindowLayout}) wraps the same component in a bare window
- * instead.
+ * instead. A `fullBleed` tool (e.g. the 3D viewer) gets a tall framed canvas
+ * area rather than free-flowing page content.
  */
 export function ToolLayout({ tool }: { tool: ToolDef }): ReactElement {
-  const { Icon, Component } = tool
+  const { Icon, Component, fullBleed } = tool
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-8 py-10">
       <header className="flex flex-col gap-3">
@@ -32,7 +34,17 @@ export function ToolLayout({ tool }: { tool: ToolDef }): ReactElement {
           </div>
         </div>
       </header>
-      <Component />
+      {fullBleed ? (
+        <div className="h-[70vh] min-h-105 overflow-hidden rounded-xl border border-border">
+          <Suspense fallback={<ToolLoading />}>
+            <Component />
+          </Suspense>
+        </div>
+      ) : (
+        <Suspense fallback={<ToolLoading />}>
+          <Component />
+        </Suspense>
+      )}
     </div>
   )
 }
