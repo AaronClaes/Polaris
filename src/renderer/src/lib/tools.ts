@@ -1,6 +1,6 @@
-import { IconSparkles, type TablerIcon } from '@tabler/icons-react'
+import { IconKey, type TablerIcon } from '@tabler/icons-react'
 import type { ComponentType } from 'react'
-import { PlaceholderTool } from '@/components/tools/placeholder-tool'
+import { SecretsGenerator } from '@/components/tools/secrets-generator'
 
 /**
  * A tool is a built-in mini app, not user data — so the registry is plain code,
@@ -22,12 +22,12 @@ export interface ToolDef {
 
 export const TOOLS: ToolDef[] = [
   {
-    id: 'placeholder',
-    name: 'Placeholder tool',
-    description: 'A starter tool wired into the framework. Replace it with the real thing.',
-    Icon: IconSparkles,
-    Component: PlaceholderTool,
-    window: { width: 760, height: 580 }
+    id: 'secrets-generator',
+    name: 'Secrets generator',
+    description: 'Generate random keys at 32 to 512 bits in hex, base64, or alphanumeric.',
+    Icon: IconKey,
+    Component: SecretsGenerator,
+    window: { width: 580, height: 680 }
   }
 ]
 
