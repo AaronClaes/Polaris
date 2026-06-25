@@ -29,6 +29,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@gltf-transform/core':
+        specifier: ^4.4.0
+        version: 4.4.0
       '@react-three/drei':
         specifier: ^10.7.7
         version: 10.7.7(@react-three/fiber@9.6.1(@types/react@19.2.16)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.184.0))(@types/react@19.2.16)(@types/three@0.184.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.184.0)
@@ -1084,6 +1087,9 @@ packages:
 
   '@fontsource-variable/inter@5.2.8':
     resolution: {integrity: sha512-kOfP2D+ykbcX/P3IFnokOhVRNoTozo5/JxhAIVYLpea/UBmCQ/YWPBfWIDuBImXX/15KH+eKh4xpEUyS2sQQGQ==}
+
+  '@gltf-transform/core@4.4.0':
+    resolution: {integrity: sha512-cOPxOhHFFz5hwmix+li1+Nnq5qMV/QD3fTCsVlApxxFACtFdjkt2R/juseD4gvZ7D2c/yl6OilKH0pvI735YyQ==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -3325,6 +3331,9 @@ packages:
   proper-lockfile@4.1.2:
     resolution: {integrity: sha512-TjNPblN4BwAWMXU8s9AEz4JmQxnD1NNL7bNOY/AKUzyamc379FWASUhc/K1pL2noVb+XmZKLL68cjzLsiOAMaA==}
 
+  property-graph@4.1.0:
+    resolution: {integrity: sha512-AvPcP7XECNWy4LGmFQ77k7un4lSKM4eS29PTvW4ck95uYeLxXPWJM7hLuBqK91FaHqCcgJvIUCuNJjjxKE7VKQ==}
+
   prosemirror-changeset@2.4.1:
     resolution: {integrity: sha512-96WBLhOaYhJ+kPhLg3uW359Tz6I/MfcrQfL4EGv4SrcqKEMC1gmoGrXHecPE8eOwTVCJ4IwgfzM8fFad25wNfw==}
 
@@ -4630,6 +4639,10 @@ snapshots:
   '@floating-ui/utils@0.2.11': {}
 
   '@fontsource-variable/inter@5.2.8': {}
+
+  '@gltf-transform/core@4.4.0':
+    dependencies:
+      property-graph: 4.1.0
 
   '@img/colour@1.1.0':
     optional: true
@@ -6887,6 +6900,8 @@ snapshots:
       graceful-fs: 4.2.11
       retry: 0.12.0
       signal-exit: 3.0.7
+
+  property-graph@4.1.0: {}
 
   prosemirror-changeset@2.4.1:
     dependencies:

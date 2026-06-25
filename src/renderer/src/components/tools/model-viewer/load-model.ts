@@ -61,16 +61,29 @@ export interface TextureOverride {
   filename: string
 }
 
+/** The original file to reparse for export — self-contained glTF/GLB only. */
+export interface ModelSource {
+  file: File
+  kind: 'glb' | 'gltf'
+}
+
 export interface LoadedModel {
   object: THREE.Object3D
   stats: ModelStats
   textures: TextureInfo[]
+  /** The original file for re-export, or null when export isn't supported (OBJ). */
+  source: ModelSource | null
+  /** True when the geometry uses Draco/meshopt — export is deferred to Optimize,
+   *  since writing it back without the encoders would decompress and bloat it. */
+  compressedGeometry: boolean
   /** Free GPU resources, revoke blob URLs (model + texture previews). */
   dispose: () => void
 }
 
 // Minimal shape of the glTF JSON we read for texture extraction.
 interface GltfJson {
+  extensionsUsed?: string[]
+  extensionsRequired?: string[]
   images?: { uri?: string; mimeType?: string; bufferView?: number; name?: string }[]
   textures?: { source?: number; extensions?: { KHR_texture_basisu?: { source?: number } } }[]
   materials?: {
@@ -517,6 +530,8 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
 
   let object: THREE.Object3D
   let textures: TextureInfo[]
+  let source: ModelSource | null = null
+  let compressedGeometry = false
   try {
     if (ext === 'obj') {
       object = await loadObj(mainUrl, manager, urlMap, files)
@@ -524,6 +539,12 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
     } else {
       const gltf = await loadGltf(mainUrl, manager)
       object = gltf.scene
+      const json = gltf.parser.json as unknown as GltfJson
+      const usedExtensions = [...(json.extensionsUsed ?? []), ...(json.extensionsRequired ?? [])]
+      compressedGeometry =
+        usedExtensions.includes('KHR_draco_mesh_compression') ||
+        usedExtensions.includes('EXT_meshopt_compression')
+      source = { file: main, kind: ext === 'glb' ? 'glb' : 'gltf' }
       textures = await extractGltfTextures(gltf, files).catch((): TextureInfo[] => [])
     }
   } catch (error) {
@@ -548,5 +569,5 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
     }
     for (const url of objectUrls) URL.revokeObjectURL(url)
   }
-  return { object, stats, textures, dispose }
+  return { object, stats, textures, source, compressedGeometry, dispose }
 }

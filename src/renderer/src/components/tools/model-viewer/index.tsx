@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber'
 import {
   IconChevronRight,
   IconCube,
+  IconDownload,
   IconFocusCentered,
   IconFolderOpen,
   IconGridDots,
@@ -11,7 +12,9 @@ import {
 import { type ReactElement, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
+import { bytesToBase64, exportModel } from './export-model'
 import {
   applyTextureReplacement,
   type LoadedModel,
@@ -83,6 +86,8 @@ export function ModelViewer(): ReactElement {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const saveFile = trpc.dialog.saveFile.useMutation()
 
   const [lighting, setLighting] = useState<LightingPreset>('studio')
   const [grid, setGrid] = useState(true)
@@ -151,6 +156,31 @@ export function ModelViewer(): ReactElement {
       return next
     })
   }
+
+  // Re-export the model as a GLB with any replaced textures baked in. Disabled
+  // for OBJ (no glTF document) and Draco/meshopt models (see exportDisabledReason).
+  const exportGlb = async (): Promise<void> => {
+    if (!model?.source) return
+    setExporting(true)
+    setError(null)
+    try {
+      const bytes = await exportModel(model.source, overrides)
+      const filename = `${model.source.file.name.replace(/\.(glb|gltf)$/i, '')}.glb`
+      await saveFile.mutateAsync({ filename, base64: bytesToBase64(bytes) })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to export the model.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const exportDisabledReason = !model
+    ? null
+    : !model.source
+      ? 'Export is available for glTF/GLB models.'
+      : model.compressedGeometry
+        ? 'Export of compressed-geometry models is coming with Optimize.'
+        : null
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drop target, not a control
@@ -227,15 +257,34 @@ export function ModelViewer(): ReactElement {
       )}
 
       {model && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="absolute top-3 right-3 bg-background/80 backdrop-blur"
-          onClick={() => inputRef.current?.click()}
-        >
-          <IconFolderOpen />
-          Open
-        </Button>
+        <div className="absolute top-3 right-3 flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="bg-background/80 backdrop-blur"
+            onClick={() => void exportGlb()}
+            disabled={exportDisabledReason != null || exporting}
+            loading={exporting}
+            title={
+              exportDisabledReason ??
+              (Object.keys(overrides).length > 0
+                ? 'Export as GLB (with replaced textures)'
+                : 'Export as GLB')
+            }
+          >
+            <IconDownload />
+            Export
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="bg-background/80 backdrop-blur"
+            onClick={() => inputRef.current?.click()}
+          >
+            <IconFolderOpen />
+            Open
+          </Button>
+        </div>
       )}
 
       {model && (
