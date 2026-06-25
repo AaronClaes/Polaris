@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises'
 import { BrowserWindow, dialog } from 'electron'
 import { z } from 'zod'
 import { publicProcedure, router } from '..'
@@ -50,5 +51,22 @@ export const dialogRouter = router({
         : await dialog.showOpenDialog(options)
       if (result.canceled || result.filePaths.length === 0) return null
       return result.filePaths[0]
+    }),
+
+  // Open the native "Save as…" dialog and write the given bytes to the chosen
+  // path. Bytes arrive base64-encoded (over the JSON IPC transport). Returns the
+  // saved path, or null if the user cancels. Used to download extracted assets
+  // (e.g. a model's textures) without ever touching the disk from the renderer.
+  saveFile: publicProcedure
+    .input(z.object({ filename: z.string(), base64: z.string() }))
+    .mutation(async ({ input }) => {
+      const window = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const options: Electron.SaveDialogOptions = { defaultPath: input.filename }
+      const result = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      if (result.canceled || !result.filePath) return null
+      await writeFile(result.filePath, Buffer.from(input.base64, 'base64'))
+      return result.filePath
     })
 })

@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber'
 import {
+  IconChevronRight,
   IconCube,
   IconFocusCentered,
   IconFolderOpen,
@@ -13,6 +14,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
 import { type LoadedModel, loadModel } from './load-model'
 import { LIGHTING_PRESETS, type LightingPreset, ViewerScene } from './scene'
+import { TexturePanel } from './texture-panel'
 
 const ACCEPT = '.glb,.gltf,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.hdr'
 
@@ -74,6 +76,7 @@ export function ModelViewer(): ReactElement {
   const [shadows, setShadows] = useState(true)
   const [wireframe, setWireframe] = useState(false)
   const [fitNonce, setFitNonce] = useState(0)
+  const [texturesOpen, setTexturesOpen] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const modelRef = useRef<LoadedModel | null>(null)
@@ -91,6 +94,7 @@ export function ModelViewer(): ReactElement {
       modelRef.current = next
       setModel(next)
       setFitNonce((n) => n + 1)
+      setTexturesOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load the model.')
     } finally {
@@ -191,6 +195,24 @@ export function ModelViewer(): ReactElement {
             <Stat label="Vertices" value={model.stats.vertices.toLocaleString()} />
             <Stat label="Meshes" value={model.stats.meshes.toLocaleString()} />
             <Stat label="Materials" value={model.stats.materials.toLocaleString()} />
+            {model.textures.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setTexturesOpen(true)}
+                className="group col-span-2 flex items-center justify-between gap-3 underline-offset-2"
+              >
+                <span className="text-muted-foreground group-hover:underline">Textures</span>
+                <span className="inline-flex items-center gap-0.5 font-medium text-foreground group-hover:underline">
+                  {model.textures.length}
+                  <IconChevronRight className="size-3" />
+                </span>
+              </button>
+            ) : (
+              <>
+                <dt className="text-muted-foreground">Textures</dt>
+                <dd className="text-right font-medium text-foreground">0</dd>
+              </>
+            )}
             <Stat
               label="Size"
               value={`${model.stats.size.x.toFixed(2)} × ${model.stats.size.y.toFixed(2)} × ${model.stats.size.z.toFixed(2)}`}
@@ -241,6 +263,10 @@ export function ModelViewer(): ReactElement {
         <div className="absolute right-3 bottom-3 left-3 mx-auto w-fit max-w-md rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-destructive-foreground text-xs">
           {error}
         </div>
+      )}
+
+      {model && texturesOpen && model.textures.length > 0 && (
+        <TexturePanel textures={model.textures} onClose={() => setTexturesOpen(false)} />
       )}
 
       <input

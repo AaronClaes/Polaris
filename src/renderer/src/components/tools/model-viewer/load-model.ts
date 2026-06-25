@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
@@ -14,15 +15,53 @@ export interface ModelStats {
   fileBytes: number
 }
 
+/** One extractable texture: its original encoded bytes plus display metadata. */
+export interface TextureInfo {
+  id: string
+  name: string
+  /** Material usage (Base color / Normal / …), or null when unknown (e.g. OBJ). */
+  slot: string | null
+  /** Human label: PNG / JPEG / WebP / KTX2 / … */
+  format: string
+  width: number | null
+  height: number | null
+  byteSize: number
+  /** True when the browser can't decode it for preview (KTX2/Basis, TGA, …). */
+  compressed: boolean
+  /** Object URL for an <img> preview, or null when not previewable. */
+  previewUrl: string | null
+  /** Original encoded bytes, for a faithful download. */
+  blob: Blob
+  /** Suggested download filename, with extension. */
+  filename: string
+}
+
 export interface LoadedModel {
   object: THREE.Object3D
   stats: ModelStats
-  /** Free the model's GPU resources and revoke its blob URLs. Call on replace/unmount. */
+  textures: TextureInfo[]
+  /** Free GPU resources, revoke blob URLs (model + texture previews). */
   dispose: () => void
+}
+
+// Minimal shape of the glTF JSON we read for texture extraction.
+interface GltfJson {
+  images?: { uri?: string; mimeType?: string; bufferView?: number; name?: string }[]
+  textures?: { source?: number; extensions?: { KHR_texture_basisu?: { source?: number } } }[]
+  materials?: {
+    pbrMetallicRoughness?: {
+      baseColorTexture?: { index?: number }
+      metallicRoughnessTexture?: { index?: number }
+    }
+    normalTexture?: { index?: number }
+    occlusionTexture?: { index?: number }
+    emissiveTexture?: { index?: number }
+  }[]
 }
 
 // glTF/GLB first, then OBJ — the formats v1 supports.
 const MODEL_EXTENSIONS = ['glb', 'gltf', 'obj']
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'tga', 'ktx2']
 
 function extOf(name: string): string {
   return name.split('.').pop()?.toLowerCase() ?? ''
@@ -53,16 +92,13 @@ function getDracoLoader(): DRACOLoader {
   return dracoLoader
 }
 
-function loadGltf(url: string, manager: THREE.LoadingManager): Promise<THREE.Object3D> {
+function loadGltf(url: string, manager: THREE.LoadingManager): Promise<GLTF> {
   const loader = new GLTFLoader(manager)
   loader.setDRACOLoader(getDracoLoader())
   loader.setMeshoptDecoder(MeshoptDecoder)
   return new Promise((resolve, reject) => {
-    loader.load(
-      url,
-      (gltf) => resolve(gltf.scene),
-      undefined,
-      (error) => reject(error instanceof Error ? error : new Error('Failed to load glTF.'))
+    loader.load(url, resolve, undefined, (error) =>
+      reject(error instanceof Error ? error : new Error('Failed to load glTF.'))
     )
   })
 }
@@ -99,6 +135,173 @@ function loadObj(
       (error) => reject(error instanceof Error ? error : new Error('Failed to load OBJ materials.'))
     )
   })
+}
+
+function formatLabel(mime: string, filename: string): string {
+  const m = mime.toLowerCase()
+  if (m.includes('png')) return 'PNG'
+  if (m.includes('jpeg') || m.includes('jpg')) return 'JPEG'
+  if (m.includes('webp')) return 'WebP'
+  if (m.includes('ktx2')) return 'KTX2'
+  if (m.includes('avif')) return 'AVIF'
+  if (m.includes('gif')) return 'GIF'
+  if (m.includes('bmp')) return 'BMP'
+  if (m.includes('tga')) return 'TGA'
+  return extOf(filename).toUpperCase() || 'Image'
+}
+
+function extFromMime(mime: string): string {
+  const m = mime.toLowerCase()
+  if (m.includes('png')) return 'png'
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg'
+  if (m.includes('webp')) return 'webp'
+  if (m.includes('ktx2')) return 'ktx2'
+  if (m.includes('avif')) return 'avif'
+  if (m.includes('gif')) return 'gif'
+  if (m.includes('bmp')) return 'bmp'
+  return 'bin'
+}
+
+/** Build a TextureInfo from a blob — decoding it for dimensions + preview, and
+ *  flagging it as compressed (no preview) when the browser can't decode it. */
+async function buildTextureInfo(args: {
+  id: string
+  name: string
+  slot: string | null
+  mime: string
+  filename: string
+  blob: Blob
+}): Promise<TextureInfo> {
+  let width: number | null = null
+  let height: number | null = null
+  let compressed = false
+  let previewUrl: string | null = null
+  try {
+    const bitmap = await createImageBitmap(args.blob)
+    width = bitmap.width
+    height = bitmap.height
+    bitmap.close()
+    previewUrl = URL.createObjectURL(args.blob)
+  } catch {
+    compressed = true
+  }
+  return {
+    id: args.id,
+    name: args.name,
+    slot: args.slot,
+    format: formatLabel(args.mime, args.filename),
+    width,
+    height,
+    byteSize: args.blob.size,
+    compressed,
+    previewUrl,
+    blob: args.blob,
+    filename: args.filename
+  }
+}
+
+/** Map each glTF image index to the material slots that reference it. */
+function buildUsageMap(json: GltfJson): Map<number, Set<string>> {
+  const textures = json.textures ?? []
+  const map = new Map<number, Set<string>>()
+  const sourceOf = (texIndex?: number): number | undefined => {
+    if (texIndex == null) return undefined
+    const texture = textures[texIndex]
+    return texture?.source ?? texture?.extensions?.KHR_texture_basisu?.source
+  }
+  const add = (texIndex: number | undefined, label: string): void => {
+    const source = sourceOf(texIndex)
+    if (source == null) return
+    if (!map.has(source)) map.set(source, new Set())
+    map.get(source)?.add(label)
+  }
+  for (const material of json.materials ?? []) {
+    add(material.pbrMetallicRoughness?.baseColorTexture?.index, 'Base color')
+    add(material.pbrMetallicRoughness?.metallicRoughnessTexture?.index, 'Metallic-roughness')
+    add(material.normalTexture?.index, 'Normal')
+    add(material.occlusionTexture?.index, 'Occlusion')
+    add(material.emissiveTexture?.index, 'Emissive')
+  }
+  return map
+}
+
+/** Extract original texture bytes from a loaded glTF/GLB: embedded images come
+ *  from their bufferView, external ones from the dropped files, data URIs are
+ *  decoded. */
+async function extractGltfTextures(gltf: GLTF, files: File[]): Promise<TextureInfo[]> {
+  const json = gltf.parser.json as unknown as GltfJson
+  const images = json.images ?? []
+  if (images.length === 0) return []
+  const usage = buildUsageMap(json)
+  const out: TextureInfo[] = []
+
+  for (let i = 0; i < images.length; i++) {
+    const image = images[i]
+    try {
+      let blob: Blob
+      let mime: string
+      let filename: string
+      if (image.bufferView != null) {
+        const bytes = (await gltf.parser.getDependency(
+          'bufferView',
+          image.bufferView
+        )) as ArrayBuffer
+        mime = image.mimeType ?? 'application/octet-stream'
+        filename = `${image.name ?? `texture_${i}`}.${extFromMime(mime)}`
+        blob = new Blob([bytes], { type: mime })
+      } else if (image.uri?.startsWith('data:')) {
+        blob = await (await fetch(image.uri)).blob()
+        mime = blob.type || image.mimeType || 'application/octet-stream'
+        filename = `${image.name ?? `texture_${i}`}.${extFromMime(mime)}`
+      } else if (image.uri) {
+        const file = files.find((f) => f.name.toLowerCase() === basename(image.uri as string))
+        if (!file) continue
+        blob = file
+        mime = file.type || `image/${extOf(file.name)}`
+        filename = file.name
+      } else {
+        continue
+      }
+      const slotSet = usage.get(i)
+      out.push(
+        await buildTextureInfo({
+          id: `img-${i}`,
+          name: image.name || filename,
+          slot: slotSet && slotSet.size > 0 ? [...slotSet].join(', ') : null,
+          mime,
+          filename,
+          blob
+        })
+      )
+    } catch {
+      // An image that can't be extracted just doesn't appear in the list.
+    }
+  }
+  return out
+}
+
+/** OBJ has no embedded textures — list the dropped image files alongside it. */
+async function extractObjTextures(files: File[]): Promise<TextureInfo[]> {
+  const out: TextureInfo[] = []
+  let i = 0
+  for (const file of files) {
+    if (!IMAGE_EXTENSIONS.includes(extOf(file.name))) continue
+    try {
+      out.push(
+        await buildTextureInfo({
+          id: `file-${i++}`,
+          name: file.name,
+          slot: null,
+          mime: file.type || `image/${extOf(file.name)}`,
+          filename: file.name,
+          blob: file
+        })
+      )
+    } catch {
+      // Skip an image that can't be read.
+    }
+  }
+  return out
 }
 
 function computeStats(object: THREE.Object3D, files: File[]): ModelStats {
@@ -151,7 +354,8 @@ function disposeObject(object: THREE.Object3D): void {
  * the model; the rest (`.bin`, textures, `.mtl`) are exposed to three's loaders
  * by basename through a blob-URL map + a LoadingManager URL modifier, so external
  * references resolve without any disk access. Draco + meshopt compression are
- * handled. The model is recentered on the ground at the origin.
+ * handled. The model is recentered on the ground at the origin, and its textures
+ * are extracted (original bytes kept for faithful download).
  */
 export async function loadModel(files: File[]): Promise<LoadedModel> {
   const main = pickMainFile(files)
@@ -176,11 +380,16 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
   const ext = extOf(main.name)
 
   let object: THREE.Object3D
+  let textures: TextureInfo[]
   try {
-    object =
-      ext === 'obj'
-        ? await loadObj(mainUrl, manager, urlMap, files)
-        : await loadGltf(mainUrl, manager)
+    if (ext === 'obj') {
+      object = await loadObj(mainUrl, manager, urlMap, files)
+      textures = await extractObjTextures(files).catch((): TextureInfo[] => [])
+    } else {
+      const gltf = await loadGltf(mainUrl, manager)
+      object = gltf.scene
+      textures = await extractGltfTextures(gltf, files).catch((): TextureInfo[] => [])
+    }
   } catch (error) {
     for (const url of objectUrls) URL.revokeObjectURL(url)
     throw error instanceof Error ? error : new Error(String(error))
@@ -198,7 +407,10 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
   const stats = computeStats(object, files)
   const dispose = (): void => {
     disposeObject(object)
+    for (const texture of textures) {
+      if (texture.previewUrl) URL.revokeObjectURL(texture.previewUrl)
+    }
     for (const url of objectUrls) URL.revokeObjectURL(url)
   }
-  return { object, stats, dispose }
+  return { object, stats, textures, dispose }
 }
