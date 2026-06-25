@@ -12,7 +12,14 @@ import { type ReactElement, type ReactNode, useEffect, useRef, useState } from '
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
-import { type LoadedModel, loadModel } from './load-model'
+import {
+  applyTextureReplacement,
+  type LoadedModel,
+  loadModel,
+  revertTextureReplacement,
+  type TextureInfo,
+  type TextureOverride
+} from './load-model'
 import { LIGHTING_PRESETS, type LightingPreset, ViewerScene } from './scene'
 import { TexturePanel } from './texture-panel'
 
@@ -58,6 +65,12 @@ function Stat({ label, value }: { label: string; value: string }): ReactElement 
   )
 }
 
+function revokeOverrides(record: Record<string, TextureOverride>): void {
+  for (const override of Object.values(record)) {
+    if (override.previewUrl) URL.revokeObjectURL(override.previewUrl)
+  }
+}
+
 /**
  * The 3D model viewer: drag in (or open) a glTF/GLB or OBJ, then orbit and
  * inspect it. Files load to in-memory blob URLs (no disk access); the model is
@@ -77,12 +90,23 @@ export function ModelViewer(): ReactElement {
   const [wireframe, setWireframe] = useState(false)
   const [fitNonce, setFitNonce] = useState(0)
   const [texturesOpen, setTexturesOpen] = useState(false)
+  // Per-texture replacement overrides (keyed by texture id): the new display
+  // fields shown in the panel while the live texture is swapped in the scene.
+  const [overrides, setOverrides] = useState<Record<string, TextureOverride>>({})
 
   const inputRef = useRef<HTMLInputElement>(null)
   const modelRef = useRef<LoadedModel | null>(null)
+  const overridesRef = useRef(overrides)
+  overridesRef.current = overrides
 
-  // Free the live model's GPU resources when the viewer unmounts.
-  useEffect(() => () => modelRef.current?.dispose(), [])
+  // Free the live model's GPU resources and replacement previews on unmount.
+  useEffect(
+    () => () => {
+      modelRef.current?.dispose()
+      revokeOverrides(overridesRef.current)
+    },
+    []
+  )
 
   const openFiles = async (files: File[]): Promise<void> => {
     if (files.length === 0) return
@@ -95,11 +119,37 @@ export function ModelViewer(): ReactElement {
       setModel(next)
       setFitNonce((n) => n + 1)
       setTexturesOpen(false)
+      setOverrides((prev) => {
+        revokeOverrides(prev)
+        return {}
+      })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load the model.')
     } finally {
       setLoading(false)
     }
+  }
+
+  const replaceTexture = async (texture: TextureInfo, file: File): Promise<void> => {
+    try {
+      const override = await applyTextureReplacement(texture, file)
+      setOverrides((prev) => {
+        if (prev[texture.id]?.previewUrl) URL.revokeObjectURL(prev[texture.id].previewUrl as string)
+        return { ...prev, [texture.id]: override }
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to replace the texture.')
+    }
+  }
+
+  const revertTexture = (texture: TextureInfo): void => {
+    revertTextureReplacement(texture)
+    setOverrides((prev) => {
+      if (prev[texture.id]?.previewUrl) URL.revokeObjectURL(prev[texture.id].previewUrl as string)
+      const next = { ...prev }
+      delete next[texture.id]
+      return next
+    })
   }
 
   return (
@@ -266,7 +316,13 @@ export function ModelViewer(): ReactElement {
       )}
 
       {model && texturesOpen && model.textures.length > 0 && (
-        <TexturePanel textures={model.textures} onClose={() => setTexturesOpen(false)} />
+        <TexturePanel
+          textures={model.textures}
+          overrides={overrides}
+          onReplace={(texture, file) => void replaceTexture(texture, file)}
+          onRevert={revertTexture}
+          onClose={() => setTexturesOpen(false)}
+        />
       )}
 
       <input

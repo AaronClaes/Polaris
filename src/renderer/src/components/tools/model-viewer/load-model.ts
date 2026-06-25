@@ -34,6 +34,31 @@ export interface TextureInfo {
   blob: Blob
   /** Suggested download filename, with extension. */
   filename: string
+  /** Material slots in the scene that use this texture, so a replacement can be
+   *  assigned everywhere it's referenced. Empty for OBJ (no glTF image→texture
+   *  mapping), which is why replace is glTF/GLB-only. */
+  slots: TextureSlot[]
+  /** The replacement currently assigned, kept so it can be disposed on
+   *  revert / re-replace. */
+  replacement?: THREE.Texture
+}
+
+/** A material map slot referencing a texture, with the original kept for revert. */
+export interface TextureSlot {
+  material: THREE.Material
+  key: string
+  original: THREE.Texture
+}
+
+/** The display fields shown for a texture that's been replaced in the viewer. */
+export interface TextureOverride {
+  blob: Blob
+  previewUrl: string | null
+  format: string
+  width: number | null
+  height: number | null
+  byteSize: number
+  filename: string
 }
 
 export interface LoadedModel {
@@ -171,6 +196,7 @@ async function buildTextureInfo(args: {
   mime: string
   filename: string
   blob: Blob
+  slots: TextureSlot[]
 }): Promise<TextureInfo> {
   let width: number | null = null
   let height: number | null = null
@@ -196,8 +222,75 @@ async function buildTextureInfo(args: {
     compressed,
     previewUrl,
     blob: args.blob,
-    filename: args.filename
+    filename: args.filename,
+    slots: args.slots
   }
+}
+
+/** True when a texture can be replaced: it has material slots (glTF only) and a
+ *  decodable source (a compressed KTX2/Basis source has no plain-image preview). */
+export function isReplaceable(texture: TextureInfo): boolean {
+  return texture.slots.length > 0 && !texture.compressed
+}
+
+/**
+ * Replace a texture everywhere it's used by assigning a *new* THREE.Texture to
+ * every material slot that referenced it (rather than mutating the existing one
+ * in place — three doesn't reliably re-upload a swapped image on a cached/cloned
+ * texture). The original texture objects are left intact for revert, and the new
+ * texture copies the original's sampling settings (color space, wrap, transform,
+ * filtering) so it maps identically. Returns the new display fields for the panel.
+ */
+export async function applyTextureReplacement(
+  texture: TextureInfo,
+  file: File
+): Promise<TextureOverride> {
+  const bitmap = await createImageBitmap(file)
+  const replacement = new THREE.Texture(bitmap)
+  const reference = texture.slots[0]?.original
+  if (reference) {
+    replacement.colorSpace = reference.colorSpace
+    replacement.wrapS = reference.wrapS
+    replacement.wrapT = reference.wrapT
+    replacement.flipY = reference.flipY
+    replacement.channel = reference.channel
+    replacement.offset.copy(reference.offset)
+    replacement.repeat.copy(reference.repeat)
+    replacement.center.copy(reference.center)
+    replacement.rotation = reference.rotation
+    replacement.magFilter = reference.magFilter
+    replacement.minFilter = reference.minFilter
+    replacement.anisotropy = reference.anisotropy
+    replacement.generateMipmaps = reference.generateMipmaps
+  }
+  replacement.needsUpdate = true
+
+  texture.replacement?.dispose()
+  texture.replacement = replacement
+  for (const slot of texture.slots) {
+    ;(slot.material as unknown as Record<string, unknown>)[slot.key] = replacement
+    slot.material.needsUpdate = true
+  }
+
+  return {
+    blob: file,
+    previewUrl: URL.createObjectURL(file),
+    format: formatLabel(file.type || `image/${extOf(file.name)}`, file.name),
+    width: bitmap.width,
+    height: bitmap.height,
+    byteSize: file.size,
+    filename: file.name
+  }
+}
+
+/** Restore each slot's original texture and dispose the replacement. */
+export function revertTextureReplacement(texture: TextureInfo): void {
+  for (const slot of texture.slots) {
+    ;(slot.material as unknown as Record<string, unknown>)[slot.key] = slot.original
+    slot.material.needsUpdate = true
+  }
+  texture.replacement?.dispose()
+  texture.replacement = undefined
 }
 
 /** Map each glTF image index to the material slots that reference it. */
@@ -233,8 +326,49 @@ async function extractGltfTextures(gltf: GLTF, files: File[]): Promise<TextureIn
   const images = json.images ?? []
   if (images.length === 0) return []
   const usage = buildUsageMap(json)
-  const out: TextureInfo[] = []
 
+  // Map each image index to the live THREE.Texture instances the materials
+  // actually render with, so replace can mutate them in place. A material may use
+  // a *clone* of the cached texture (KHR_texture_transform, extra UV sets) that
+  // shares the image's `Source` — so we match by Source identity: resolve each
+  // image's Source via the parser, then collect every material texture sharing it
+  // (clones included). Mutating the cached texture alone would miss those clones.
+  const texturesJson = json.textures ?? []
+  const sourceUuidByImage = new Map<number, string>()
+  for (let t = 0; t < texturesJson.length; t++) {
+    const imageIndex =
+      texturesJson[t]?.source ?? texturesJson[t]?.extensions?.KHR_texture_basisu?.source
+    if (imageIndex == null || sourceUuidByImage.has(imageIndex)) continue
+    try {
+      const cached = (await gltf.parser.getDependency('texture', t)) as THREE.Texture
+      sourceUuidByImage.set(imageIndex, cached.source.uuid)
+    } catch {
+      // Image's source can't be resolved → its textures won't be replaceable.
+    }
+  }
+
+  const slotsBySource = new Map<string, TextureSlot[]>()
+  gltf.scene.traverse((child) => {
+    const mesh = child as THREE.Mesh
+    if (!mesh.isMesh) return
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const material of materials) {
+      if (!material) continue
+      for (const [key, value] of Object.entries(material)) {
+        if (!(value instanceof THREE.Texture)) continue
+        const list = slotsBySource.get(value.source.uuid) ?? []
+        list.push({ material, key, original: value })
+        slotsBySource.set(value.source.uuid, list)
+      }
+    }
+  })
+
+  const slotsByImage = new Map<number, TextureSlot[]>()
+  for (const [imageIndex, sourceUuid] of sourceUuidByImage) {
+    slotsByImage.set(imageIndex, slotsBySource.get(sourceUuid) ?? [])
+  }
+
+  const out: TextureInfo[] = []
   for (let i = 0; i < images.length; i++) {
     const image = images[i]
     try {
@@ -270,7 +404,8 @@ async function extractGltfTextures(gltf: GLTF, files: File[]): Promise<TextureIn
           slot: slotSet && slotSet.size > 0 ? [...slotSet].join(', ') : null,
           mime,
           filename,
-          blob
+          blob,
+          slots: slotsByImage.get(i) ?? []
         })
       )
     } catch {
@@ -294,7 +429,8 @@ async function extractObjTextures(files: File[]): Promise<TextureInfo[]> {
           slot: null,
           mime: file.type || `image/${extOf(file.name)}`,
           filename: file.name,
-          blob: file
+          blob: file,
+          slots: []
         })
       )
     } catch {

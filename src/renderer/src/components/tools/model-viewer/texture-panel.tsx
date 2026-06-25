@@ -1,9 +1,18 @@
-import { IconDownload, IconPhotoOff, IconX } from '@tabler/icons-react'
-import { type CSSProperties, type ReactElement, useEffect } from 'react'
+import {
+  IconArrowBackUp,
+  IconDownload,
+  IconPhotoOff,
+  IconPhotoUp,
+  IconX
+} from '@tabler/icons-react'
+import { type CSSProperties, type ReactElement, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { trpc } from '@/lib/trpc'
-import type { TextureInfo } from './load-model'
+import { cn } from '@/lib/utils'
+import { isReplaceable, type TextureInfo, type TextureOverride } from './load-model'
+
+const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif'
 
 // Checkerboard behind previews so texture transparency is visible.
 const CHECKER: CSSProperties = {
@@ -20,6 +29,10 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function isImageFile(file: File): boolean {
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.name)
+}
+
 // Base64-encode in chunks so a large texture doesn't blow the call stack.
 function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
@@ -31,21 +44,162 @@ function toBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
+const OVERLAY_BUTTON = 'bg-black/60 text-white hover:bg-black/75'
+
+function TextureRow({
+  texture,
+  override,
+  downloading,
+  onDownload,
+  onPickReplacement,
+  onDropReplacement,
+  onRevert
+}: {
+  texture: TextureInfo
+  override: TextureOverride | undefined
+  downloading: boolean
+  onDownload: () => void
+  onPickReplacement: () => void
+  onDropReplacement: (file: File) => void
+  onRevert: () => void
+}): ReactElement {
+  const [dragging, setDragging] = useState(false)
+  const replaceable = isReplaceable(texture)
+  const replaced = override != null
+
+  const previewUrl = override?.previewUrl ?? texture.previewUrl
+  const format = override?.format ?? texture.format
+  const width = override ? override.width : texture.width
+  const height = override ? override.height : texture.height
+  const byteSize = override ? override.byteSize : texture.byteSize
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: image drop target */}
+      <div
+        className={cn(
+          'relative overflow-hidden rounded-lg border',
+          dragging ? 'border-ring ring-2 ring-ring' : 'border-border'
+        )}
+        style={CHECKER}
+        onDragOver={
+          replaceable
+            ? (e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setDragging(true)
+              }
+            : undefined
+        }
+        onDragLeave={replaceable ? () => setDragging(false) : undefined}
+        onDrop={
+          replaceable
+            ? (e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setDragging(false)
+                const file = Array.from(e.dataTransfer.files).find(isImageFile)
+                if (file) onDropReplacement(file)
+              }
+            : undefined
+        }
+      >
+        <div className="absolute top-1.5 right-1.5 z-10 flex gap-1">
+          {replaceable && (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className={OVERLAY_BUTTON}
+              title="Replace…"
+              aria-label={`Replace ${texture.name}`}
+              onClick={onPickReplacement}
+            >
+              <IconPhotoUp />
+            </Button>
+          )}
+          {replaced && (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              className={OVERLAY_BUTTON}
+              title="Revert to original"
+              aria-label={`Revert ${texture.name}`}
+              onClick={onRevert}
+            >
+              <IconArrowBackUp />
+            </Button>
+          )}
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            className={OVERLAY_BUTTON}
+            title="Download"
+            aria-label={`Download ${texture.name}`}
+            loading={downloading}
+            onClick={onDownload}
+          >
+            <IconDownload />
+          </Button>
+        </div>
+
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt={texture.name}
+            className="block max-h-56 w-full object-contain"
+          />
+        ) : (
+          <div className="flex h-40 flex-col items-center justify-center gap-1 text-muted-foreground">
+            <IconPhotoOff className="size-6" />
+            <span className="text-xs">No preview ({format})</span>
+          </div>
+        )}
+
+        {dragging && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/60 font-medium text-xs">
+            Drop to replace
+          </div>
+        )}
+      </div>
+
+      <div className="min-w-0">
+        <p className="truncate font-medium text-xs">
+          {texture.slot ?? texture.name}
+          {replaced && <span className="ml-1 font-normal text-muted-foreground">· replaced</span>}
+        </p>
+        <p className="text-muted-foreground text-xs tabular-nums">
+          {width && height ? `${width}×${height} · ` : ''}
+          {format} · {formatBytes(byteSize)}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 /**
  * A modal panel listing the model's textures, scoped to the viewer (an `absolute`
  * scrim + right-side aside inside the viewer container) rather than a window-level
  * sheet — so it behaves the same whether the viewer is a box in the page or its
- * own window. Each row previews the texture and downloads the original bytes
- * through the native Save dialog.
+ * own window. Each row previews the texture, downloads the original bytes through
+ * the native Save dialog, and (glTF only) replaces the texture from a dropped /
+ * picked image with a revert back to the original.
  */
 export function TexturePanel({
   textures,
+  overrides,
+  onReplace,
+  onRevert,
   onClose
 }: {
   textures: TextureInfo[]
+  overrides: Record<string, TextureOverride>
+  onReplace: (texture: TextureInfo, file: File) => void
+  onRevert: (texture: TextureInfo) => void
   onClose: () => void
 }): ReactElement {
   const saveFile = trpc.dialog.saveFile.useMutation()
+  const inputRef = useRef<HTMLInputElement>(null)
+  const pendingRef = useRef<TextureInfo | null>(null)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -55,12 +209,19 @@ export function TexturePanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const download = async (texture: TextureInfo): Promise<void> => {
-    const buffer = await texture.blob.arrayBuffer()
-    await saveFile.mutateAsync({
-      filename: texture.filename,
-      base64: toBase64(buffer)
-    })
+  const download = async (
+    texture: TextureInfo,
+    override: TextureOverride | undefined
+  ): Promise<void> => {
+    const blob = override?.blob ?? texture.blob
+    const filename = override?.filename ?? texture.filename
+    const buffer = await blob.arrayBuffer()
+    await saveFile.mutateAsync({ filename, base64: toBase64(buffer) })
+  }
+
+  const pickReplacement = (texture: TextureInfo): void => {
+    pendingRef.current = texture
+    inputRef.current?.click()
   }
 
   return (
@@ -79,50 +240,39 @@ export function TexturePanel({
         </header>
         <ScrollArea className="flex-1">
           <div className="flex flex-col gap-3 p-3">
-            {textures.map((texture) => (
-              <div key={texture.id} className="flex flex-col gap-1.5">
-                <div
-                  className="relative overflow-hidden rounded-lg border border-border"
-                  style={CHECKER}
-                >
-                  <Button
-                    size="icon-xs"
-                    variant="ghost"
-                    className="absolute top-1.5 right-1.5 z-10 bg-black/60 text-white shadow-sm hover:bg-black/75"
-                    title="Download"
-                    aria-label={`Download ${texture.name}`}
-                    loading={
-                      saveFile.isPending && saveFile.variables?.filename === texture.filename
-                    }
-                    onClick={() => void download(texture)}
-                  >
-                    <IconDownload />
-                  </Button>
-                  {texture.previewUrl ? (
-                    <img
-                      src={texture.previewUrl}
-                      alt={texture.name}
-                      className="block max-h-56 w-full object-contain"
-                    />
-                  ) : (
-                    <div className="flex h-40 flex-col items-center justify-center gap-1 text-muted-foreground">
-                      <IconPhotoOff className="size-6" />
-                      <span className="text-xs">No preview ({texture.format})</span>
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-xs">{texture.slot ?? texture.name}</p>
-                  <p className="text-muted-foreground text-xs tabular-nums">
-                    {texture.width && texture.height ? `${texture.width}×${texture.height} · ` : ''}
-                    {texture.format} · {formatBytes(texture.byteSize)}
-                  </p>
-                </div>
-              </div>
-            ))}
+            {textures.map((texture) => {
+              const override = overrides[texture.id]
+              const filename = override?.filename ?? texture.filename
+              return (
+                <TextureRow
+                  key={texture.id}
+                  texture={texture}
+                  override={override}
+                  downloading={saveFile.isPending && saveFile.variables?.filename === filename}
+                  onDownload={() => void download(texture, override)}
+                  onPickReplacement={() => pickReplacement(texture)}
+                  onDropReplacement={(file) => onReplace(texture, file)}
+                  onRevert={() => onRevert(texture)}
+                />
+              )
+            })}
           </div>
         </ScrollArea>
       </aside>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept={IMAGE_ACCEPT}
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          const texture = pendingRef.current
+          if (file && texture) onReplace(texture, file)
+          pendingRef.current = null
+          e.target.value = ''
+        }}
+      />
     </>
   )
 }
