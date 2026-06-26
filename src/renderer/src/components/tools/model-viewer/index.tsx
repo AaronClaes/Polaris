@@ -7,6 +7,7 @@ import {
   IconFolderOpen,
   IconGridDots,
   IconShadow,
+  IconSparkles,
   IconVectorTriangle
 } from '@tabler/icons-react'
 import { type ReactElement, type ReactNode, useEffect, useRef, useState } from 'react'
@@ -23,6 +24,7 @@ import {
   type TextureInfo,
   type TextureOverride
 } from './load-model'
+import { OptimizePanel } from './optimize-panel'
 import { LIGHTING_PRESETS, type LightingPreset, ViewerScene } from './scene'
 import { TexturePanel } from './texture-panel'
 
@@ -95,6 +97,7 @@ export function ModelViewer(): ReactElement {
   const [wireframe, setWireframe] = useState(false)
   const [fitNonce, setFitNonce] = useState(0)
   const [texturesOpen, setTexturesOpen] = useState(false)
+  const [optimizeOpen, setOptimizeOpen] = useState(false)
   // Per-texture replacement overrides (keyed by texture id): the new display
   // fields shown in the panel while the live texture is swapped in the scene.
   const [overrides, setOverrides] = useState<Record<string, TextureOverride>>({})
@@ -124,6 +127,7 @@ export function ModelViewer(): ReactElement {
       setModel(next)
       setFitNonce((n) => n + 1)
       setTexturesOpen(false)
+      setOptimizeOpen(false)
       setOverrides((prev) => {
         revokeOverrides(prev)
         return {}
@@ -158,7 +162,7 @@ export function ModelViewer(): ReactElement {
   }
 
   // Re-export the model as a GLB with any replaced textures baked in. Disabled
-  // for OBJ (no glTF document) and Draco/meshopt models (see exportDisabledReason).
+  // for OBJ (no glTF document) and Draco models (see exportDisabledReason).
   const exportGlb = async (): Promise<void> => {
     if (!model?.source) return
     setExporting(true)
@@ -174,12 +178,27 @@ export function ModelViewer(): ReactElement {
     }
   }
 
+  // Replace the current model with an optimized GLB (load it like a fresh file).
+  const loadOptimized = (bytes: Uint8Array): void => {
+    const name = `${model?.source?.file.name.replace(/\.(glb|gltf)$/i, '') ?? 'model'}-optimized.glb`
+    const file = new File([bytes as BlobPart], name, { type: 'model/gltf-binary' })
+    void openFiles([file])
+  }
+
   const exportDisabledReason = !model
     ? null
     : !model.source
       ? 'Export is available for glTF/GLB models.'
-      : model.compressedGeometry
-        ? 'Export of compressed-geometry models is coming with Optimize.'
+      : model.compression === 'draco'
+        ? 'Draco-compressed models aren’t supported yet (Meshopt and uncompressed are).'
+        : null
+
+  const optimizeDisabledReason = !model
+    ? null
+    : !model.source
+      ? 'Optimize is available for glTF/GLB models.'
+      : model.compression === 'draco'
+        ? 'Draco-compressed models aren’t supported yet (Meshopt and uncompressed are).'
         : null
 
   return (
@@ -258,6 +277,17 @@ export function ModelViewer(): ReactElement {
 
       {model && (
         <div className="absolute top-3 right-3 flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="bg-background/80 backdrop-blur"
+            onClick={() => setOptimizeOpen(true)}
+            disabled={optimizeDisabledReason != null}
+            title={optimizeDisabledReason ?? 'Optimize (compress textures & geometry)'}
+          >
+            <IconSparkles />
+            Optimize
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -371,6 +401,15 @@ export function ModelViewer(): ReactElement {
           onReplace={(texture, file) => void replaceTexture(texture, file)}
           onRevert={revertTexture}
           onClose={() => setTexturesOpen(false)}
+        />
+      )}
+
+      {model?.source && optimizeOpen && (
+        <OptimizePanel
+          source={model.source}
+          overrides={overrides}
+          onLoadResult={loadOptimized}
+          onClose={() => setOptimizeOpen(false)}
         />
       )}
 
