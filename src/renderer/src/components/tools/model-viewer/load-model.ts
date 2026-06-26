@@ -76,9 +76,9 @@ export interface LoadedModel {
   textures: TextureInfo[]
   /** The original file for re-export, or null when export isn't supported (OBJ). */
   source: ModelSource | null
-  /** Geometry compression in use, or null. Export is gated for any compression
-   *  (it can't recompress); Optimize handles 'meshopt' and uncompressed, but not
-   *  'draco' yet (its browser encoder is a separate effort). */
+  /** Geometry compression in use, or null. Both Draco and Meshopt inputs are read,
+   *  re-exported, and re-optimized (the shared IO registers both decoders/encoders);
+   *  Export/Optimize are gated only for OBJ (no glTF source to reparse). */
   compression: ModelCompression
   /** Free GPU resources, revoke blob URLs (model + texture previews). */
   dispose: () => void

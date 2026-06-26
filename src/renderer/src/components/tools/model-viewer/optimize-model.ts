@@ -1,6 +1,7 @@
 import type { Document } from '@gltf-transform/core'
 import {
   dedup,
+  draco,
   flatten,
   getTextureColorSpace,
   join,
@@ -13,7 +14,21 @@ import { applyTextureOverrides, getIO, readDocument } from './export-model'
 import type { ModelSource, TextureOverride } from './load-model'
 
 export type TextureFormat = 'keep' | 'webp'
-export type GeometryCompression = 'none' | 'meshopt'
+export type GeometryCompression = 'none' | 'meshopt' | 'draco'
+
+/** Draco quantization bits per attribute. Fewer bits = smaller + lossier. The
+ *  defaults match gltf-transform's (position 14, normal 10, texcoord 12). */
+export interface DracoOptions {
+  quantizePosition: number
+  quantizeNormal: number
+  quantizeTexcoord: number
+}
+
+export const DRACO_DEFAULTS: DracoOptions = {
+  quantizePosition: 14,
+  quantizeNormal: 10,
+  quantizeTexcoord: 12
+}
 
 export interface OptimizeOptions {
   textureFormat: TextureFormat
@@ -22,6 +37,8 @@ export interface OptimizeOptions {
   /** Max width/height in px; textures above it are downscaled. 0 = no cap. */
   maxTextureSize: number
   geometry: GeometryCompression
+  /** Quantization bits, used only when geometry is 'draco'. */
+  draco: DracoOptions
 }
 
 export interface OptimizeStats {
@@ -39,6 +56,22 @@ export interface OptimizeResult {
 }
 
 const CANVAS_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+
+/**
+ * Drop any existing geometry compression so the chosen one is authoritative. The
+ * IO decodes Meshopt/Draco geometry to plain accessors on read but keeps the
+ * extension attached (it would otherwise re-encode on write); disposing it lets us
+ * write uncompressed, or apply a *different* scheme without ending up with both
+ * (which would be invalid). For uncompressed inputs this is a no-op.
+ */
+function clearGeometryCompression(doc: Document): void {
+  for (const extension of doc.getRoot().listExtensionsUsed()) {
+    const name = extension.extensionName
+    if (name === 'EXT_meshopt_compression' || name === 'KHR_draco_mesh_compression') {
+      extension.dispose()
+    }
+  }
+}
 
 function docStats(doc: Document, fileBytes: number): OptimizeStats {
   let triangles = 0
@@ -147,8 +180,19 @@ export async function optimizeModel(
   await applyTextureOverrides(doc, overrides)
   await doc.transform(dedup(), flatten(), join(), weld(), prune())
   await compressTextures(doc, options)
+
+  // Make the geometry toggle authoritative regardless of the input's compression.
+  clearGeometryCompression(doc)
   if (options.geometry === 'meshopt') {
     await doc.transform(meshopt({ encoder: MeshoptEncoder }))
+  } else if (options.geometry === 'draco') {
+    await doc.transform(
+      draco({
+        quantizePosition: options.draco.quantizePosition,
+        quantizeNormal: options.draco.quantizeNormal,
+        quantizeTexcoord: options.draco.quantizeTexcoord
+      })
+    )
   }
 
   const bytes = await io.writeBinary(doc)

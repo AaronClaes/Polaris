@@ -2,6 +2,7 @@ import type { Document } from '@gltf-transform/core'
 import { WebIO } from '@gltf-transform/core'
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions'
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer'
+import { getDracoDecoder, getDracoEncoder } from './draco'
 import type { ModelSource, TextureOverride } from './load-model'
 
 export function mimeFromName(name: string): string {
@@ -30,17 +31,28 @@ export function bytesToBase64(bytes: Uint8Array): string {
 // meshopt-compressed inputs and *preserve* their compression on write: gltf-transform
 // keeps the EXT_meshopt_compression extension on the doc and re-encodes it (no
 // recompress / re-quantize step — re-running meshopt() on already-quantized data
-// drifts badly, but read→write is byte-for-byte faithful). Draco isn't registered —
-// its browser encoder is a separate effort — so Draco inputs are gated out upstream.
+// drifts badly, but read→write is byte-for-byte faithful). The Draco decoder/encoder
+// are registered too (wasm self-hosted in public/draco), which both enables Draco
+// encoding and lets the IO read Draco-compressed inputs. Draco's modules are loaded
+// best-effort: if their wasm fails to load, meshopt + uncompressed still work and
+// only Draco is unavailable.
 let ioPromise: Promise<WebIO> | null = null
 export function getIO(): Promise<WebIO> {
   ioPromise ??= (async (): Promise<WebIO> => {
     await MeshoptDecoder.ready
     await MeshoptEncoder.ready
-    return new WebIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({
+    const dependencies: Record<string, unknown> = {
       'meshopt.decoder': MeshoptDecoder,
       'meshopt.encoder': MeshoptEncoder
-    })
+    }
+    try {
+      const [dracoDecoder, dracoEncoder] = await Promise.all([getDracoDecoder(), getDracoEncoder()])
+      dependencies['draco3d.decoder'] = dracoDecoder
+      dependencies['draco3d.encoder'] = dracoEncoder
+    } catch {
+      // Draco wasm unavailable — leave it unregistered; meshopt/uncompressed unaffected.
+    }
+    return new WebIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(dependencies)
   })()
   return ioPromise
 }
@@ -76,8 +88,8 @@ export async function applyTextureOverrides(
 /**
  * Export the model as a GLB with any replaced textures baked in. The original file
  * is reparsed and only the swapped textures' image bytes are replaced; everything
- * else is written through untouched, and meshopt compression is preserved as-is.
- * Self-contained glTF/GLB only; Draco-compressed input is gated out upstream.
+ * else is written through untouched, and existing Meshopt/Draco compression is
+ * preserved as-is. Self-contained glTF/GLB only (OBJ is gated out upstream).
  */
 export async function exportModel(
   source: ModelSource,

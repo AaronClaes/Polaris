@@ -110,9 +110,6 @@ function revokeOverrides(record: Record<string, TextureOverride>): void {
 function disabledReason(model: LoadedModel | null, verb: string): string | null {
   if (!model) return null
   if (!model.source) return `${verb} is available for glTF/GLB models.`
-  if (model.compression === 'draco') {
-    return 'Draco-compressed models aren’t supported yet (Meshopt and uncompressed are).'
-  }
   return null
 }
 
@@ -377,14 +374,7 @@ export function ModelViewer(): ReactElement {
         setBulkStatus((s) => ({ ...s, [entry.id]: { state: 'done' } }))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        const draco = /draco/i.test(message)
-        setBulkStatus((s) => ({
-          ...s,
-          [entry.id]: {
-            state: draco ? 'skipped' : 'error',
-            detail: draco ? 'Draco not supported' : message
-          }
-        }))
+        setBulkStatus((s) => ({ ...s, [entry.id]: { state: 'error', detail: message } }))
       }
     }
     setBulkRunning(false)
@@ -430,13 +420,7 @@ export function ModelViewer(): ReactElement {
         })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        const draco = /draco/i.test(message)
-        results.push({
-          id: entry.id,
-          name: entry.name,
-          status: draco ? 'skipped' : 'error',
-          detail: draco ? 'Draco not supported' : message
-        })
+        results.push({ id: entry.id, name: entry.name, status: 'error', detail: message })
       }
     }
     setBulkRunning(false)

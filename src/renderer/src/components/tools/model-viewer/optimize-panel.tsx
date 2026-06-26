@@ -8,6 +8,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { cn } from '@/lib/utils'
 import type { ModelSource, TextureOverride } from './load-model'
 import {
+  DRACO_DEFAULTS,
   type GeometryCompression,
   type OptimizeOptions,
   type OptimizeResult,
@@ -50,6 +51,39 @@ function Section({ label, children }: { label: string; children: ReactNode }): R
     <div className="flex flex-col gap-2">
       <span className="font-medium text-muted-foreground text-xs">{label}</span>
       {children}
+    </div>
+  )
+}
+
+/** Label + slider + numeric readout, used for the WebP quality and Draco
+ *  quantization controls. */
+function SliderRow({
+  label,
+  min,
+  max,
+  step = 1,
+  value,
+  onChange
+}: {
+  label: string
+  min: number
+  max: number
+  step?: number
+  value: number
+  onChange: (value: number) => void
+}): ReactElement {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex-1 text-muted-foreground text-xs">{label}</span>
+      <Slider
+        className="w-32"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onValueChange={(next) => onChange(Array.isArray(next) ? next[0] : next)}
+      />
+      <span className="w-8 text-right text-muted-foreground text-xs tabular-nums">{value}</span>
     </div>
   )
 }
@@ -191,6 +225,9 @@ export function OptimizePanel({
   const [quality, setQuality] = useState(80)
   const [maxSize, setMaxSize] = useState(0)
   const [geometry, setGeometry] = useState<GeometryCompression>('meshopt')
+  const [dracoPosition, setDracoPosition] = useState(DRACO_DEFAULTS.quantizePosition)
+  const [dracoNormal, setDracoNormal] = useState(DRACO_DEFAULTS.quantizeNormal)
+  const [dracoTexcoord, setDracoTexcoord] = useState(DRACO_DEFAULTS.quantizeTexcoord)
   const [running, setRunning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [result, setResult] = useState<OptimizeResult | null>(null)
@@ -209,7 +246,12 @@ export function OptimizePanel({
     textureFormat,
     textureQuality: quality / 100,
     maxTextureSize: maxSize,
-    geometry
+    geometry,
+    draco: {
+      quantizePosition: dracoPosition,
+      quantizeNormal: dracoNormal,
+      quantizeTexcoord: dracoTexcoord
+    }
   })
 
   // Any option change makes the last result/preview stale.
@@ -310,22 +352,14 @@ export function OptimizePanel({
               </ToggleGroup>
 
               {textureFormat === 'webp' && (
-                <div className="flex items-center gap-3">
-                  <span className="text-muted-foreground text-xs">Quality</span>
-                  <Slider
-                    className="flex-1"
-                    min={50}
-                    max={100}
-                    step={5}
-                    value={quality}
-                    onValueChange={(value) =>
-                      change<number>(setQuality)(Array.isArray(value) ? value[0] : value)
-                    }
-                  />
-                  <span className="w-8 text-right text-muted-foreground text-xs tabular-nums">
-                    {quality}
-                  </span>
-                </div>
+                <SliderRow
+                  label="Quality"
+                  min={50}
+                  max={100}
+                  step={5}
+                  value={quality}
+                  onChange={change<number>(setQuality)}
+                />
               )}
 
               <div className="flex items-center justify-between gap-3">
@@ -365,12 +399,40 @@ export function OptimizePanel({
                 <ToggleGroupItem value="meshopt" className="flex-1">
                   Meshopt
                 </ToggleGroupItem>
+                <ToggleGroupItem value="draco" className="flex-1">
+                  Draco
+                </ToggleGroupItem>
               </ToggleGroup>
-            </Section>
 
-            <p className="text-muted-foreground text-xs">
-              Cleanup (dedup, prune, weld, flatten, join) is always applied.
-            </p>
+              {geometry === 'draco' && (
+                <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-muted/30 p-2.5">
+                  <span className="text-[11px] text-muted-foreground">
+                    Quantization bits — fewer is smaller but lossier.
+                  </span>
+                  <SliderRow
+                    label="Position"
+                    min={8}
+                    max={16}
+                    value={dracoPosition}
+                    onChange={change<number>(setDracoPosition)}
+                  />
+                  <SliderRow
+                    label="Normal"
+                    min={6}
+                    max={12}
+                    value={dracoNormal}
+                    onChange={change<number>(setDracoNormal)}
+                  />
+                  <SliderRow
+                    label="Texture (UV)"
+                    min={8}
+                    max={14}
+                    value={dracoTexcoord}
+                    onChange={change<number>(setDracoTexcoord)}
+                  />
+                </div>
+              )}
+            </Section>
 
             {isBulk ? (
               <Button onClick={() => void runBulkPreview()} loading={running} disabled={running}>
