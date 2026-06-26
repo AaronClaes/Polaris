@@ -224,7 +224,7 @@ export function OptimizePanel({
   const [textureFormat, setTextureFormat] = useState<TextureFormat>('webp')
   const [quality, setQuality] = useState(80)
   const [maxSize, setMaxSize] = useState(0)
-  const [geometry, setGeometry] = useState<GeometryCompression>('meshopt')
+  const [geometry, setGeometry] = useState<GeometryCompression>('draco')
   const [dracoPosition, setDracoPosition] = useState(DRACO_DEFAULTS.quantizePosition)
   const [dracoNormal, setDracoNormal] = useState(DRACO_DEFAULTS.quantizeNormal)
   const [dracoTexcoord, setDracoTexcoord] = useState(DRACO_DEFAULTS.quantizeTexcoord)
