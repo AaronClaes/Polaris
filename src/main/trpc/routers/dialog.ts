@@ -1,7 +1,11 @@
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { BrowserWindow, dialog } from 'electron'
 import { z } from 'zod'
 import { publicProcedure, router } from '..'
+
+/** Subfolder the model viewer writes its exported/optimized output into. */
+const OUTPUT_DIR = 'polaris-optimized'
 
 export const dialogRouter = router({
   // Open the native folder picker and return the chosen absolute path, or null
@@ -68,5 +72,19 @@ export const dialogRouter = router({
       if (result.canceled || !result.filePath) return null
       await writeFile(result.filePath, Buffer.from(input.base64, 'base64'))
       return result.filePath
+    }),
+
+  // Write one exported/optimized model into `<dir>/polaris-optimized/<name>`,
+  // creating the subfolder if needed and overwriting an existing same-named file.
+  // The renderer picks `dir` once (via pickDirectory) and calls this per file so
+  // bulk runs stream to disk one model at a time. Returns the written path.
+  writeModelFile: publicProcedure
+    .input(z.object({ dir: z.string(), name: z.string(), base64: z.string() }))
+    .mutation(async ({ input }) => {
+      const outDir = join(input.dir, OUTPUT_DIR)
+      await mkdir(outDir, { recursive: true })
+      const path = join(outDir, input.name)
+      await writeFile(path, Buffer.from(input.base64, 'base64'))
+      return path
     })
 })

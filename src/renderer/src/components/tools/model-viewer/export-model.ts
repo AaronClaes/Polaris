@@ -11,6 +11,11 @@ export function mimeFromName(name: string): string {
   return 'image/png'
 }
 
+/** Output filename for a model: original basename with a `.glb` extension. */
+export function glbName(name: string): string {
+  return `${name.replace(/\.(glb|gltf|obj)$/i, '')}.glb`
+}
+
 /** Base64-encode in chunks so a large GLB doesn't blow the call stack. */
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''
