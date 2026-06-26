@@ -5,9 +5,32 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 
 export default defineConfig({
   main: {
-    // better-sqlite3 (native) and other deps stay external; execa is ESM-only and
-    // must be bundled into the CJS main output, so exclude it from externalization.
-    plugins: [externalizeDepsPlugin({ exclude: ['execa'] })]
+    // better-sqlite3 + sharp (native) and draco3dgltf (loads its own wasm via fs)
+    // stay external. execa and the gltf-transform/meshopt stack are ESM-only, so
+    // they're bundled into the CJS main output instead of being require(esm)'d.
+    // sharp, pulled in transitively by @gltf-transform/functions, stays external
+    // as a native module.
+    plugins: [
+      externalizeDepsPlugin({
+        exclude: [
+          'execa',
+          '@gltf-transform/core',
+          '@gltf-transform/extensions',
+          '@gltf-transform/functions',
+          'meshoptimizer'
+        ]
+      })
+    ],
+    build: {
+      rollupOptions: {
+        // The optimize worker runs as a utilityProcess, so it needs its own entry
+        // alongside the main process (→ out/main/optimize.worker.js).
+        input: {
+          index: resolve('src/main/index.ts'),
+          'optimize.worker': resolve('src/main/services/optimize/worker.ts')
+        }
+      }
+    }
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

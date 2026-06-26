@@ -4,6 +4,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { createIPCHandler } from 'electron-trpc-experimental/main'
 import icon from '../../resources/icon.png?asset'
 import { runMigrations } from './db/migrate'
+import { optimizeManager } from './services/optimize/manager'
 import { setIpcHandler } from './tool-windows'
 import { createContext } from './trpc'
 import { appRouter } from './trpc/router'
@@ -75,6 +76,10 @@ app.whenReady().then(() => {
   // Bring the schema up to date before opening any window.
   runMigrations()
 
+  // Reset the optimize service's temp result dir (clears anything orphaned by a
+  // previous crash); the worker itself is spawned lazily on first use.
+  void optimizeManager.init()
+
   createWindow()
 
   app.on('activate', () => {
@@ -84,4 +89,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Tear down the optimize worker and wipe its temp results on quit.
+app.on('will-quit', () => {
+  void optimizeManager.shutdown()
 })

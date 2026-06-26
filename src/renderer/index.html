@@ -4,18 +4,16 @@
     <meta charset="UTF-8" />
     <title>Polaris</title>
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
-         script-src unsafe-eval (covers wasm too): the 3D model viewer's
-         Draco/meshopt decoders are WebAssembly, and the Optimize pipeline's
-         gltf-transform functions pull ndarray-ops, which builds its kernels with
-         new Function() at import time. Safe here — script-src stays 'self' (no
-         inline/remote scripts), the app is local-only, and no user/model data
-         flows into eval. If Optimize ever moves to the main process (planned with
-         KTX2 support), this can drop back to 'wasm-unsafe-eval'. blob: (img/connect)
-         + worker-src blob:: models load from in-memory blob URLs and Draco spins up
-         a blob-sourced worker. All still local — no remote origins added. -->
+         script-src 'wasm-unsafe-eval': the 3D model viewer's Draco/meshopt decoders
+         are WebAssembly. The Optimize/Export pipeline (gltf-transform + its
+         ndarray-ops `new Function()` eval) now runs in the main process, so the
+         renderer no longer needs full 'unsafe-eval'. script-src stays 'self' (no
+         inline/remote scripts), app is local-only. blob: (img/connect) + worker-src
+         blob:: models load from in-memory blob URLs and Draco spins up a
+         blob-sourced worker. All local — no remote origins added. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com; connect-src 'self' blob: data:; worker-src 'self' blob:"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com; connect-src 'self' blob: data:; worker-src 'self' blob:"
     />
   </head>
 

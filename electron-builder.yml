@@ -12,6 +12,9 @@ files:
 asarUnpack:
   - resources/**
   - "**/node_modules/better-sqlite3/**"
+  # sharp + its native libvips binaries must be unpacked to load from the asar.
+  - "**/node_modules/sharp/**"
+  - "**/node_modules/@img/**"
 extraResources:
   - from: drizzle
     to: drizzle

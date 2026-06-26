@@ -10,6 +10,7 @@ import { gmailRouter } from './routers/gmail'
 import { googleRouter } from './routers/google'
 import { groupsRouter } from './routers/groups'
 import { notesRouter } from './routers/notes'
+import { optimizeRouter } from './routers/optimize'
 import { projectsRouter } from './routers/projects'
 import { settingsRouter } from './routers/settings'
 import { tagsRouter } from './routers/tags'
@@ -34,7 +35,8 @@ export const appRouter = router({
   emailContacts: emailContactsRouter,
   emailBlocklist: emailBlocklistRouter,
   trackedItems: trackedItemsRouter,
-  tools: toolsRouter
+  tools: toolsRouter,
+  optimize: optimizeRouter
 })
 
 // Consumed type-only by the renderer for a fully typed IPC client.

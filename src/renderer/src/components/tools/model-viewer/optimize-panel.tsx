@@ -5,17 +5,15 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { cn } from '@/lib/utils'
-import type { ModelSource, TextureOverride } from './load-model'
 import {
   DRACO_DEFAULTS,
   type GeometryCompression,
   type OptimizeOptions,
   type OptimizeResult,
   type OptimizeStats,
-  optimizeModel,
   type TextureFormat
-} from './optimize-model'
+} from '@/lib/optimize'
+import { cn } from '@/lib/utils'
 
 const SIZE_OPTIONS: { value: number; label: string }[] = [
   { value: 0, label: 'Original' },
@@ -192,17 +190,16 @@ function BulkItemRow({ item }: { item: BulkItemResult }): ReactElement {
 
 /**
  * A panel (scoped `absolute` aside inside the viewer, like the texture panel) for
- * optimizing models: WebP re-encode / resize for textures, optional Meshopt
- * geometry compression, with a lossless cleanup pass always applied. Both modes
- * follow the same flow — set options, run a preview, then Load into viewer or
- * download. `single` previews the active model's before/after; `bulk` previews a
- * per-model list across the whole rail.
+ * optimizing models: WebP re-encode / resize for textures, optional Meshopt/Draco
+ * geometry compression, with a lossless cleanup pass always applied. The work runs
+ * in the main process — the panel gathers options and calls the parent's handlers,
+ * which return a result id + stats (the bytes stay in main). `single` previews the
+ * active model's before/after; `bulk` previews a per-model list across the rail.
  */
 export function OptimizePanel({
   mode,
   count = 0,
-  source,
-  overrides,
+  onOptimize,
   onLoadResult,
   onSave,
   onOptimizeAll,
@@ -212,10 +209,9 @@ export function OptimizePanel({
 }: {
   mode: 'single' | 'bulk'
   count?: number
-  source?: ModelSource
-  overrides?: Record<string, TextureOverride>
-  onLoadResult?: (bytes: Uint8Array) => void
-  onSave?: (bytes: Uint8Array) => Promise<void>
+  onOptimize?: (options: OptimizeOptions) => Promise<OptimizeResult>
+  onLoadResult?: (id: string) => void
+  onSave?: (id: string) => Promise<void>
   onOptimizeAll?: (options: OptimizeOptions) => Promise<BulkItemResult[]>
   onLoadAll?: () => void
   onSaveAll?: () => Promise<void>
@@ -264,11 +260,11 @@ export function OptimizePanel({
     }
 
   const run = async (): Promise<void> => {
-    if (!source) return
+    if (!onOptimize) return
     setRunning(true)
     setError(null)
     try {
-      setResult(await optimizeModel(source, overrides ?? {}, options()))
+      setResult(await onOptimize(options()))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to optimize the model.')
     } finally {
@@ -280,7 +276,7 @@ export function OptimizePanel({
     if (!result || !onSave) return
     setSaving(true)
     try {
-      await onSave(result.bytes)
+      await onSave(result.id)
     } finally {
       setSaving(false)
     }
@@ -490,7 +486,7 @@ export function OptimizePanel({
                     variant="outline"
                     size="sm"
                     className="flex-1"
-                    onClick={() => onLoadResult?.(result.bytes)}
+                    onClick={() => onLoadResult?.(result.id)}
                   >
                     Load into viewer
                   </Button>

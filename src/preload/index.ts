@@ -1,5 +1,5 @@
 import { electronAPI } from '@electron-toolkit/preload'
-import { contextBridge } from 'electron'
+import { contextBridge, webUtils } from 'electron'
 import { exposeElectronTRPC } from 'electron-trpc-experimental/preload'
 
 // Expose the electron-trpc bridge (window.electronTRPC) the renderer link reads.
@@ -7,9 +7,13 @@ process.once('loaded', () => {
   exposeElectronTRPC()
 })
 
-// Polaris-specific renderer API. Empty for now — add methods here as the
-// renderer needs to talk to the main process outside of tRPC.
-const api = {}
+// Polaris-specific renderer API (outside of tRPC).
+const api = {
+  // Resolve a dropped/opened File to its absolute path so the main process can read
+  // it directly. webUtils.getPathForFile is the supported replacement for the
+  // removed File.path; it must run here in the preload (it needs the File object).
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file)
+}
 
 export type PolarisApi = typeof api
 
