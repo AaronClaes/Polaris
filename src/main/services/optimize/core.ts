@@ -1,11 +1,12 @@
 import { stat } from 'node:fs/promises'
 import { type Document, NodeIO } from '@gltf-transform/core'
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions'
+import { ALL_EXTENSIONS, KHRTextureBasisu } from '@gltf-transform/extensions'
 import {
   dedup,
   draco,
   flatten,
   join,
+  listTextureSlots,
   meshopt,
   prune,
   textureCompress,
@@ -122,6 +123,11 @@ async function compressTextures(doc: Document, options: OptimizeOptions): Promis
   const resize: [number, number] | undefined = cap > 0 ? [cap, cap] : undefined
   const format = options.textureFormat
 
+  if (format === 'ktx2') {
+    await compressTexturesKtx2(doc, options, resize)
+    return
+  }
+
   if (format === 'keep') {
     if (resize) await doc.transform(textureCompress({ encoder: sharp, resize }))
     return
@@ -151,6 +157,80 @@ async function compressTextures(doc: Document, options: OptimizeOptions): Promis
       slots: DATA_SLOTS
     })
   )
+}
+
+/** Decode any sharp-readable image to raw RGBA — the decoder the Basis encoder
+ *  needs in Node (it has no browser ImageBitmap). */
+async function decodeRgba(
+  buffer: Uint8Array
+): Promise<{ width: number; height: number; data: Uint8Array }> {
+  const { data, info } = await sharp(Buffer.from(buffer))
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  return { width: info.width, height: info.height, data: new Uint8Array(data) }
+}
+
+/**
+ * Compress textures to KTX2 (KHR_texture_basisu) — GPU-compressed, so they stay
+ * compressed in VRAM, unlike WebP/AVIF which decode to raw RGBA on the GPU. Color
+ * maps use ETC1S (sRGB) at the chosen quality; data maps use UASTC (linear,
+ * normal-mode, Zstd-supercompressed) to keep normal/AO/metal-rough precision —
+ * mirroring the color-vs-data split of the other formats. Mipmaps are generated.
+ *
+ * The Basis encoder is the external `ktx2-encoder` WASM (self-hosting its own wasm),
+ * loaded via dynamic import so it stays a runtime dependency, not bundled. Only
+ * jpeg/png/webp sources are supported by the encoder; anything else (incl. already
+ * KTX2) is left as-is. sharp resizes first since the encoder can't.
+ */
+async function compressTexturesKtx2(
+  doc: Document,
+  options: OptimizeOptions,
+  resize: [number, number] | undefined
+): Promise<void> {
+  if (resize) await doc.transform(textureCompress({ encoder: sharp, resize }))
+
+  const { encodeToKTX2 } = await import('ktx2-encoder')
+  const quality = Math.max(1, Math.min(255, Math.round(options.textureQuality * 255)))
+  const encodable = new Set(['image/jpeg', 'image/png', 'image/webp'])
+  let converted = false
+
+  for (const texture of doc.getRoot().listTextures()) {
+    if (!encodable.has(texture.getMimeType())) continue
+    const image = texture.getImage()
+    if (!image) continue
+    const slots = listTextureSlots(texture).join(' ')
+    const isData = DATA_SLOTS.test(slots)
+    const isColor = COLOR_SLOTS.test(slots)
+    if (!isData && !isColor) continue
+
+    const bytes = isData
+      ? await encodeToKTX2(image, {
+          imageDecoder: decodeRgba,
+          isKTX2File: true,
+          isUASTC: true,
+          uastcLDRQualityLevel: 2,
+          enableRDO: true,
+          needSupercompression: true,
+          isNormalMap: true,
+          isPerceptual: false,
+          isSetKTX2SRGBTransferFunc: false,
+          generateMipmap: true
+        })
+      : await encodeToKTX2(image, {
+          imageDecoder: decodeRgba,
+          isKTX2File: true,
+          isUASTC: false,
+          qualityLevel: quality,
+          isPerceptual: true,
+          isSetKTX2SRGBTransferFunc: true,
+          generateMipmap: true
+        })
+    texture.setImage(new Uint8Array(bytes)).setMimeType('image/ktx2')
+    converted = true
+  }
+
+  if (converted) doc.createExtension(KHRTextureBasisu).setRequired(true)
 }
 
 export interface OptimizeOutput {

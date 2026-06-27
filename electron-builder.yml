@@ -15,6 +15,8 @@ asarUnpack:
   # sharp + its native libvips binaries must be unpacked to load from the asar.
   - "**/node_modules/sharp/**"
   - "**/node_modules/@img/**"
+  # ktx2-encoder loads its basis_encoder.wasm from disk via import.meta.url.
+  - "**/node_modules/ktx2-encoder/**"
 extraResources:
   - from: drizzle
     to: drizzle

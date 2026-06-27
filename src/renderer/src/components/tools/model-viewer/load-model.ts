@@ -3,6 +3,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 
@@ -134,10 +135,28 @@ function getDracoLoader(): DRACOLoader {
   return dracoLoader
 }
 
+// One shared KTX2 loader for KHR_texture_basisu (Basis/ETC1S/UASTC) textures —
+// the transcoder is self-hosted (see public/basis). detectSupport needs a WebGL
+// renderer to pick a GPU-supported transcode target; a throwaway one on this
+// machine reports the same formats as R3F's canvas, so we create it, detect, and
+// dispose immediately (KTX2Loader keeps the result, not the renderer).
+let ktx2Loader: KTX2Loader | null = null
+function getKtx2Loader(): KTX2Loader {
+  if (!ktx2Loader) {
+    ktx2Loader = new KTX2Loader()
+    ktx2Loader.setTranscoderPath(new URL('basis/', document.baseURI).href)
+    const probe = new THREE.WebGLRenderer()
+    ktx2Loader.detectSupport(probe)
+    probe.dispose()
+  }
+  return ktx2Loader
+}
+
 function loadGltf(url: string, manager: THREE.LoadingManager): Promise<GLTF> {
   const loader = new GLTFLoader(manager)
   loader.setDRACOLoader(getDracoLoader())
   loader.setMeshoptDecoder(MeshoptDecoder)
+  loader.setKTX2Loader(getKtx2Loader())
   return new Promise((resolve, reject) => {
     loader.load(url, resolve, undefined, (error) =>
       reject(error instanceof Error ? error : new Error('Failed to load glTF.'))

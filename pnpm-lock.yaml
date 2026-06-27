@@ -104,6 +104,9 @@ importers:
       idb-keyval:
         specifier: ^6.2.5
         version: 6.2.5
+      ktx2-encoder:
+        specifier: ^0.5.3
+        version: 0.5.3
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
@@ -2940,8 +2943,14 @@ packages:
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
 
+  ktx-parse@0.7.1:
+    resolution: {integrity: sha512-FeA3g56ksdFNwjXJJsc1CCc7co+AJYDp6ipIp878zZ2bU8kWROatLYf39TQEd4/XRSUvBXovQ8gaVKWPXsCLEQ==}
+
   ktx-parse@1.1.0:
     resolution: {integrity: sha512-mKp3y+FaYgR7mXWAbyyzpa/r1zDWeaunH+INJO4fou3hb45XuNSwar+7llrRyvpMWafxSIi99RNFJ05MHedaJQ==}
+
+  ktx2-encoder@0.5.3:
+    resolution: {integrity: sha512-VkoccU/EHSf1690w6znOhp2Hz4UJuKMnfuZhtaymVYge3okU64myyZ/v1Wui926rDuAoi1LfVNqilKm/k4nlqQ==}
 
   lazy-val@1.0.5:
     resolution: {integrity: sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q==}
@@ -6565,7 +6574,13 @@ snapshots:
     dependencies:
       json-buffer: 3.0.1
 
+  ktx-parse@0.7.1: {}
+
   ktx-parse@1.1.0: {}
+
+  ktx2-encoder@0.5.3:
+    dependencies:
+      ktx-parse: 0.7.1
 
   lazy-val@1.0.5: {}
 

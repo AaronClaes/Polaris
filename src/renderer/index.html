@@ -5,15 +5,17 @@
     <title>Polaris</title>
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
          script-src 'wasm-unsafe-eval': the 3D model viewer's Draco/meshopt decoders
-         are WebAssembly. The Optimize/Export pipeline (gltf-transform + its
-         ndarray-ops `new Function()` eval) now runs in the main process, so the
-         renderer no longer needs full 'unsafe-eval'. script-src stays 'self' (no
+         are WebAssembly. 'unsafe-eval' is required by the KTX2/Basis transcoder
+         (three's KTX2Loader → basis_transcoder, Emscripten embind) which does
+         runtime codegen inside its blob worker — 'wasm-unsafe-eval' alone throws an
+         EvalError when a KTX2-textured model loads. The Optimize/Export *encode*
+         pipeline runs in the main process, not here. script-src stays 'self' (no
          inline/remote scripts), app is local-only. blob: (img/connect) + worker-src
-         blob:: models load from in-memory blob URLs and Draco spins up a
-         blob-sourced worker. All local — no remote origins added. -->
+         blob:: models load from in-memory blob URLs and Draco/KTX2 spin up
+         blob-sourced workers. All local — no remote origins added. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com; connect-src 'self' blob: data:; worker-src 'self' blob:"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://avatars.githubusercontent.com; connect-src 'self' blob: data:; worker-src 'self' blob:"
     />
   </head>
 

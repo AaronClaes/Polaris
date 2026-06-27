@@ -4,7 +4,7 @@ import { z } from 'zod'
 // inputs with these; the renderer infers the option/stat shapes through tRPC, so
 // there's no separate renderer-side copy to keep in sync.
 
-export const textureFormatSchema = z.enum(['keep', 'webp', 'avif', 'png', 'jpeg'])
+export const textureFormatSchema = z.enum(['keep', 'webp', 'avif', 'png', 'jpeg', 'ktx2'])
 export const geometryCompressionSchema = z.enum(['none', 'meshopt', 'draco'])
 
 export const dracoOptionsSchema = z.object({

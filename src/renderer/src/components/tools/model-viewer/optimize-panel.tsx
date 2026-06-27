@@ -28,12 +28,13 @@ const FORMAT_OPTIONS: { value: TextureFormat; label: string }[] = [
   { value: 'webp', label: 'WebP' },
   { value: 'avif', label: 'AVIF' },
   { value: 'png', label: 'PNG' },
-  { value: 'jpeg', label: 'JPEG' }
+  { value: 'jpeg', label: 'JPEG' },
+  { value: 'ktx2', label: 'KTX2 (GPU)' }
 ]
 
 // Lossy formats expose the quality slider; PNG is lossless and 'keep' re-encodes
-// nothing, so neither shows it.
-const LOSSY_FORMATS: TextureFormat[] = ['webp', 'avif', 'jpeg']
+// nothing, so neither shows it. KTX2's slider drives ETC1S quality for color maps.
+const LOSSY_FORMATS: TextureFormat[] = ['webp', 'avif', 'jpeg', 'ktx2']
 
 /**
  * One model in the optimize panel's preview list. The same shape backs the single
@@ -357,6 +358,13 @@ export function OptimizePanel({
               {textureFormat === 'jpeg' && (
                 <p className="text-[11px] text-muted-foreground">
                   JPEG has no transparency or lossless mode — best for opaque color maps.
+                </p>
+              )}
+
+              {textureFormat === 'ktx2' && (
+                <p className="text-[11px] text-muted-foreground">
+                  GPU-compressed (Basis): stays compressed in VRAM. Often larger on disk than WebP,
+                  but far lighter on GPU memory. Color uses ETC1S, data maps UASTC.
                 </p>
               )}
 
