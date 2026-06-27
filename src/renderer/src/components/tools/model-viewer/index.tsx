@@ -1,6 +1,7 @@
 import { Canvas } from '@react-three/fiber'
 import {
   IconChevronRight,
+  IconCircleCheck,
   IconCube,
   IconDownload,
   IconFocusCentered,
@@ -13,7 +14,7 @@ import {
 import { type ReactElement, type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import type { ModelInput, OptimizeOptions, OptimizeResult } from '@/lib/optimize'
+import type { ModelInput, OptimizeOptions, OptimizeStats } from '@/lib/optimize'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import {
@@ -26,12 +27,20 @@ import {
 } from './load-model'
 import { base64ToBytes, bytesToBase64, glbName, mimeFromName } from './model-files'
 import { type EntryStatus, type ModelEntry, ModelRail } from './model-rail'
-import { type BulkItemResult, OptimizePanel } from './optimize-panel'
+import { OptimizePanel, type OptimizeRow } from './optimize-panel'
 import { LIGHTING_PRESETS, type LightingPreset, ViewerScene } from './scene'
 import { TexturePanel } from './texture-panel'
 
 const ACCEPT = '.glb,.gltf,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.hdr'
 const MAIN_EXTENSIONS = ['glb', 'gltf', 'obj']
+
+/** The latest optimize preview for an entry: the main temp result id (the bytes
+ *  live there, not in the renderer) plus its before/after stats. */
+interface OptimizeResultRecord {
+  resultId: string
+  before: OptimizeStats
+  after: OptimizeStats
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -45,6 +54,15 @@ function fileExt(name: string): string {
 
 function formatBadge(ext: string): string {
   return ext === 'glb' ? 'GLB' : ext === 'gltf' ? 'glTF' : 'OBJ'
+}
+
+/** Return a copy of `record` without the given keys, or `record` unchanged when
+ *  none of them are present (so callers don't trigger needless re-renders). */
+function omit<T>(record: Record<string, T>, keys: string[]): Record<string, T> {
+  if (!keys.some((key) => key in record)) return record
+  const next = { ...record }
+  for (const key of keys) delete next[key]
+  return next
 }
 
 /** Split a dropped/opened file set into one entry per model file; non-model files
@@ -115,9 +133,12 @@ function disabledReason(model: LoadedModel | null, verb: string): string | null 
 /**
  * The 3D model viewer. Drop in one or many glTF/GLB/OBJ files: a collapsible left
  * rail lists them (macOS-Preview style) and the right pane renders the active one.
- * Only the active model is GPU-resident; cycling loads on demand. Export and
- * Optimize work individually (active model) or in bulk over the whole list, writing
- * into a chosen folder. Files load to in-memory blob URLs (no disk access).
+ * Only the active model is GPU-resident; cycling loads on demand.
+ *
+ * Optimize and Export are one flow scoped by an entry-id list — "this model" is the
+ * single-item case of "all models". The `entries` list is the single source of
+ * truth: a result loaded into the viewer rewrites its entry, so the rail, the live
+ * model, and a later export all agree. Files load to in-memory blob URLs.
  */
 export function ModelViewer(): ReactElement {
   const [entries, setEntries] = useState<ModelEntry[]>([])
@@ -128,13 +149,21 @@ export function ModelViewer(): ReactElement {
   // a spinner, so quick model switches don't flash an overlay over the chrome.
   const [showSpinner, setShowSpinner] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [exporting, setExporting] = useState(false)
 
   const [railCollapsed, setRailCollapsed] = useState(true)
-  const [bulkStatus, setBulkStatus] = useState<Record<string, EntryStatus>>({})
-  const [bulkRunning, setBulkRunning] = useState(false)
-  const [savedSummary, setSavedSummary] = useState<string | null>(null)
+  // One operation at a time: disables the rail and the top-bar actions while an
+  // optimize/export/save is in flight (single or bulk — same flag).
+  const [busy, setBusy] = useState(false)
+  // Per-entry status for the rail badge: a running spinner during an op, a checkmark
+  // after a successful export/save, an error/skipped marker otherwise.
+  const [status, setStatus] = useState<Record<string, EntryStatus>>({})
+  // Per-entry optimize preview (keyed by entry id). The bytes live in main temp
+  // files; we hold only the result id + stats, freed on supersede/close/load.
+  const [results, setResults] = useState<Record<string, OptimizeResultRecord>>({})
+  // The optimize panel's scope: which entries it operates on (null = closed).
+  const [optimizeScope, setOptimizeScope] = useState<{ ids: string[] } | null>(null)
 
   const [lighting, setLighting] = useState<LightingPreset>('studio')
   const [grid, setGrid] = useState(true)
@@ -142,24 +171,20 @@ export function ModelViewer(): ReactElement {
   const [wireframe, setWireframe] = useState(false)
   const [fitNonce, setFitNonce] = useState(0)
   const [texturesOpen, setTexturesOpen] = useState(false)
-  const [optimizeMode, setOptimizeMode] = useState<'single' | 'bulk' | null>(null)
   // Per-texture replacement overrides (keyed by texture id): the new display
   // fields shown in the panel while the live texture is swapped in the scene.
   const [overrides, setOverrides] = useState<Record<string, TextureOverride>>({})
 
   const inputRef = useRef<HTMLInputElement>(null)
   const modelRef = useRef<LoadedModel | null>(null)
-  // Bulk-optimize previews: entry id → main result id + name + file sizes. The
-  // bytes live in main temp files; we hold only the ids (freed on supersede/close).
-  const bulkResultsRef = useRef<
-    Map<string, { id: string; name: string; before: number; after: number }>
-  >(new Map())
-  // The single-optimize preview's main result id, freed when superseded or closed.
-  const singleResultIdRef = useRef<string | null>(null)
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
   const overridesRef = useRef(overrides)
   overridesRef.current = overrides
+  // Mirror of `results` for async handlers (dispose/load/save read the current ids
+  // without depending on a stale render closure).
+  const resultsRef = useRef(results)
+  resultsRef.current = results
 
   const pickDirectory = trpc.dialog.pickDirectory.useMutation()
   const optimizeRun = trpc.optimize.run.useMutation()
@@ -195,16 +220,24 @@ export function ModelViewer(): ReactElement {
     return out
   }
 
-  const disposeBulkResults = async (): Promise<void> => {
-    const ids = [...bulkResultsRef.current.values()].map((result) => result.id)
-    bulkResultsRef.current = new Map()
-    if (ids.length > 0) await optimizeDispose.mutateAsync({ ids }).catch(() => {})
-  }
+  // Texture replacements apply to the active model only; other entries get none.
+  const overridesForEntry = (
+    entry: ModelEntry
+  ): Promise<{ index: number; base64: string; mime: string }[]> =>
+    entry.id === activeIdRef.current ? toOverrideInputs(overridesRef.current) : Promise.resolve([])
 
-  const disposeSingleResult = async (): Promise<void> => {
-    const id = singleResultIdRef.current
-    singleResultIdRef.current = null
-    if (id) await optimizeDispose.mutateAsync({ ids: [id] }).catch(() => {})
+  const setEntryStatus = (id: string, state: EntryStatus): void =>
+    setStatus((prev) => ({ ...prev, [id]: state }))
+
+  const clearStatus = (ids: string[]): void => setStatus((prev) => omit(prev, ids))
+
+  // Free the main temp results for these entries and forget them.
+  const disposeResults = async (ids: string[]): Promise<void> => {
+    const present = ids.filter((id) => resultsRef.current[id])
+    if (present.length === 0) return
+    const resultIds = present.map((id) => resultsRef.current[id].resultId)
+    setResults((prev) => omit(prev, present))
+    await optimizeDispose.mutateAsync({ ids: resultIds }).catch(() => {})
   }
 
   // Free the live model's GPU resources and replacement previews on unmount.
@@ -227,13 +260,20 @@ export function ModelViewer(): ReactElement {
     return () => clearTimeout(timer)
   }, [loading])
 
+  // Auto-dismiss the success notice.
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 4000)
+    return () => clearTimeout(timer)
+  }, [notice])
+
   // Load a file set into the viewer, disposing the previous live model and
   // resetting per-model UI. View settings (toggles/lighting) persist; auto-fits.
   const loadIntoViewer = async (files: File[]): Promise<void> => {
     setLoading(true)
     setError(null)
     setTexturesOpen(false)
-    setOptimizeMode(null)
+    setOptimizeScope(null)
     try {
       const next = await loadModel(files)
       modelRef.current?.dispose()
@@ -267,7 +307,8 @@ export function ModelViewer(): ReactElement {
       setError('No .glb, .gltf, or .obj file found.')
       return
     }
-    setSavedSummary(null)
+    setNotice(null)
+    setStatus({})
     setEntries((prev) => {
       const merged = [...prev, ...next]
       if (merged.length > 1) setRailCollapsed(false)
@@ -287,15 +328,14 @@ export function ModelViewer(): ReactElement {
   const clearAll = (): void => {
     modelRef.current?.dispose()
     modelRef.current = null
-    void disposeBulkResults()
-    void disposeSingleResult()
+    void disposeResults(Object.keys(resultsRef.current))
     setEntries([])
     setActiveId(null)
     setModel(null)
-    setBulkStatus({})
-    setSavedSummary(null)
+    setStatus({})
+    setNotice(null)
     setTexturesOpen(false)
-    setOptimizeMode(null)
+    setOptimizeScope(null)
     setError(null)
     setRailCollapsed(true)
     setOverrides((prev) => {
@@ -309,11 +349,8 @@ export function ModelViewer(): ReactElement {
     if (index === -1) return
     const rest = entries.filter((entry) => entry.id !== id)
     setEntries(rest)
-    setBulkStatus((prev) => {
-      const next = { ...prev }
-      delete next[id]
-      return next
-    })
+    void disposeResults([id])
+    clearStatus([id])
     if (id !== activeId) return
     const neighbor = rest[index] ?? rest[index - 1] ?? null
     if (neighbor) {
@@ -352,149 +389,153 @@ export function ModelViewer(): ReactElement {
     })
   }
 
-  // Individual export of the active model (bakes in any texture replacements).
-  // Main produces a temp result, we copy it into the folder, then free the temp.
-  const exportActive = async (): Promise<void> => {
-    if (!model?.source) return
-    const dir = await pickDirectory.mutateAsync(undefined)
-    if (!dir) return
-    setExporting(true)
+  // The entries an optimize/export targets: a single id, or every model in the list
+  // (OBJ included so the panel/rail can mark it skipped).
+  const allIds = (): string[] => entries.map((entry) => entry.id)
+
+  // Open the optimize panel scoped to the given entries (clears any stale preview).
+  const openOptimize = (ids: string[]): void => {
+    void disposeResults(ids)
+    clearStatus(ids)
+    setNotice(null)
+    setOptimizeScope({ ids })
+  }
+
+  const closeOptimize = (): void => {
+    const ids = optimizeScope?.ids ?? []
+    setOptimizeScope(null)
+    void disposeResults(ids)
+    clearStatus(ids)
+  }
+
+  // An option changed: drop the stale previews for the open scope.
+  const invalidateScope = (): void => {
+    if (!optimizeScope) return
+    void disposeResults(optimizeScope.ids)
+    clearStatus(optimizeScope.ids)
+  }
+
+  // Optimize each entry in `ids`, storing a per-entry preview. Single = [activeId];
+  // all = every entry id (OBJ is marked skipped). Supersedes any prior previews.
+  const optimize = async (ids: string[], options: OptimizeOptions): Promise<void> => {
+    setBusy(true)
     setError(null)
-    try {
-      const source = await toSource(model.source.file, model.source.kind)
-      const overrideInputs = await toOverrideInputs(overrides)
-      const { id } = await optimizeExport.mutateAsync({ source, overrides: overrideInputs })
-      await optimizeWrite.mutateAsync({ id, dir, name: glbName(model.source.file.name) })
-      await optimizeDispose.mutateAsync({ ids: [id] })
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to export the model.')
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  // Single Optimize: run in main, returning a result id + stats (bytes stay in main).
-  const optimizeActive = async (options: OptimizeOptions): Promise<OptimizeResult> => {
-    if (!model?.source) throw new Error('No model is loaded.')
-    await disposeSingleResult()
-    const source = await toSource(model.source.file, model.source.kind)
-    const overrideInputs = await toOverrideInputs(overrides)
-    const result = await optimizeRun.mutateAsync({ source, overrides: overrideInputs, options })
-    singleResultIdRef.current = result.id
-    return result
-  }
-
-  // Save the single-optimize result to a folder (copied from its main temp file).
-  const saveOptimized = async (id: string): Promise<void> => {
-    if (!model?.source) return
-    const dir = await pickDirectory.mutateAsync(undefined)
-    if (!dir) return
-    await optimizeWrite.mutateAsync({ id, dir, name: glbName(model.source.file.name) })
-  }
-
-  // Single Load into viewer: pull the optimized bytes back, swap the live preview,
-  // then free the temp result (the bytes now live in the renderer's loaded model).
-  const loadOptimized = async (id: string): Promise<void> => {
-    const { base64 } = await optimizeRead.mutateAsync({ id })
-    const name = glbName(model?.source?.file.name ?? 'model')
-    const file = new File([base64ToBytes(base64) as BlobPart], name, { type: 'model/gltf-binary' })
-    await loadIntoViewer([file])
-    if (singleResultIdRef.current === id) singleResultIdRef.current = null
-    await optimizeDispose.mutateAsync({ ids: [id] }).catch(() => {})
-  }
-
-  // Export all: faithful re-export written straight to a chosen folder (nothing to
-  // preview). Per-row status shows in the rail; OBJ/Draco are skipped.
-  const exportAll = async (): Promise<void> => {
-    const dir = await pickDirectory.mutateAsync(undefined)
-    if (!dir) return
-    setBulkRunning(true)
-    setError(null)
-    setBulkStatus({})
-    setSavedSummary(null)
-    for (const entry of entries) {
-      if (entry.kind === 'obj') {
-        setBulkStatus((s) => ({
-          ...s,
-          [entry.id]: { state: 'skipped', detail: 'OBJ not supported' }
+    setNotice(null)
+    await disposeResults(ids)
+    clearStatus(ids)
+    const list = entries
+    for (const id of ids) {
+      const entry = list.find((e) => e.id === id)
+      if (!entry) continue
+      if (entry.kind === 'obj') continue
+      setEntryStatus(id, { state: 'running' })
+      try {
+        const source = await toSource(entry.files[0], entry.kind as 'glb' | 'gltf')
+        const overrideInputs = await overridesForEntry(entry)
+        const result = await optimizeRun.mutateAsync({ source, overrides: overrideInputs, options })
+        setResults((prev) => ({
+          ...prev,
+          [id]: { resultId: result.id, before: result.before, after: result.after }
         }))
-        continue
-      }
-      setBulkStatus((s) => ({ ...s, [entry.id]: { state: 'running' } }))
-      try {
-        const source = await toSource(entry.files[0], entry.kind as 'glb' | 'gltf')
-        const { id } = await optimizeExport.mutateAsync({ source, overrides: [] })
-        await optimizeWrite.mutateAsync({ id, dir, name: glbName(entry.name) })
-        await optimizeDispose.mutateAsync({ ids: [id] })
-        setBulkStatus((s) => ({ ...s, [entry.id]: { state: 'done' } }))
+        clearStatus([id])
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        setBulkStatus((s) => ({ ...s, [entry.id]: { state: 'error', detail: message } }))
+        setEntryStatus(id, {
+          state: 'error',
+          detail: err instanceof Error ? err.message : String(err)
+        })
       }
     }
-    setBulkRunning(false)
+    setBusy(false)
   }
 
-  // Optimize all: run each in main and return a per-model preview (shown in the
-  // panel, like the single flow). Result ids are held for Load into / Download.
-  const optimizeAllPreview = async (options: OptimizeOptions): Promise<BulkItemResult[]> => {
-    setBulkRunning(true)
+  // Export each entry in `ids` straight to a chosen folder (faithful GLB, texture
+  // replacements baked in for the active model). Per-entry checkmarks in the rail.
+  const exportEntries = async (ids: string[]): Promise<void> => {
+    const dir = await pickDirectory.mutateAsync(undefined)
+    if (!dir) return
+    setBusy(true)
     setError(null)
-    setBulkStatus({})
-    setSavedSummary(null)
-    await disposeBulkResults()
-    const map = new Map<string, { id: string; name: string; before: number; after: number }>()
-    const results: BulkItemResult[] = []
-    for (const entry of entries) {
+    setNotice(null)
+    clearStatus(ids)
+    const list = entries
+    let saved = 0
+    for (const id of ids) {
+      const entry = list.find((e) => e.id === id)
+      if (!entry) continue
       if (entry.kind === 'obj') {
-        results.push({
-          id: entry.id,
-          name: entry.name,
-          status: 'skipped',
-          detail: 'OBJ not supported'
-        })
+        setEntryStatus(id, { state: 'skipped', detail: 'OBJ not supported' })
         continue
       }
+      setEntryStatus(id, { state: 'running' })
       try {
         const source = await toSource(entry.files[0], entry.kind as 'glb' | 'gltf')
-        const result = await optimizeRun.mutateAsync({ source, overrides: [], options })
-        map.set(entry.id, {
-          id: result.id,
-          name: entry.name,
-          before: result.before.fileBytes,
-          after: result.after.fileBytes
+        const overrideInputs = await overridesForEntry(entry)
+        const { id: resultId } = await optimizeExport.mutateAsync({
+          source,
+          overrides: overrideInputs
         })
-        results.push({
-          id: entry.id,
-          name: entry.name,
-          status: 'done',
-          before: result.before,
-          after: result.after
-        })
+        await optimizeWrite.mutateAsync({ id: resultId, dir, name: glbName(entry.name) })
+        await optimizeDispose.mutateAsync({ ids: [resultId] }).catch(() => {})
+        setEntryStatus(id, { state: 'done' })
+        saved++
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        results.push({ id: entry.id, name: entry.name, status: 'error', detail: message })
+        setEntryStatus(id, {
+          state: 'error',
+          detail: err instanceof Error ? err.message : String(err)
+        })
       }
     }
-    bulkResultsRef.current = map
-    setBulkRunning(false)
-    return results
+    setBusy(false)
+    if (saved > 0) setNotice(saved === 1 ? 'Exported model' : `Exported ${saved} models`)
   }
 
-  // Bulk Load into viewer: pull each optimized result's bytes back, replace the
-  // entries with them, reload the active model, then free the main temp results.
-  const loadAllOptimized = async (): Promise<void> => {
-    const map = bulkResultsRef.current
-    if (map.size === 0) return
+  // Save the optimize previews for `ids` into a chosen folder (copied from main
+  // temp). Checkmarks in the rail plus a notice with the total saved.
+  const saveResults = async (ids: string[]): Promise<void> => {
+    const dir = await pickDirectory.mutateAsync(undefined)
+    if (!dir) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    const list = entries
+    let saved = 0
+    let count = 0
+    try {
+      for (const id of ids) {
+        const result = resultsRef.current[id]
+        const entry = list.find((e) => e.id === id)
+        if (!result || !entry) continue
+        await optimizeWrite.mutateAsync({ id: result.resultId, dir, name: glbName(entry.name) })
+        setEntryStatus(id, { state: 'done' })
+        saved += result.before.fileBytes - result.after.fileBytes
+        count++
+      }
+      if (count > 0) setNotice(saved > 0 ? `Saved ${formatBytes(saved)}` : 'Saved')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save the models.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Load the optimize previews for `ids` into the viewer: read each result's bytes,
+  // replace that entry's files (so the rail size + a later export use the optimized
+  // GLB), reload the active model, then free the temp results.
+  const loadResults = async (ids: string[]): Promise<void> => {
+    const list = entries
     const filesByEntry = new Map<string, File>()
-    for (const [entryId, result] of map) {
-      const { base64 } = await optimizeRead.mutateAsync({ id: result.id })
-      const name = glbName(result.name)
+    for (const id of ids) {
+      const result = resultsRef.current[id]
+      const entry = list.find((e) => e.id === id)
+      if (!result || !entry) continue
+      const { base64 } = await optimizeRead.mutateAsync({ id: result.resultId })
+      const name = glbName(entry.name)
       filesByEntry.set(
-        entryId,
+        id,
         new File([base64ToBytes(base64) as BlobPart], name, { type: 'model/gltf-binary' })
       )
     }
+    if (filesByEntry.size === 0) return
     setEntries((prev) =>
       prev.map((entry) => {
         const file = filesByEntry.get(entry.id)
@@ -509,30 +550,32 @@ export function ModelViewer(): ReactElement {
         }
       })
     )
-    setBulkStatus({})
+    await disposeResults(ids)
+    clearStatus(ids)
     const activeFile = activeIdRef.current ? filesByEntry.get(activeIdRef.current) : undefined
     if (activeFile) await loadIntoViewer([activeFile])
-    await disposeBulkResults()
-  }
-
-  // Bulk Download all: copy each previewed result into a chosen folder (from main temp).
-  const saveAll = async (): Promise<void> => {
-    const dir = await pickDirectory.mutateAsync(undefined)
-    if (!dir) return
-    let saved = 0
-    try {
-      for (const result of bulkResultsRef.current.values()) {
-        await optimizeWrite.mutateAsync({ id: result.id, dir, name: glbName(result.name) })
-        saved += result.before - result.after
-      }
-      setSavedSummary(saved > 0 ? `Saved ${formatBytes(saved)}` : 'Saved')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save the models.')
-    }
   }
 
   const exportReason = disabledReason(model, 'Export')
   const optimizeReason = disabledReason(model, 'Optimize')
+
+  const optimizeRows: OptimizeRow[] = optimizeScope
+    ? optimizeScope.ids.map((id) => {
+        const entry = entries.find((e) => e.id === id)
+        const result = results[id]
+        const state = status[id]
+        return {
+          id,
+          name: entry?.name ?? '',
+          optimizable: entry ? entry.kind !== 'obj' : false,
+          before: result?.before,
+          after: result?.after,
+          state:
+            state?.state === 'running' ? 'running' : state?.state === 'error' ? 'error' : undefined,
+          detail: state?.detail
+        }
+      })
+    : []
 
   return (
     <div className="flex h-full w-full">
@@ -540,10 +583,9 @@ export function ModelViewer(): ReactElement {
         <ModelRail
           entries={entries}
           activeId={activeId}
-          status={bulkStatus}
+          status={status}
           collapsed={railCollapsed}
-          busy={bulkRunning}
-          savedSummary={savedSummary}
+          busy={busy}
           onSelect={(id) => {
             const entry = entries.find((e) => e.id === id)
             if (entry) void selectEntry(entry)
@@ -553,8 +595,8 @@ export function ModelViewer(): ReactElement {
           onAdd={() => inputRef.current?.click()}
           onClear={clearAll}
           onToggleCollapse={() => setRailCollapsed((v) => !v)}
-          onExportAll={() => void exportAll()}
-          onOptimizeAll={() => setOptimizeMode('bulk')}
+          onExportAll={() => void exportEntries(allIds())}
+          onOptimizeAll={() => openOptimize(allIds())}
         />
       )}
 
@@ -637,8 +679,8 @@ export function ModelViewer(): ReactElement {
               size="sm"
               variant="outline"
               className="bg-background/80 backdrop-blur"
-              onClick={() => setOptimizeMode('single')}
-              disabled={optimizeReason != null}
+              onClick={() => activeId && openOptimize([activeId])}
+              disabled={optimizeReason != null || busy}
               title={optimizeReason ?? 'Optimize (compress textures & geometry)'}
             >
               <IconSparkles />
@@ -648,9 +690,8 @@ export function ModelViewer(): ReactElement {
               size="sm"
               variant="outline"
               className="bg-background/80 backdrop-blur"
-              onClick={() => void exportActive()}
-              disabled={exportReason != null || exporting}
-              loading={exporting}
+              onClick={() => activeId && void exportEntries([activeId])}
+              disabled={exportReason != null || busy}
               title={
                 exportReason ??
                 (Object.keys(overrides).length > 0
@@ -737,9 +778,19 @@ export function ModelViewer(): ReactElement {
           </div>
         )}
 
-        {error && (
-          <div className="absolute right-3 bottom-3 left-3 mx-auto w-fit max-w-md rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-destructive-foreground text-xs">
-            {error}
+        {(error || notice) && (
+          <div className="absolute right-3 bottom-3 left-3 mx-auto flex w-fit max-w-md flex-col items-center gap-2">
+            {error && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-center text-destructive-foreground text-xs">
+                {error}
+              </div>
+            )}
+            {notice && (
+              <div className="flex items-center gap-1.5 rounded-lg border border-green-600/40 bg-green-600/10 px-3 py-2 text-center text-green-700 text-xs dark:text-green-500">
+                <IconCircleCheck className="size-3.5" />
+                {notice}
+              </div>
+            )}
           </div>
         )}
 
@@ -753,30 +804,15 @@ export function ModelViewer(): ReactElement {
           />
         )}
 
-        {model?.source && optimizeMode === 'single' && (
+        {optimizeScope && (
           <OptimizePanel
-            mode="single"
-            onOptimize={optimizeActive}
-            onLoadResult={(id) => void loadOptimized(id)}
-            onSave={saveOptimized}
-            onClose={() => {
-              setOptimizeMode(null)
-              void disposeSingleResult()
-            }}
-          />
-        )}
-
-        {optimizeMode === 'bulk' && (
-          <OptimizePanel
-            mode="bulk"
-            count={entries.filter((entry) => entry.kind !== 'obj').length}
-            onOptimizeAll={optimizeAllPreview}
-            onLoadAll={() => void loadAllOptimized()}
-            onSaveAll={saveAll}
-            onClose={() => {
-              setOptimizeMode(null)
-              void disposeBulkResults()
-            }}
+            rows={optimizeRows}
+            busy={busy}
+            onOptimize={(options) => optimize(optimizeScope.ids, options)}
+            onInvalidate={invalidateScope}
+            onLoad={() => void loadResults(optimizeScope.ids)}
+            onSave={() => saveResults(optimizeScope.ids)}
+            onClose={closeOptimize}
           />
         )}
 

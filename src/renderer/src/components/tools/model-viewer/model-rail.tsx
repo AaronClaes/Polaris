@@ -91,7 +91,6 @@ export function ModelRail({
   status,
   collapsed,
   busy,
-  savedSummary,
   onSelect,
   onCycle,
   onRemove,
@@ -106,7 +105,6 @@ export function ModelRail({
   status: Record<string, EntryStatus>
   collapsed: boolean
   busy: boolean
-  savedSummary: string | null
   onSelect: (id: string) => void
   onCycle: (delta: 1 | -1) => void
   onRemove: (id: string) => void
@@ -268,9 +266,6 @@ export function ModelRail({
             Export all
           </Button>
         </div>
-        {savedSummary && (
-          <p className="text-center text-muted-foreground text-xs">{savedSummary}</p>
-        )}
       </footer>
     </div>
   )

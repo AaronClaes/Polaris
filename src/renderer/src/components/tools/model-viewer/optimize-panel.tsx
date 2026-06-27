@@ -1,15 +1,15 @@
-import { IconSparkles, IconX } from '@tabler/icons-react'
+import { IconCircleCheck, IconSparkles, IconX } from '@tabler/icons-react'
 import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
+import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   DRACO_DEFAULTS,
   type GeometryCompression,
   type OptimizeOptions,
-  type OptimizeResult,
   type OptimizeStats,
   type TextureFormat
 } from '@/lib/optimize'
@@ -23,13 +23,19 @@ const SIZE_OPTIONS: { value: number; label: string }[] = [
   { value: 512, label: '512 px' }
 ]
 
-/** One model's result in a bulk optimize preview. */
-export interface BulkItemResult {
+/**
+ * One model in the optimize panel's preview list. The same shape backs the single
+ * flow (a list of one) and the bulk flow (a list of N) — there is no separate
+ * single/bulk render path. `before`/`after` set once the model has been optimized;
+ * `state` carries an in-flight/failed marker; `optimizable` is false for OBJ.
+ */
+export interface OptimizeRow {
   id: string
   name: string
-  status: 'done' | 'skipped' | 'error'
+  optimizable: boolean
   before?: OptimizeStats
   after?: OptimizeStats
+  state?: 'running' | 'error'
   detail?: string
 }
 
@@ -123,7 +129,7 @@ function DeltaRow({
 }
 
 /** The full before/after stat block for one optimized model (File size / Texture
- *  data / Triangles / Textures) — the same four rows the single panel shows. */
+ *  data / Triangles / Textures). */
 function StatBlock({
   before,
   after
@@ -163,27 +169,26 @@ function StatBlock({
   )
 }
 
-/** One model in the bulk preview: filename header + its full stat block (or a
- *  skip/error label). */
-function BulkItemRow({ item }: { item: BulkItemResult }): ReactElement {
+/** One model in the preview list: filename header + its stat block (or a
+ *  running / skipped / error marker). Single and bulk render the same row. */
+function ResultRow({ row }: { row: OptimizeRow }): ReactElement {
   return (
-    <div className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
+    <div className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate font-medium text-xs">{item.name}</span>
-        {item.status === 'skipped' && (
-          <span className="shrink-0 text-muted-foreground text-xs" title={item.detail}>
+        <span className="min-w-0 truncate font-medium text-xs">{row.name}</span>
+        {!row.optimizable ? (
+          <span className="shrink-0 text-muted-foreground text-xs" title="OBJ not supported">
             skipped
           </span>
-        )}
-        {item.status === 'error' && (
-          <span className="shrink-0 text-destructive-foreground text-xs" title={item.detail}>
+        ) : row.state === 'running' ? (
+          <Spinner className="size-3.5 text-muted-foreground" />
+        ) : row.state === 'error' ? (
+          <span className="shrink-0 text-destructive-foreground text-xs" title={row.detail}>
             error
           </span>
-        )}
+        ) : null}
       </div>
-      {item.status === 'done' && item.before && item.after && (
-        <StatBlock before={item.before} after={item.after} />
-      )}
+      {row.before && row.after && <StatBlock before={row.before} after={row.after} />}
     </div>
   )
 }
@@ -192,29 +197,28 @@ function BulkItemRow({ item }: { item: BulkItemResult }): ReactElement {
  * A panel (scoped `absolute` aside inside the viewer, like the texture panel) for
  * optimizing models: WebP re-encode / resize for textures, optional Meshopt/Draco
  * geometry compression, with a lossless cleanup pass always applied. The work runs
- * in the main process — the panel gathers options and calls the parent's handlers,
- * which return a result id + stats (the bytes stay in main). `single` previews the
- * active model's before/after; `bulk` previews a per-model list across the rail.
+ * in the main process — the panel gathers options and calls the parent's handlers.
+ *
+ * There is one flow, scoped by `rows`: a single model is a list of one; "all" is a
+ * list of N. The parent owns the results (so the rail and viewer stay in sync); the
+ * panel just shows them and triggers Optimize / Load into viewer / Save over the
+ * whole list.
  */
 export function OptimizePanel({
-  mode,
-  count = 0,
+  rows,
+  busy,
   onOptimize,
-  onLoadResult,
+  onInvalidate,
+  onLoad,
   onSave,
-  onOptimizeAll,
-  onLoadAll,
-  onSaveAll,
   onClose
 }: {
-  mode: 'single' | 'bulk'
-  count?: number
-  onOptimize?: (options: OptimizeOptions) => Promise<OptimizeResult>
-  onLoadResult?: (id: string) => void
-  onSave?: (id: string) => Promise<void>
-  onOptimizeAll?: (options: OptimizeOptions) => Promise<BulkItemResult[]>
-  onLoadAll?: () => void
-  onSaveAll?: () => Promise<void>
+  rows: OptimizeRow[]
+  busy: boolean
+  onOptimize: (options: OptimizeOptions) => Promise<void>
+  onInvalidate: () => void
+  onLoad: () => void
+  onSave: () => Promise<void>
   onClose: () => void
 }): ReactElement {
   const [textureFormat, setTextureFormat] = useState<TextureFormat>('webp')
@@ -226,8 +230,7 @@ export function OptimizePanel({
   const [dracoTexcoord, setDracoTexcoord] = useState(DRACO_DEFAULTS.quantizeTexcoord)
   const [running, setRunning] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [result, setResult] = useState<OptimizeResult | null>(null)
-  const [bulkResults, setBulkResults] = useState<BulkItemResult[] | null>(null)
+  const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -250,65 +253,43 @@ export function OptimizePanel({
     }
   })
 
-  // Any option change makes the last result/preview stale.
+  // Any option change makes the last preview stale: clear the parent's results.
   const change =
     <T,>(setter: (value: T) => void) =>
     (value: T): void => {
       setter(value)
-      setResult(null)
-      setBulkResults(null)
+      setSaved(false)
+      onInvalidate()
     }
 
   const run = async (): Promise<void> => {
-    if (!onOptimize) return
     setRunning(true)
+    setSaved(false)
     setError(null)
     try {
-      setResult(await onOptimize(options()))
+      await onOptimize(options())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to optimize the model.')
+      setError(err instanceof Error ? err.message : 'Failed to optimize.')
     } finally {
       setRunning(false)
     }
   }
 
   const save = async (): Promise<void> => {
-    if (!result || !onSave) return
     setSaving(true)
     try {
-      await onSave(result.id)
+      await onSave()
+      setSaved(true)
     } finally {
       setSaving(false)
     }
   }
 
-  // Bulk: run the optimize over the whole list in memory and preview a per-model
-  // list. The output is held by the caller for Load into viewer / Download all.
-  const runBulkPreview = async (): Promise<void> => {
-    if (!onOptimizeAll) return
-    setRunning(true)
-    setError(null)
-    try {
-      setBulkResults(await onOptimizeAll(options()))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to optimize the models.')
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const saveAll = async (): Promise<void> => {
-    if (!onSaveAll) return
-    setSaving(true)
-    try {
-      await onSaveAll()
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const isBulk = mode === 'bulk'
-  const doneCount = bulkResults ? bulkResults.filter((item) => item.status === 'done').length : 0
+  const optimizable = rows.filter((row) => row.optimizable).length
+  const doneCount = rows.filter((row) => row.before && row.after).length
+  const hasActivity = rows.some((row) => row.before != null || row.state != null)
+  const isSingle = rows.length === 1
+  const title = isSingle ? 'Optimize' : `Optimize all (${optimizable})`
 
   return (
     <>
@@ -319,7 +300,7 @@ export function OptimizePanel({
         <header className="flex shrink-0 items-center justify-between gap-2 border-border border-b px-3 py-2">
           <h2 className="flex items-center gap-1.5 font-medium text-sm">
             <IconSparkles className="size-4" />
-            {isBulk ? `Optimize all (${count})` : 'Optimize'}
+            {title}
           </h2>
           <Button size="icon-sm" variant="ghost" onClick={onClose} title="Close" aria-label="Close">
             <IconX />
@@ -430,17 +411,10 @@ export function OptimizePanel({
               )}
             </Section>
 
-            {isBulk ? (
-              <Button onClick={() => void runBulkPreview()} loading={running} disabled={running}>
-                <IconSparkles />
-                Optimize all ({count})
-              </Button>
-            ) : (
-              <Button onClick={() => void run()} loading={running} disabled={running}>
-                <IconSparkles />
-                Optimize
-              </Button>
-            )}
+            <Button onClick={() => void run()} loading={running} disabled={running || busy}>
+              <IconSparkles />
+              {title}
+            </Button>
 
             {error && (
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive-foreground text-xs">
@@ -448,11 +422,11 @@ export function OptimizePanel({
               </div>
             )}
 
-            {isBulk && bulkResults && (
+            {hasActivity && (
               <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3">
                 <div className="flex flex-col divide-y divide-border">
-                  {bulkResults.map((item) => (
-                    <BulkItemRow key={item.id} item={item} />
+                  {rows.map((row) => (
+                    <ResultRow key={row.id} row={row} />
                   ))}
                 </div>
                 <div className="flex gap-2">
@@ -460,8 +434,8 @@ export function OptimizePanel({
                     variant="outline"
                     size="sm"
                     className="flex-1"
-                    disabled={doneCount === 0}
-                    onClick={() => onLoadAll?.()}
+                    disabled={doneCount === 0 || busy}
+                    onClick={() => onLoad()}
                   >
                     Load into viewer
                   </Button>
@@ -469,37 +443,18 @@ export function OptimizePanel({
                     size="sm"
                     className="flex-1"
                     loading={saving}
-                    disabled={saving || doneCount === 0}
-                    onClick={() => void saveAll()}
-                  >
-                    Download all
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {!isBulk && result && (
-              <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3">
-                <StatBlock before={result.before} after={result.after} />
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => onLoadResult?.(result.id)}
-                  >
-                    Load into viewer
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    loading={saving}
-                    disabled={saving}
+                    disabled={saving || busy || doneCount === 0}
                     onClick={() => void save()}
                   >
-                    Save GLB
+                    {isSingle ? 'Save GLB' : 'Download all'}
                   </Button>
                 </div>
+                {saved && (
+                  <p className="flex items-center justify-center gap-1 text-green-600 text-xs dark:text-green-500">
+                    <IconCircleCheck className="size-3.5" />
+                    {isSingle ? 'Saved' : `Saved ${doneCount} models`}
+                  </p>
+                )}
               </div>
             )}
           </div>
