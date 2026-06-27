@@ -735,6 +735,9 @@ export function ModelViewer(): ReactElement {
                 value={`${model.stats.size.x.toFixed(2)} × ${model.stats.size.y.toFixed(2)} × ${model.stats.size.z.toFixed(2)}`}
               />
               <Stat label="File" value={formatBytes(model.stats.fileBytes)} />
+              {model.stats.textureVramBytes > 0 && (
+                <Stat label="Texture VRAM" value={formatBytes(model.stats.textureVramBytes)} />
+              )}
             </dl>
           </div>
         )}

@@ -56,6 +56,10 @@ export interface OptimizeStats {
   textures: number
   /** Sum of encoded texture image bytes — the main texture-size signal. */
   textureBytes: number
+  /** Estimated texture GPU memory (VRAM). Unlike textureBytes, this is what the
+   *  textures cost once uploaded — the number KTX2 actually reduces (normal images
+   *  decode to RGBA8 regardless of disk size; KTX2 stays GPU-compressed). */
+  textureVramBytes: number
 }
 
 export const DRACO_DEFAULTS: DracoOptions = {

@@ -7,6 +7,7 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { isKtx2File, ktx2PreviewUrl, ktx2ToBitmap } from './ktx2-transcode'
+import { liveTextureVram } from './vram'
 
 export interface ModelStats {
   triangles: number
@@ -15,6 +16,8 @@ export interface ModelStats {
   materials: number
   size: { x: number; y: number; z: number }
   fileBytes: number
+  /** Estimated texture GPU memory — the sum of each texture's VRAM footprint. */
+  textureVramBytes: number
 }
 
 /** One extractable texture: its original encoded bytes plus display metadata. */
@@ -28,6 +31,9 @@ export interface TextureInfo {
   width: number | null
   height: number | null
   byteSize: number
+  /** Estimated GPU memory once uploaded — RGBA8 for normal images, far less for
+   *  KTX2 (it stays GPU-compressed). The number disk size hides. */
+  vramBytes: number
   /** True when the browser can't decode it for preview (KTX2/Basis, TGA, …). */
   compressed: boolean
   /** Object URL for an <img> preview, or null when not previewable. */
@@ -60,6 +66,7 @@ export interface TextureOverride {
   width: number | null
   height: number | null
   byteSize: number
+  vramBytes: number
   filename: string
 }
 
@@ -267,6 +274,9 @@ async function buildTextureInfo(args: {
     width,
     height,
     byteSize: args.blob.size,
+    // Read the live texture's true GPU format when there is one (KTX2 stays
+    // compressed); otherwise estimate as RGBA8 (OBJ, unreferenced images).
+    vramBytes: liveTextureVram(width, height, args.slots[0]?.original),
     compressed,
     previewUrl,
     blob: args.blob,
@@ -334,6 +344,9 @@ export async function applyTextureReplacement(
     width: bitmap.width,
     height: bitmap.height,
     byteSize: file.size,
+    // A swapped-in image (KTX2 included) is transcoded to a plain RGBA bitmap for
+    // the live viewer, so its actual GPU cost is RGBA8 — read it off the new texture.
+    vramBytes: liveTextureVram(bitmap.width, bitmap.height, replacement),
     filename: file.name
   }
 }
@@ -495,7 +508,7 @@ async function extractObjTextures(files: File[]): Promise<TextureInfo[]> {
   return out
 }
 
-function computeStats(object: THREE.Object3D, files: File[]): ModelStats {
+function computeStats(object: THREE.Object3D, files: File[], textures: TextureInfo[]): ModelStats {
   let triangles = 0
   let vertices = 0
   let meshes = 0
@@ -520,7 +533,8 @@ function computeStats(object: THREE.Object3D, files: File[]): ModelStats {
     meshes,
     materials: materials.size,
     size: { x: size.x, y: size.y, z: size.z },
-    fileBytes: files.reduce((sum, file) => sum + file.size, 0)
+    fileBytes: files.reduce((sum, file) => sum + file.size, 0),
+    textureVramBytes: textures.reduce((sum, texture) => sum + texture.vramBytes, 0)
   }
 }
 
@@ -605,7 +619,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
   object.position.y -= box.min.y
   object.updateMatrixWorld(true)
 
-  const stats = computeStats(object, files)
+  const stats = computeStats(object, files, textures)
   const dispose = (): void => {
     disposeObject(object)
     for (const texture of textures) {

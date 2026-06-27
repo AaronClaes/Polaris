@@ -167,6 +167,13 @@ function StatBlock({
         showPercent
       />
       <DeltaRow
+        label="Texture VRAM"
+        before={before.textureVramBytes}
+        after={after.textureVramBytes}
+        format={formatBytes}
+        showPercent
+      />
+      <DeltaRow
         label="Triangles"
         before={before.triangles}
         after={after.triangles}

@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises'
-import { type Document, NodeIO } from '@gltf-transform/core'
+import { type Document, NodeIO, type Texture } from '@gltf-transform/core'
 import { ALL_EXTENSIONS, KHRTextureBasisu } from '@gltf-transform/extensions'
 import {
   dedup,
@@ -13,6 +13,7 @@ import {
   weld
 } from '@gltf-transform/functions'
 import draco3d from 'draco3dgltf'
+import { KHR_DF_MODEL_UASTC, read as readKtx2Container } from 'ktx-parse'
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer'
 import sharp from 'sharp'
 import type { ModelSource, OptimizeOptions, OptimizeStats, TextureOverrideInput } from './types'
@@ -59,7 +60,44 @@ async function inputSize(source: ModelSource): Promise<number> {
   return 0
 }
 
-function docStats(doc: Document, fileBytes: number): OptimizeStats {
+// VRAM estimate, mirrored from the renderer (model-viewer/vram.ts) so both surfaces
+// report the same scale. Normal images decode to RGBA8 (4 B/px) on the GPU; KTX2
+// stays GPU-compressed — ETC1S ≈ 0.5, UASTC ≈ 1 B/px. A full mip chain adds ~1/3.
+// The exact transcode target is device-dependent, so this is an estimate.
+const VRAM_BPP_RGBA8 = 4
+const VRAM_BPP_ETC1S = 0.5
+const VRAM_BPP_UASTC = 1
+const VRAM_MIP_FACTOR = 4 / 3
+
+function estimateVram(width: number, height: number, bpp: number, hasMips: boolean): number {
+  if (!width || !height) return 0
+  return Math.round(width * height * bpp * (hasMips ? VRAM_MIP_FACTOR : 1))
+}
+
+/** Estimated GPU memory for one texture: KTX2 is read from its container (true
+ *  size, ETC1S/UASTC, mip count); other images decode to RGBA8, sized via sharp. */
+async function textureVram(texture: Texture): Promise<number> {
+  const image = texture.getImage()
+  if (!image) return 0
+  try {
+    if (texture.getMimeType() === 'image/ktx2') {
+      const container = readKtx2Container(image)
+      const uastc = container.dataFormatDescriptor[0]?.colorModel === KHR_DF_MODEL_UASTC
+      return estimateVram(
+        container.pixelWidth,
+        container.pixelHeight,
+        uastc ? VRAM_BPP_UASTC : VRAM_BPP_ETC1S,
+        container.levels.length > 1
+      )
+    }
+    const meta = await sharp(Buffer.from(image)).metadata()
+    return estimateVram(meta.width ?? 0, meta.height ?? 0, VRAM_BPP_RGBA8, true)
+  } catch {
+    return 0
+  }
+}
+
+async function docStats(doc: Document, fileBytes: number): Promise<OptimizeStats> {
   let triangles = 0
   for (const mesh of doc.getRoot().listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
@@ -69,15 +107,19 @@ function docStats(doc: Document, fileBytes: number): OptimizeStats {
       else if (position) triangles += position.getCount() / 3
     }
   }
+  const textures = doc.getRoot().listTextures()
   let textureBytes = 0
-  for (const texture of doc.getRoot().listTextures()) {
+  let textureVramBytes = 0
+  for (const texture of textures) {
     textureBytes += texture.getImage()?.byteLength ?? 0
+    textureVramBytes += await textureVram(texture)
   }
   return {
     fileBytes,
     triangles: Math.round(triangles),
-    textures: doc.getRoot().listTextures().length,
-    textureBytes
+    textures: textures.length,
+    textureBytes,
+    textureVramBytes
   }
 }
 
@@ -263,7 +305,7 @@ export async function optimizeModel(
 ): Promise<OptimizeOutput> {
   const io = await getIO()
   const doc = await readDocument(io, source)
-  const before = docStats(doc, await inputSize(source))
+  const before = await docStats(doc, await inputSize(source))
 
   await applyTextureOverrides(doc, overrides)
   await doc.transform(dedup(), flatten(), join(), weld(), prune())
@@ -284,7 +326,7 @@ export async function optimizeModel(
 
   ensureBasisuExtension(doc)
   const bytes = await io.writeBinary(doc)
-  return { bytes, before, after: docStats(doc, bytes.byteLength) }
+  return { bytes, before, after: await docStats(doc, bytes.byteLength) }
 }
 
 /** Export a GLB with replaced textures baked in; existing compression preserved. */
@@ -294,9 +336,9 @@ export async function exportModel(
 ): Promise<OptimizeOutput> {
   const io = await getIO()
   const doc = await readDocument(io, source)
-  const before = docStats(doc, await inputSize(source))
+  const before = await docStats(doc, await inputSize(source))
   await applyTextureOverrides(doc, overrides)
   ensureBasisuExtension(doc)
   const bytes = await io.writeBinary(doc)
-  return { bytes, before, after: docStats(doc, bytes.byteLength) }
+  return { bytes, before, after: await docStats(doc, bytes.byteLength) }
 }

@@ -73,6 +73,7 @@ function TextureRow({
   const width = override ? override.width : texture.width
   const height = override ? override.height : texture.height
   const byteSize = override ? override.byteSize : texture.byteSize
+  const vramBytes = override ? override.vramBytes : texture.vramBytes
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -172,6 +173,14 @@ function TextureRow({
           {width && height ? `${width}×${height} · ` : ''}
           {format} · {formatBytes(byteSize)}
         </p>
+        {vramBytes > 0 && (
+          <p
+            className="text-muted-foreground text-xs tabular-nums"
+            title="Estimated GPU memory once uploaded. Normal images decode to RGBA8; KTX2 stays compressed."
+          >
+            VRAM {formatBytes(vramBytes)}
+          </p>
+        )}
       </div>
     </div>
   )
