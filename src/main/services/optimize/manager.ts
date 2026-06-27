@@ -4,9 +4,6 @@ import { join } from 'node:path'
 import { app, type UtilityProcess, utilityProcess, type WebContents } from 'electron'
 import type { ModelSource, OptimizeOptions, OptimizeStats, TextureOverrideInput } from './types'
 
-/** Subfolder that Save / Download writes into, under the user's chosen directory. */
-const OUTPUT_SUBDIR = 'polaris-optimized'
-
 interface JobReply {
   id: string
   ok: boolean
@@ -141,13 +138,11 @@ class OptimizeManager {
     return (await readFile(record.tempPath)).toString('base64')
   }
 
-  /** Copy a result into `<dir>/polaris-optimized/<name>`, overwriting same-named. */
+  /** Copy a result straight into `<dir>/<name>`, overwriting same-named. */
   async write(id: string, dir: string, name: string): Promise<string> {
     const record = this.results.get(id)
     if (!record) throw new Error('That optimized result is no longer available.')
-    const outDir = join(dir, OUTPUT_SUBDIR)
-    await mkdir(outDir, { recursive: true })
-    const dest = join(outDir, name)
+    const dest = join(dir, name)
     await copyFile(record.tempPath, dest)
     return dest
   }
