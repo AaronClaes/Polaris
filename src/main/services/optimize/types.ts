@@ -4,7 +4,7 @@ import { z } from 'zod'
 // inputs with these; the renderer infers the option/stat shapes through tRPC, so
 // there's no separate renderer-side copy to keep in sync.
 
-export const textureFormatSchema = z.enum(['keep', 'webp'])
+export const textureFormatSchema = z.enum(['keep', 'webp', 'avif', 'png', 'jpeg'])
 export const geometryCompressionSchema = z.enum(['none', 'meshopt', 'draco'])
 
 export const dracoOptionsSchema = z.object({
@@ -15,7 +15,7 @@ export const dracoOptionsSchema = z.object({
 
 export const optimizeOptionsSchema = z.object({
   textureFormat: textureFormatSchema,
-  /** WebP quality 0–1. Ignored when textureFormat is 'keep'. */
+  /** Lossy quality 0–1 for color maps. Ignored for 'keep' and 'png' (lossless). */
   textureQuality: z.number().min(0).max(1),
   /** Max width/height in px; larger textures are downscaled. 0 = no cap. */
   maxTextureSize: z.number().int().min(0),

@@ -111,30 +111,46 @@ function clearGeometryCompression(doc: Document): void {
 
 /**
  * Re-encode / downscale textures with sharp via gltf-transform's textureCompress.
- * Color maps go to (lossy) WebP at the chosen quality; data maps to lossless WebP
- * so normal/occlusion/metal-rough precision is preserved. 'keep' only resizes.
+ * The chosen format applies to color maps — lossy at the given quality, except PNG
+ * which is inherently lossless. Data maps (normal/occlusion/metal-rough) are always
+ * re-encoded as lossless WebP regardless of the color format: it preserves their
+ * precision and avoids the very slow lossless-AVIF / huge lossless-PNG encodes.
+ * 'keep' only resizes.
  */
 async function compressTextures(doc: Document, options: OptimizeOptions): Promise<void> {
   const cap = options.maxTextureSize
   const resize: [number, number] | undefined = cap > 0 ? [cap, cap] : undefined
+  const format = options.textureFormat
 
-  if (options.textureFormat === 'webp') {
-    const quality = Math.round(options.textureQuality * 100)
-    await doc.transform(
-      textureCompress({ encoder: sharp, targetFormat: 'webp', quality, resize, slots: COLOR_SLOTS })
-    )
-    await doc.transform(
-      textureCompress({
-        encoder: sharp,
-        targetFormat: 'webp',
-        lossless: true,
-        resize,
-        slots: DATA_SLOTS
-      })
-    )
-  } else if (resize) {
-    await doc.transform(textureCompress({ encoder: sharp, resize }))
+  if (format === 'keep') {
+    if (resize) await doc.transform(textureCompress({ encoder: sharp, resize }))
+    return
   }
+
+  // Color maps → chosen format (PNG ignores quality; WebP/AVIF/JPEG are lossy).
+  const quality = Math.round(options.textureQuality * 100)
+  await doc.transform(
+    format === 'png'
+      ? textureCompress({ encoder: sharp, targetFormat: 'png', resize, slots: COLOR_SLOTS })
+      : textureCompress({
+          encoder: sharp,
+          targetFormat: format,
+          quality,
+          resize,
+          slots: COLOR_SLOTS
+        })
+  )
+
+  // Data maps → always lossless WebP, whatever the color format.
+  await doc.transform(
+    textureCompress({
+      encoder: sharp,
+      targetFormat: 'webp',
+      lossless: true,
+      resize,
+      slots: DATA_SLOTS
+    })
+  )
 }
 
 export interface OptimizeOutput {

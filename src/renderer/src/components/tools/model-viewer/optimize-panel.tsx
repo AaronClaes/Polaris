@@ -23,6 +23,18 @@ const SIZE_OPTIONS: { value: number; label: string }[] = [
   { value: 512, label: '512 px' }
 ]
 
+const FORMAT_OPTIONS: { value: TextureFormat; label: string }[] = [
+  { value: 'keep', label: 'Keep format' },
+  { value: 'webp', label: 'WebP' },
+  { value: 'avif', label: 'AVIF' },
+  { value: 'png', label: 'PNG' },
+  { value: 'jpeg', label: 'JPEG' }
+]
+
+// Lossy formats expose the quality slider; PNG is lossless and 'keep' re-encodes
+// nothing, so neither shows it.
+const LOSSY_FORMATS: TextureFormat[] = ['webp', 'avif', 'jpeg']
+
 /**
  * One model in the optimize panel's preview list. The same shape backs the single
  * flow (a list of one) and the bulk flow (a list of N) — there is no separate
@@ -310,25 +322,28 @@ export function OptimizePanel({
         <ScrollArea className="flex-1">
           <div className="flex flex-col gap-5 p-3">
             <Section label="Textures">
-              <ToggleGroup
-                variant="outline"
-                size="sm"
-                className="w-full"
-                value={[textureFormat]}
-                onValueChange={(value) => {
-                  if (value.length)
-                    change<TextureFormat>(setTextureFormat)(value[0] as TextureFormat)
-                }}
-              >
-                <ToggleGroupItem value="keep" className="flex-1">
-                  Keep format
-                </ToggleGroupItem>
-                <ToggleGroupItem value="webp" className="flex-1">
-                  WebP
-                </ToggleGroupItem>
-              </ToggleGroup>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground text-xs">Format</span>
+                <Select
+                  value={textureFormat}
+                  onValueChange={(value) =>
+                    change<TextureFormat>(setTextureFormat)(value as TextureFormat)
+                  }
+                >
+                  <SelectTrigger size="sm" className="w-32">
+                    {FORMAT_OPTIONS.find((o) => o.value === textureFormat)?.label}
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FORMAT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-              {textureFormat === 'webp' && (
+              {LOSSY_FORMATS.includes(textureFormat) && (
                 <SliderRow
                   label="Quality"
                   min={50}
@@ -337,6 +352,12 @@ export function OptimizePanel({
                   value={quality}
                   onChange={change<number>(setQuality)}
                 />
+              )}
+
+              {textureFormat === 'jpeg' && (
+                <p className="text-[11px] text-muted-foreground">
+                  JPEG has no transparency or lossless mode — best for opaque color maps.
+                </p>
               )}
 
               <div className="flex items-center justify-between gap-3">
