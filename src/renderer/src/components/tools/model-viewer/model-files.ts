@@ -11,6 +11,8 @@ export function mimeFromName(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase()
   if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg'
   if (ext === 'webp') return 'image/webp'
+  if (ext === 'avif') return 'image/avif'
+  if (ext === 'ktx2') return 'image/ktx2'
   return 'image/png'
 }
 

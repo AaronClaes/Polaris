@@ -12,7 +12,8 @@ import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import { isReplaceable, type TextureInfo, type TextureOverride } from './load-model'
 
-const IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif'
+const IMAGE_ACCEPT =
+  'image/png,image/jpeg,image/webp,image/gif,image/bmp,image/avif,image/ktx2,.ktx2'
 
 // Checkerboard behind previews so texture transparency is visible.
 const CHECKER: CSSProperties = {
@@ -30,7 +31,7 @@ function formatBytes(bytes: number): string {
 }
 
 function isImageFile(file: File): boolean {
-  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.name)
+  return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|avif|ktx2)$/i.test(file.name)
 }
 
 // Base64-encode in chunks so a large texture doesn't blow the call stack.

@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
+import { isKtx2File, ktx2PreviewUrl, ktx2ToBitmap } from './ktx2-transcode'
 
 export interface ModelStats {
   triangles: number
@@ -246,6 +247,17 @@ async function buildTextureInfo(args: {
     previewUrl = URL.createObjectURL(args.blob)
   } catch {
     compressed = true
+    // The browser can't decode KTX2, but we can transcode it to a PNG preview.
+    if (/ktx2/i.test(args.mime) || /\.ktx2$/i.test(args.filename)) {
+      try {
+        const preview = await ktx2PreviewUrl(new Uint8Array(await args.blob.arrayBuffer()))
+        width = preview.width
+        height = preview.height
+        previewUrl = preview.url
+      } catch {
+        // Leave it unpreviewable if transcoding fails.
+      }
+    }
   }
   return {
     id: args.id,
@@ -263,10 +275,11 @@ async function buildTextureInfo(args: {
   }
 }
 
-/** True when a texture can be replaced: it has material slots (glTF only) and a
- *  decodable source (a compressed KTX2/Basis source has no plain-image preview). */
+/** True when a texture can be replaced: it has material slots (glTF only). The
+ *  replacement is a fresh texture, so the original's format doesn't matter — KTX2
+ *  included (we transcode it for display, and a dropped .ktx2 is also accepted). */
 export function isReplaceable(texture: TextureInfo): boolean {
-  return texture.slots.length > 0 && !texture.compressed
+  return texture.slots.length > 0
 }
 
 /**
@@ -281,7 +294,13 @@ export async function applyTextureReplacement(
   texture: TextureInfo,
   file: File
 ): Promise<TextureOverride> {
-  const bitmap = await createImageBitmap(file)
+  // KTX2 can't be decoded by the browser, so transcode it to an ImageBitmap +
+  // PNG preview; everything downstream then treats it like a normal image.
+  const ktx2 = isKtx2File(file)
+  const decoded = ktx2
+    ? await ktx2ToBitmap(new Uint8Array(await file.arrayBuffer()))
+    : { bitmap: await createImageBitmap(file), url: URL.createObjectURL(file), width: 0, height: 0 }
+  const bitmap = decoded.bitmap
   const replacement = new THREE.Texture(bitmap)
   const reference = texture.slots[0]?.original
   if (reference) {
@@ -310,8 +329,8 @@ export async function applyTextureReplacement(
 
   return {
     blob: file,
-    previewUrl: URL.createObjectURL(file),
-    format: formatLabel(file.type || `image/${extOf(file.name)}`, file.name),
+    previewUrl: decoded.url,
+    format: ktx2 ? 'KTX2' : formatLabel(file.type || `image/${extOf(file.name)}`, file.name),
     width: bitmap.width,
     height: bitmap.height,
     byteSize: file.size,

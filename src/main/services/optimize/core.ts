@@ -233,6 +233,21 @@ async function compressTexturesKtx2(
   if (converted) doc.createExtension(KHRTextureBasisu).setRequired(true)
 }
 
+/** Ensure KHR_texture_basisu is registered whenever any texture ended up as KTX2
+ *  (a swapped-in .ktx2 override, or KTX2 compression) so the GLB writes validly —
+ *  belt-and-suspenders in case a cleanup pass dropped the extension. */
+function ensureBasisuExtension(doc: Document): void {
+  const hasKtx2 = doc
+    .getRoot()
+    .listTextures()
+    .some((texture) => texture.getMimeType() === 'image/ktx2')
+  const registered = doc
+    .getRoot()
+    .listExtensionsUsed()
+    .some((extension) => extension.extensionName === 'KHR_texture_basisu')
+  if (hasKtx2 && !registered) doc.createExtension(KHRTextureBasisu).setRequired(true)
+}
+
 export interface OptimizeOutput {
   bytes: Uint8Array
   before: OptimizeStats
@@ -267,6 +282,7 @@ export async function optimizeModel(
     )
   }
 
+  ensureBasisuExtension(doc)
   const bytes = await io.writeBinary(doc)
   return { bytes, before, after: docStats(doc, bytes.byteLength) }
 }
@@ -280,6 +296,7 @@ export async function exportModel(
   const doc = await readDocument(io, source)
   const before = docStats(doc, await inputSize(source))
   await applyTextureOverrides(doc, overrides)
+  ensureBasisuExtension(doc)
   const bytes = await io.writeBinary(doc)
   return { bytes, before, after: docStats(doc, bytes.byteLength) }
 }
