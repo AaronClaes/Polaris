@@ -1,4 +1,4 @@
-import { IconCube, IconKey, type TablerIcon } from '@tabler/icons-react'
+import { IconCube, IconKey, IconPhoto, type TablerIcon } from '@tabler/icons-react'
 import { type ComponentType, type LazyExoticComponent, lazy } from 'react'
 import { SecretsGenerator } from '@/components/tools/secrets-generator'
 
@@ -7,6 +7,10 @@ import { SecretsGenerator } from '@/components/tools/secrets-generator'
 // boundary, so a lazy Component just works.
 const ModelViewer = lazy(() =>
   import('@/components/tools/model-viewer').then((m) => ({ default: m.ModelViewer }))
+)
+// The texture viewer's Basis transcoder + ktx-parse are likewise loaded on demand.
+const TextureViewer = lazy(() =>
+  import('@/components/tools/texture-viewer').then((m) => ({ default: m.TextureViewer }))
 )
 
 /**
@@ -48,6 +52,15 @@ export const TOOLS: ToolDef[] = [
     description: 'Drag in a glTF/GLB or OBJ model to orbit, inspect, and light it.',
     Icon: IconCube,
     Component: ModelViewer,
+    window: { width: 1000, height: 760 },
+    fullBleed: true
+  },
+  {
+    id: 'texture-viewer',
+    name: 'Texture viewer',
+    description: 'Drop in textures to test seamless tiling, inspect channels, then optimize them.',
+    Icon: IconPhoto,
+    Component: TextureViewer,
     window: { width: 1000, height: 760 },
     fullBleed: true
   }

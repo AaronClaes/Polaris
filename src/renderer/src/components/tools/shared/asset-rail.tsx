@@ -16,18 +16,17 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { cn } from '@/lib/utils'
+import { formatBytes } from './format'
 
-/** One model in the rail: the files needed to load it plus display meta. */
-export interface ModelEntry {
+/** Minimal shape the rail renders. Each tool's richer entry type (with files,
+ *  kind, …) extends this. */
+export interface AssetEntry {
   id: string
   name: string
-  /** Display badge: GLB / glTF / OBJ. */
+  /** Display badge: GLB / PNG / KTX2 / … */
   format: string
-  kind: 'glb' | 'gltf' | 'obj'
-  /** Total bytes of the model's files (the model + any sidecars). */
+  /** Total bytes of the asset's files. */
   bytes: number
-  /** Main file first, then sidecars (.bin / textures / .mtl). */
-  files: File[]
 }
 
 /** Per-entry status during/after a bulk export or optimize run. */
@@ -37,12 +36,6 @@ export interface EntryStatus {
   before?: number
   after?: number
   detail?: string
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function StatusBadge({ status }: { status: EntryStatus | undefined }): ReactElement | null {
@@ -80,17 +73,19 @@ function StatusBadge({ status }: { status: EntryStatus | undefined }): ReactElem
 }
 
 /**
- * The left rail: a collapsible, macOS-Preview-style list of loaded models. Pick a
+ * The left rail: a collapsible, macOS-Preview-style list of loaded assets. Pick a
  * row to view it (only the active one is rendered), cycle with the prev/next
- * buttons, remove rows, add more, and run Export all / Optimize all over the whole
- * list. Collapses to a thin strip that still exposes expand + add.
+ * buttons, remove rows, add more, and run Optimize all / Export all over the whole
+ * list. Collapses to a thin strip that still exposes expand + add. Shared by the
+ * model and texture viewers — `noun` (singular, lowercase) labels it.
  */
-export function ModelRail({
+export function AssetRail({
   entries,
   activeId,
   status,
   collapsed,
   busy,
+  noun,
   onSelect,
   onCycle,
   onRemove,
@@ -100,11 +95,12 @@ export function ModelRail({
   onExportAll,
   onOptimizeAll
 }: {
-  entries: ModelEntry[]
+  entries: AssetEntry[]
   activeId: string | null
   status: Record<string, EntryStatus>
   collapsed: boolean
   busy: boolean
+  noun: string
   onSelect: (id: string) => void
   onCycle: (delta: 1 | -1) => void
   onRemove: (id: string) => void
@@ -114,6 +110,9 @@ export function ModelRail({
   onExportAll: () => void
   onOptimizeAll: () => void
 }): ReactElement {
+  const plural = `${noun}s`
+  const heading = `${plural.charAt(0).toUpperCase()}${plural.slice(1)}`
+
   if (collapsed) {
     return (
       <div className="flex w-10 shrink-0 flex-col items-center gap-1 border-border border-r bg-background p-1">
@@ -121,8 +120,8 @@ export function ModelRail({
           size="icon-sm"
           variant="ghost"
           onClick={onToggleCollapse}
-          title="Show models"
-          aria-label="Show models"
+          title={`Show ${plural}`}
+          aria-label={`Show ${plural}`}
         >
           <IconLayoutSidebarLeftExpand />
         </Button>
@@ -130,8 +129,8 @@ export function ModelRail({
           size="icon-sm"
           variant="ghost"
           onClick={onAdd}
-          title="Add models"
-          aria-label="Add models"
+          title={`Add ${plural}`}
+          aria-label={`Add ${plural}`}
         >
           <IconPlus />
         </Button>
@@ -144,15 +143,17 @@ export function ModelRail({
   return (
     <div className="flex w-64 shrink-0 flex-col border-border border-r bg-background">
       <header className="flex shrink-0 items-center justify-between gap-2 border-border border-b px-2 py-1.5">
-        <span className="font-medium text-muted-foreground text-xs">Models ({entries.length})</span>
+        <span className="font-medium text-muted-foreground text-xs">
+          {heading} ({entries.length})
+        </span>
         <div className="flex items-center gap-0.5">
           <Button
             size="icon-sm"
             variant="ghost"
             onClick={onAdd}
             disabled={busy}
-            title="Add models"
-            aria-label="Add models"
+            title={`Add ${plural}`}
+            aria-label={`Add ${plural}`}
           >
             <IconPlus />
           </Button>
@@ -162,7 +163,7 @@ export function ModelRail({
             onClick={onClear}
             disabled={busy}
             title="Clear all"
-            aria-label="Clear all models"
+            aria-label={`Clear all ${plural}`}
           >
             <IconTrash />
           </Button>
@@ -170,8 +171,8 @@ export function ModelRail({
             size="icon-sm"
             variant="ghost"
             onClick={onToggleCollapse}
-            title="Hide models"
-            aria-label="Hide models"
+            title={`Hide ${plural}`}
+            aria-label={`Hide ${plural}`}
           >
             <IconLayoutSidebarLeftCollapse />
           </Button>
@@ -224,7 +225,7 @@ export function ModelRail({
             className="flex-1"
             onClick={() => onCycle(-1)}
             disabled={busy || activeIndex <= 0}
-            title="Previous model"
+            title={`Previous ${noun}`}
           >
             <IconChevronUp />
             Prev
@@ -235,7 +236,7 @@ export function ModelRail({
             className="flex-1"
             onClick={() => onCycle(1)}
             disabled={busy || activeIndex === -1 || activeIndex >= entries.length - 1}
-            title="Next model"
+            title={`Next ${noun}`}
           >
             <IconChevronDown />
             Next
@@ -249,7 +250,7 @@ export function ModelRail({
             onClick={onOptimizeAll}
             loading={busy}
             disabled={busy}
-            title="Optimize all models"
+            title={`Optimize all ${plural}`}
           >
             <IconSparkles />
             Optimize all
@@ -260,7 +261,7 @@ export function ModelRail({
             className="flex-1"
             onClick={onExportAll}
             disabled={busy}
-            title="Export all models"
+            title={`Export all ${plural}`}
           >
             <IconDownload />
             Export all

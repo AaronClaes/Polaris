@@ -67,3 +67,48 @@ export const DRACO_DEFAULTS: DracoOptions = {
   quantizeNormal: 10,
   quantizeTexcoord: 12
 }
+
+// --- Standalone image (texture) optimize ---------------------------------------
+// The texture viewer reuses the optimize utilityProcess/result-cache, but operates
+// on a single image rather than a glTF Document. Same format set as the model
+// optimizer's texture compression, minus the per-slot color/data auto-detection —
+// a lone image has no slot, so KTX2 exposes an explicit normal-map toggle instead.
+
+export const imageFormatSchema = z.enum(['keep', 'webp', 'avif', 'png', 'jpeg', 'ktx2'])
+
+export const imageOptimizeOptionsSchema = z.object({
+  format: imageFormatSchema,
+  /** Lossy quality 0–1. Ignored for 'keep' and 'png' (lossless). */
+  quality: z.number().min(0).max(1),
+  /** Max width/height in px; larger images are downscaled (aspect kept). 0 = no cap. */
+  maxSize: z.number().int().min(0),
+  /** KTX2 only: encode as a normal/linear map (UASTC) rather than color (ETC1S). */
+  ktx2Normal: z.boolean().default(false)
+})
+
+/** Where the worker reads an image from: a disk path (preferred — no byte transfer)
+ *  or base64 bytes. `mime` helps classify KTX2, which sharp can't read. */
+export const imageSourceSchema = z
+  .object({
+    path: z.string().optional(),
+    base64: z.string().optional(),
+    mime: z.string().optional()
+  })
+  .refine((s) => s.path != null || s.base64 != null, {
+    message: 'Image source needs a path or base64 bytes.'
+  })
+
+export type ImageFormat = z.infer<typeof imageFormatSchema>
+export type ImageOptimizeOptions = z.infer<typeof imageOptimizeOptionsSchema>
+export type ImageSource = z.infer<typeof imageSourceSchema>
+
+export interface ImageStats {
+  /** Human label: PNG / JPEG / WebP / AVIF / KTX2 / … */
+  format: string
+  fileBytes: number
+  width: number
+  height: number
+  /** Estimated GPU memory once uploaded — RGBA8 for raster images, far less for
+   *  KTX2 (it stays GPU-compressed). The number disk size hides. */
+  vramBytes: number
+}

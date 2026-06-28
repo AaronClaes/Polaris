@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
+import { bytesToBase64 } from '../shared/bytes'
+import { formatBytes } from '../shared/format'
 import { isReplaceable, type TextureInfo, type TextureOverride } from './load-model'
 
 const IMAGE_ACCEPT =
@@ -24,25 +26,8 @@ const CHECKER: CSSProperties = {
   backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0'
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function isImageFile(file: File): boolean {
   return file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp|avif|ktx2)$/i.test(file.name)
-}
-
-// Base64-encode in chunks so a large texture doesn't blow the call stack.
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  const chunk = 0x8000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
-  }
-  return btoa(binary)
 }
 
 const OVERLAY_BUTTON = 'bg-black/60 text-white hover:bg-black/75'
@@ -226,7 +211,7 @@ export function TexturePanel({
     const blob = override?.blob ?? texture.blob
     const filename = override?.filename ?? texture.filename
     const buffer = await blob.arrayBuffer()
-    await saveFile.mutateAsync({ filename, base64: toBase64(buffer) })
+    await saveFile.mutateAsync({ filename, base64: bytesToBase64(new Uint8Array(buffer)) })
   }
 
   const pickReplacement = (texture: TextureInfo): void => {

@@ -3,11 +3,12 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
-import { isKtx2File, ktx2PreviewUrl, ktx2ToBitmap } from './ktx2-transcode'
-import { liveTextureVram } from './vram'
+import { extFromMime, imageFormatLabel } from '../shared/image-format'
+import { getKtx2Loader } from '../shared/ktx2-loader'
+import { isKtx2File, ktx2PreviewUrl, ktx2ToBitmap } from '../shared/ktx2-transcode'
+import { liveTextureVram } from '../shared/vram'
 
 export interface ModelStats {
   triangles: number
@@ -143,23 +144,6 @@ function getDracoLoader(): DRACOLoader {
   return dracoLoader
 }
 
-// One shared KTX2 loader for KHR_texture_basisu (Basis/ETC1S/UASTC) textures —
-// the transcoder is self-hosted (see public/basis). detectSupport needs a WebGL
-// renderer to pick a GPU-supported transcode target; a throwaway one on this
-// machine reports the same formats as R3F's canvas, so we create it, detect, and
-// dispose immediately (KTX2Loader keeps the result, not the renderer).
-let ktx2Loader: KTX2Loader | null = null
-function getKtx2Loader(): KTX2Loader {
-  if (!ktx2Loader) {
-    ktx2Loader = new KTX2Loader()
-    ktx2Loader.setTranscoderPath(new URL('basis/', document.baseURI).href)
-    const probe = new THREE.WebGLRenderer()
-    ktx2Loader.detectSupport(probe)
-    probe.dispose()
-  }
-  return ktx2Loader
-}
-
 function loadGltf(url: string, manager: THREE.LoadingManager): Promise<GLTF> {
   const loader = new GLTFLoader(manager)
   loader.setDRACOLoader(getDracoLoader())
@@ -206,31 +190,6 @@ function loadObj(
   })
 }
 
-function formatLabel(mime: string, filename: string): string {
-  const m = mime.toLowerCase()
-  if (m.includes('png')) return 'PNG'
-  if (m.includes('jpeg') || m.includes('jpg')) return 'JPEG'
-  if (m.includes('webp')) return 'WebP'
-  if (m.includes('ktx2')) return 'KTX2'
-  if (m.includes('avif')) return 'AVIF'
-  if (m.includes('gif')) return 'GIF'
-  if (m.includes('bmp')) return 'BMP'
-  if (m.includes('tga')) return 'TGA'
-  return extOf(filename).toUpperCase() || 'Image'
-}
-
-function extFromMime(mime: string): string {
-  const m = mime.toLowerCase()
-  if (m.includes('png')) return 'png'
-  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg'
-  if (m.includes('webp')) return 'webp'
-  if (m.includes('ktx2')) return 'ktx2'
-  if (m.includes('avif')) return 'avif'
-  if (m.includes('gif')) return 'gif'
-  if (m.includes('bmp')) return 'bmp'
-  return 'bin'
-}
-
 /** Build a TextureInfo from a blob — decoding it for dimensions + preview, and
  *  flagging it as compressed (no preview) when the browser can't decode it. */
 async function buildTextureInfo(args: {
@@ -270,7 +229,7 @@ async function buildTextureInfo(args: {
     id: args.id,
     name: args.name,
     slot: args.slot,
-    format: formatLabel(args.mime, args.filename),
+    format: imageFormatLabel(args.mime, args.filename),
     width,
     height,
     byteSize: args.blob.size,
@@ -340,7 +299,7 @@ export async function applyTextureReplacement(
   return {
     blob: file,
     previewUrl: decoded.url,
-    format: ktx2 ? 'KTX2' : formatLabel(file.type || `image/${extOf(file.name)}`, file.name),
+    format: ktx2 ? 'KTX2' : imageFormatLabel(file.type || `image/${extOf(file.name)}`, file.name),
     width: bitmap.width,
     height: bitmap.height,
     byteSize: file.size,

@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { optimizeManager } from '../../services/optimize/manager'
 import {
+  imageOptimizeOptionsSchema,
+  imageSourceSchema,
   modelSourceSchema,
   optimizeOptionsSchema,
   textureOverrideSchema
@@ -37,6 +39,20 @@ export const optimizeRouter = router({
     .mutation(({ ctx, input }) =>
       optimizeManager.export(ctx.sender, input.source, input.overrides)
     ),
+
+  // Optimize a single image (texture viewer) — shares the result cache with model
+  // jobs, so its result id flows through read/write/dispose unchanged.
+  runImage: publicProcedure
+    .input(z.object({ source: imageSourceSchema, options: imageOptimizeOptionsSchema }))
+    .mutation(({ ctx, input }) => optimizeManager.runImage(ctx.sender, input.source, input.options)),
+
+  // Write caller-supplied bytes into a chosen folder — for exporting original
+  // (un-optimized) textures the renderer already holds, without a temp result.
+  writeFile: publicProcedure
+    .input(z.object({ dir: z.string(), name: z.string(), base64: z.string() }))
+    .mutation(async ({ input }) => ({
+      path: await optimizeManager.writeBytes(input.dir, input.name, input.base64)
+    })),
 
   read: publicProcedure
     .input(z.object({ id: z.string() }))

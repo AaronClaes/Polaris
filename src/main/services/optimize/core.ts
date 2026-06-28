@@ -13,10 +13,11 @@ import {
   weld
 } from '@gltf-transform/functions'
 import draco3d from 'draco3dgltf'
-import { KHR_DF_MODEL_UASTC, read as readKtx2Container } from 'ktx-parse'
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer'
 import sharp from 'sharp'
+import { encodeKtx2 } from './ktx2'
 import type { ModelSource, OptimizeOptions, OptimizeStats, TextureOverrideInput } from './types'
+import { imageVramBytes } from './vram'
 
 // Slot patterns for textureCompress. Color maps are sRGB (lossy WebP is fine);
 // data maps are linear and must stay lossless or normals/AO/roughness corrupt.
@@ -60,41 +61,12 @@ async function inputSize(source: ModelSource): Promise<number> {
   return 0
 }
 
-// VRAM estimate, mirrored from the renderer (model-viewer/vram.ts) so both surfaces
-// report the same scale. Normal images decode to RGBA8 (4 B/px) on the GPU; KTX2
-// stays GPU-compressed — ETC1S ≈ 0.5, UASTC ≈ 1 B/px. A full mip chain adds ~1/3.
-// The exact transcode target is device-dependent, so this is an estimate.
-const VRAM_BPP_RGBA8 = 4
-const VRAM_BPP_ETC1S = 0.5
-const VRAM_BPP_UASTC = 1
-const VRAM_MIP_FACTOR = 4 / 3
-
-function estimateVram(width: number, height: number, bpp: number, hasMips: boolean): number {
-  if (!width || !height) return 0
-  return Math.round(width * height * bpp * (hasMips ? VRAM_MIP_FACTOR : 1))
-}
-
-/** Estimated GPU memory for one texture: KTX2 is read from its container (true
- *  size, ETC1S/UASTC, mip count); other images decode to RGBA8, sized via sharp. */
+/** Estimated GPU memory for one texture, via the shared image-VRAM estimator
+ *  (KTX2 read from its container, other images sized as RGBA8 by sharp). */
 async function textureVram(texture: Texture): Promise<number> {
   const image = texture.getImage()
   if (!image) return 0
-  try {
-    if (texture.getMimeType() === 'image/ktx2') {
-      const container = readKtx2Container(image)
-      const uastc = container.dataFormatDescriptor[0]?.colorModel === KHR_DF_MODEL_UASTC
-      return estimateVram(
-        container.pixelWidth,
-        container.pixelHeight,
-        uastc ? VRAM_BPP_UASTC : VRAM_BPP_ETC1S,
-        container.levels.length > 1
-      )
-    }
-    const meta = await sharp(Buffer.from(image)).metadata()
-    return estimateVram(meta.width ?? 0, meta.height ?? 0, VRAM_BPP_RGBA8, true)
-  } catch {
-    return 0
-  }
+  return imageVramBytes(image, texture.getMimeType())
 }
 
 async function docStats(doc: Document, fileBytes: number): Promise<OptimizeStats> {
@@ -201,29 +173,14 @@ async function compressTextures(doc: Document, options: OptimizeOptions): Promis
   )
 }
 
-/** Decode any sharp-readable image to raw RGBA — the decoder the Basis encoder
- *  needs in Node (it has no browser ImageBitmap). */
-async function decodeRgba(
-  buffer: Uint8Array
-): Promise<{ width: number; height: number; data: Uint8Array }> {
-  const { data, info } = await sharp(Buffer.from(buffer))
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-  return { width: info.width, height: info.height, data: new Uint8Array(data) }
-}
-
 /**
  * Compress textures to KTX2 (KHR_texture_basisu) — GPU-compressed, so they stay
  * compressed in VRAM, unlike WebP/AVIF which decode to raw RGBA on the GPU. Color
  * maps use ETC1S (sRGB) at the chosen quality; data maps use UASTC (linear,
- * normal-mode, Zstd-supercompressed) to keep normal/AO/metal-rough precision —
- * mirroring the color-vs-data split of the other formats. Mipmaps are generated.
- *
- * The Basis encoder is the external `ktx2-encoder` WASM (self-hosting its own wasm),
- * loaded via dynamic import so it stays a runtime dependency, not bundled. Only
- * jpeg/png/webp sources are supported by the encoder; anything else (incl. already
- * KTX2) is left as-is. sharp resizes first since the encoder can't.
+ * normal-mode) to keep normal/AO/metal-rough precision — mirroring the color-vs-data
+ * split of the other formats (see {@link encodeKtx2}). Only jpeg/png/webp sources
+ * are supported by the encoder; anything else (incl. already KTX2) is left as-is.
+ * sharp resizes first since the encoder can't.
  */
 async function compressTexturesKtx2(
   doc: Document,
@@ -232,8 +189,6 @@ async function compressTexturesKtx2(
 ): Promise<void> {
   if (resize) await doc.transform(textureCompress({ encoder: sharp, resize }))
 
-  const { encodeToKTX2 } = await import('ktx2-encoder')
-  const quality = Math.max(1, Math.min(255, Math.round(options.textureQuality * 255)))
   const encodable = new Set(['image/jpeg', 'image/png', 'image/webp'])
   let converted = false
 
@@ -246,29 +201,8 @@ async function compressTexturesKtx2(
     const isColor = COLOR_SLOTS.test(slots)
     if (!isData && !isColor) continue
 
-    const bytes = isData
-      ? await encodeToKTX2(image, {
-          imageDecoder: decodeRgba,
-          isKTX2File: true,
-          isUASTC: true,
-          uastcLDRQualityLevel: 2,
-          enableRDO: true,
-          needSupercompression: true,
-          isNormalMap: true,
-          isPerceptual: false,
-          isSetKTX2SRGBTransferFunc: false,
-          generateMipmap: true
-        })
-      : await encodeToKTX2(image, {
-          imageDecoder: decodeRgba,
-          isKTX2File: true,
-          isUASTC: false,
-          qualityLevel: quality,
-          isPerceptual: true,
-          isSetKTX2SRGBTransferFunc: true,
-          generateMipmap: true
-        })
-    texture.setImage(new Uint8Array(bytes)).setMimeType('image/ktx2')
+    const bytes = await encodeKtx2(image, { normal: isData, quality: options.textureQuality })
+    texture.setImage(bytes).setMimeType('image/ktx2')
     converted = true
   }
 

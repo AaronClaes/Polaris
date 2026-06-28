@@ -5,13 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import {
-  DRACO_DEFAULTS,
-  type GeometryCompression,
-  type OptimizeOptions,
-  type OptimizeStats,
-  type TextureFormat
-} from '@/lib/optimize'
+import type { ImageFormat, ImageOptimizeOptions, ImageStats } from '@/lib/optimize'
 import { formatBytes } from '../shared/format'
 import { DeltaRow, Section, SliderRow } from '../shared/stat-rows'
 
@@ -23,7 +17,7 @@ const SIZE_OPTIONS: { value: number; label: string }[] = [
   { value: 512, label: '512 px' }
 ]
 
-const FORMAT_OPTIONS: { value: TextureFormat; label: string }[] = [
+const FORMAT_OPTIONS: { value: ImageFormat; label: string }[] = [
   { value: 'keep', label: 'Keep format' },
   { value: 'webp', label: 'WebP' },
   { value: 'avif', label: 'AVIF' },
@@ -34,33 +28,31 @@ const FORMAT_OPTIONS: { value: TextureFormat; label: string }[] = [
 
 // Lossy formats expose the quality slider; PNG is lossless and 'keep' re-encodes
 // nothing, so neither shows it. KTX2's slider drives ETC1S quality for color maps.
-const LOSSY_FORMATS: TextureFormat[] = ['webp', 'avif', 'jpeg', 'ktx2']
+const LOSSY_FORMATS: ImageFormat[] = ['webp', 'avif', 'jpeg', 'ktx2']
 
 /**
- * One model in the optimize panel's preview list. The same shape backs the single
- * flow (a list of one) and the bulk flow (a list of N) — there is no separate
- * single/bulk render path. `before`/`after` set once the model has been optimized;
- * `state` carries an in-flight/failed marker; `optimizable` is false for OBJ.
+ * One texture in the optimize panel's preview list — the single flow (a list of
+ * one) and bulk flow (a list of N) share this shape. `before`/`after` set once
+ * optimized; `state` carries an in-flight/failed marker; `optimizable` is false
+ * for KTX2 (no main-side transcoder).
  */
-export interface OptimizeRow {
+export interface TextureOptimizeRow {
   id: string
   name: string
   optimizable: boolean
-  before?: OptimizeStats
-  after?: OptimizeStats
+  before?: ImageStats
+  after?: ImageStats
   state?: 'running' | 'error'
   detail?: string
 }
 
-/** The full before/after stat block for one optimized model (File size / Texture
- *  data / Triangles / Textures). */
-function StatBlock({
-  before,
-  after
-}: {
-  before: OptimizeStats
-  after: OptimizeStats
-}): ReactElement {
+function dimensions(stats: ImageStats): string {
+  return stats.width && stats.height ? `${stats.width}×${stats.height}` : '—'
+}
+
+/** Before/after stat block for one optimized texture (File size / VRAM / Resolution). */
+function StatBlock({ before, after }: { before: ImageStats; after: ImageStats }): ReactElement {
+  const resized = before.width !== after.width || before.height !== after.height
   return (
     <div className="flex flex-col gap-1.5">
       <DeltaRow
@@ -71,44 +63,41 @@ function StatBlock({
         showPercent
       />
       <DeltaRow
-        label="Texture data"
-        before={before.textureBytes}
-        after={after.textureBytes}
+        label="VRAM"
+        before={before.vramBytes}
+        after={after.vramBytes}
         format={formatBytes}
         showPercent
       />
-      <DeltaRow
-        label="Texture VRAM"
-        before={before.textureVramBytes}
-        after={after.textureVramBytes}
-        format={formatBytes}
-        showPercent
-      />
-      <DeltaRow
-        label="Triangles"
-        before={before.triangles}
-        after={after.triangles}
-        format={(n) => n.toLocaleString()}
-      />
-      <DeltaRow
-        label="Textures"
-        before={before.textures}
-        after={after.textures}
-        format={(n) => String(n)}
-      />
+      <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
+        <span className="text-muted-foreground">Format</span>
+        <span>
+          {before.format} <span className="text-muted-foreground">→</span>{' '}
+          <span className="font-medium text-foreground">{after.format}</span>
+        </span>
+      </div>
+      {resized && (
+        <div className="flex items-center justify-between gap-2 text-xs tabular-nums">
+          <span className="text-muted-foreground">Resolution</span>
+          <span>
+            {dimensions(before)} <span className="text-muted-foreground">→</span>{' '}
+            <span className="font-medium text-foreground">{dimensions(after)}</span>
+          </span>
+        </div>
+      )}
     </div>
   )
 }
 
-/** One model in the preview list: filename header + its stat block (or a
- *  running / skipped / error marker). Single and bulk render the same row. */
-function ResultRow({ row }: { row: OptimizeRow }): ReactElement {
+/** One texture row: filename header + its stat block (or a running / skipped /
+ *  error marker). Single and bulk render the same row. */
+function ResultRow({ row }: { row: TextureOptimizeRow }): ReactElement {
   return (
     <div className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate font-medium text-xs">{row.name}</span>
         {!row.optimizable ? (
-          <span className="shrink-0 text-muted-foreground text-xs" title="OBJ not supported">
+          <span className="shrink-0 text-muted-foreground text-xs" title="KTX2 can't be re-encoded">
             skipped
           </span>
         ) : row.state === 'running' ? (
@@ -125,17 +114,12 @@ function ResultRow({ row }: { row: OptimizeRow }): ReactElement {
 }
 
 /**
- * A panel (scoped `absolute` aside inside the viewer, like the texture panel) for
- * optimizing models: WebP re-encode / resize for textures, optional Meshopt/Draco
- * geometry compression, with a lossless cleanup pass always applied. The work runs
- * in the main process — the panel gathers options and calls the parent's handlers.
- *
- * There is one flow, scoped by `rows`: a single model is a list of one; "all" is a
- * list of N. The parent owns the results (so the rail and viewer stay in sync); the
- * panel just shows them and triggers Optimize / Load into viewer / Save over the
- * whole list.
+ * The optimize panel for textures: re-encode/resize a single image or the whole
+ * list, with the same scoped-by-id flow as the model viewer (single = list of one).
+ * Work runs in the main process; this panel gathers options and calls the parent's
+ * handlers, then shows the per-texture before/after and Load / Save actions.
  */
-export function OptimizePanel({
+export function TextureOptimizePanel({
   rows,
   busy,
   onOptimize,
@@ -144,21 +128,18 @@ export function OptimizePanel({
   onSave,
   onClose
 }: {
-  rows: OptimizeRow[]
+  rows: TextureOptimizeRow[]
   busy: boolean
-  onOptimize: (options: OptimizeOptions) => Promise<void>
+  onOptimize: (options: ImageOptimizeOptions) => Promise<void>
   onInvalidate: () => void
   onLoad: () => void
   onSave: () => Promise<void>
   onClose: () => void
 }): ReactElement {
-  const [textureFormat, setTextureFormat] = useState<TextureFormat>('webp')
+  const [format, setFormat] = useState<ImageFormat>('webp')
   const [quality, setQuality] = useState(80)
   const [maxSize, setMaxSize] = useState(0)
-  const [geometry, setGeometry] = useState<GeometryCompression>('draco')
-  const [dracoPosition, setDracoPosition] = useState(DRACO_DEFAULTS.quantizePosition)
-  const [dracoNormal, setDracoNormal] = useState(DRACO_DEFAULTS.quantizeNormal)
-  const [dracoTexcoord, setDracoTexcoord] = useState(DRACO_DEFAULTS.quantizeTexcoord)
+  const [ktx2Normal, setKtx2Normal] = useState(false)
   const [running, setRunning] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -172,16 +153,11 @@ export function OptimizePanel({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const options = (): OptimizeOptions => ({
-    textureFormat,
-    textureQuality: quality / 100,
-    maxTextureSize: maxSize,
-    geometry,
-    draco: {
-      quantizePosition: dracoPosition,
-      quantizeNormal: dracoNormal,
-      quantizeTexcoord: dracoTexcoord
-    }
+  const options = (): ImageOptimizeOptions => ({
+    format,
+    quality: quality / 100,
+    maxSize,
+    ktx2Normal
   })
 
   // Any option change makes the last preview stale: clear the parent's results.
@@ -240,17 +216,15 @@ export function OptimizePanel({
 
         <ScrollArea className="flex-1">
           <div className="flex flex-col gap-5 p-3">
-            <Section label="Textures">
+            <Section label="Format">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground text-xs">Format</span>
+                <span className="text-muted-foreground text-xs">Output</span>
                 <Select
-                  value={textureFormat}
-                  onValueChange={(value) =>
-                    change<TextureFormat>(setTextureFormat)(value as TextureFormat)
-                  }
+                  value={format}
+                  onValueChange={(value) => change<ImageFormat>(setFormat)(value as ImageFormat)}
                 >
                   <SelectTrigger size="sm" className="w-32">
-                    {FORMAT_OPTIONS.find((o) => o.value === textureFormat)?.label}
+                    {FORMAT_OPTIONS.find((o) => o.value === format)?.label}
                   </SelectTrigger>
                   <SelectContent>
                     {FORMAT_OPTIONS.map((option) => (
@@ -262,7 +236,7 @@ export function OptimizePanel({
                 </Select>
               </div>
 
-              {LOSSY_FORMATS.includes(textureFormat) && (
+              {LOSSY_FORMATS.includes(format) && (
                 <SliderRow
                   label="Quality"
                   min={50}
@@ -273,21 +247,44 @@ export function OptimizePanel({
                 />
               )}
 
-              {textureFormat === 'jpeg' && (
+              {format === 'jpeg' && (
                 <p className="text-[11px] text-muted-foreground">
                   JPEG has no transparency or lossless mode — best for opaque color maps.
                 </p>
               )}
 
-              {textureFormat === 'ktx2' && (
-                <p className="text-[11px] text-muted-foreground">
-                  GPU-compressed (Basis): stays compressed in VRAM. Often larger on disk than WebP,
-                  but far lighter on GPU memory. Color uses ETC1S, data maps UASTC.
-                </p>
+              {format === 'ktx2' && (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground text-xs">Map type</span>
+                    <ToggleGroup
+                      variant="outline"
+                      size="sm"
+                      value={[ktx2Normal ? 'normal' : 'color']}
+                      onValueChange={(value) => {
+                        if (value.length) change<boolean>(setKtx2Normal)(value[0] === 'normal')
+                      }}
+                    >
+                      <ToggleGroupItem value="color" className="px-4">
+                        Color
+                      </ToggleGroupItem>
+                      <ToggleGroupItem value="normal" className="px-4">
+                        Normal
+                      </ToggleGroupItem>
+                    </ToggleGroup>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    GPU-compressed (Basis): stays compressed in VRAM. Often larger on disk than
+                    WebP, but far lighter on GPU memory. Color uses ETC1S; Normal uses UASTC for
+                    linear / normal maps.
+                  </p>
+                </>
               )}
+            </Section>
 
+            <Section label="Resolution">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground text-xs">Max resolution</span>
+                <span className="text-muted-foreground text-xs">Max size</span>
                 <Select
                   value={maxSize}
                   onValueChange={(value) => change<number>(setMaxSize)(value as number)}
@@ -304,58 +301,6 @@ export function OptimizePanel({
                   </SelectContent>
                 </Select>
               </div>
-            </Section>
-
-            <Section label="Geometry">
-              <ToggleGroup
-                variant="outline"
-                size="sm"
-                className="w-full"
-                value={[geometry]}
-                onValueChange={(value) => {
-                  if (value.length)
-                    change<GeometryCompression>(setGeometry)(value[0] as GeometryCompression)
-                }}
-              >
-                <ToggleGroupItem value="none" className="flex-1">
-                  None
-                </ToggleGroupItem>
-                <ToggleGroupItem value="meshopt" className="flex-1">
-                  Meshopt
-                </ToggleGroupItem>
-                <ToggleGroupItem value="draco" className="flex-1">
-                  Draco
-                </ToggleGroupItem>
-              </ToggleGroup>
-
-              {geometry === 'draco' && (
-                <div className="flex flex-col gap-2 rounded-md border border-border/60 bg-muted/30 p-2.5">
-                  <span className="text-[11px] text-muted-foreground">
-                    Quantization bits — fewer is smaller but lossier.
-                  </span>
-                  <SliderRow
-                    label="Position"
-                    min={8}
-                    max={16}
-                    value={dracoPosition}
-                    onChange={change<number>(setDracoPosition)}
-                  />
-                  <SliderRow
-                    label="Normal"
-                    min={6}
-                    max={12}
-                    value={dracoNormal}
-                    onChange={change<number>(setDracoNormal)}
-                  />
-                  <SliderRow
-                    label="Texture (UV)"
-                    min={8}
-                    max={14}
-                    value={dracoTexcoord}
-                    onChange={change<number>(setDracoTexcoord)}
-                  />
-                </div>
-              )}
             </Section>
 
             <Button onClick={() => void run()} loading={running} disabled={running || busy}>
@@ -393,13 +338,13 @@ export function OptimizePanel({
                     disabled={saving || busy || doneCount === 0}
                     onClick={() => void save()}
                   >
-                    {isSingle ? 'Save GLB' : 'Download all'}
+                    {isSingle ? 'Save' : 'Download all'}
                   </Button>
                 </div>
                 {saved && (
                   <p className="flex items-center justify-center gap-1 text-green-600 text-xs dark:text-green-500">
                     <IconCircleCheck className="size-3.5" />
-                    {isSingle ? 'Saved' : `Saved ${doneCount} models`}
+                    {isSingle ? 'Saved' : `Saved ${doneCount} textures`}
                   </p>
                 )}
               </div>

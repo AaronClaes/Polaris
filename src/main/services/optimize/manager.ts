@@ -1,14 +1,25 @@
 import { randomUUID } from 'node:crypto'
-import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, type UtilityProcess, utilityProcess, type WebContents } from 'electron'
-import type { ModelSource, OptimizeOptions, OptimizeStats, TextureOverrideInput } from './types'
+import type {
+  ImageOptimizeOptions,
+  ImageSource,
+  ImageStats,
+  ModelSource,
+  OptimizeOptions,
+  OptimizeStats,
+  TextureOverrideInput
+} from './types'
+
+/** Stats returned for any asset job — model (glTF) or standalone image. */
+type AnyStats = OptimizeStats | ImageStats
 
 interface JobReply {
   id: string
   ok: boolean
-  before?: OptimizeStats
-  after?: OptimizeStats
+  before?: AnyStats
+  after?: AnyStats
   error?: string
 }
 
@@ -22,6 +33,12 @@ export interface OptimizeResult {
   id: string
   before: OptimizeStats
   after: OptimizeStats
+}
+
+export interface ImageOptimizeResult {
+  id: string
+  before: ImageStats
+  after: ImageStats
 }
 
 /**
@@ -73,17 +90,14 @@ class OptimizeManager {
     return this.workerReady
   }
 
-  private async dispatch(
-    type: 'optimize' | 'export',
-    payload: {
-      source: ModelSource
-      overrides: TextureOverrideInput[]
-      options?: OptimizeOptions
-    }
-  ): Promise<{ id: string; tempPath: string; before: OptimizeStats; after: OptimizeStats }> {
+  private async dispatch<S extends AnyStats>(
+    type: 'optimize' | 'export' | 'optimize-image',
+    outExt: string,
+    payload: Record<string, unknown>
+  ): Promise<{ id: string; tempPath: string; before: S; after: S }> {
     const worker = await this.ensureWorker()
     const id = randomUUID()
-    const outPath = join(this.tempDir, `${id}.glb`)
+    const outPath = join(this.tempDir, `${id}.${outExt}`)
     const reply = await new Promise<JobReply>((resolve) => {
       this.pending.set(id, resolve)
       worker.postMessage({ id, type, outPath, ...payload })
@@ -91,7 +105,7 @@ class OptimizeManager {
     if (!reply.ok || !reply.before || !reply.after) {
       throw new Error(reply.error ?? 'Optimize failed.')
     }
-    return { id, tempPath: outPath, before: reply.before, after: reply.after }
+    return { id, tempPath: outPath, before: reply.before as S, after: reply.after as S }
   }
 
   /** Free a window's results when it's destroyed (closed/reloaded away). */
@@ -111,7 +125,7 @@ class OptimizeManager {
     options: OptimizeOptions
   ): Promise<OptimizeResult> {
     this.hookOwner(sender)
-    const { id, tempPath, before, after } = await this.dispatch('optimize', {
+    const { id, tempPath, before, after } = await this.dispatch<OptimizeStats>('optimize', 'glb', {
       source,
       overrides,
       options
@@ -126,7 +140,30 @@ class OptimizeManager {
     overrides: TextureOverrideInput[]
   ): Promise<OptimizeResult> {
     this.hookOwner(sender)
-    const { id, tempPath, before, after } = await this.dispatch('export', { source, overrides })
+    const { id, tempPath, before, after } = await this.dispatch<OptimizeStats>('export', 'glb', {
+      source,
+      overrides
+    })
+    this.results.set(id, { tempPath, ownerId: sender.id })
+    return { id, before, after }
+  }
+
+  /** Optimize a single image (texture viewer). Shares the result cache + temp dir
+   *  with model jobs; the temp file's extension is cosmetic (read/write/dispose key
+   *  off the path), so a best guess from the chosen format is fine. */
+  async runImage(
+    sender: WebContents,
+    source: ImageSource,
+    options: ImageOptimizeOptions
+  ): Promise<ImageOptimizeResult> {
+    this.hookOwner(sender)
+    const outExt =
+      options.format === 'keep' ? 'img' : options.format === 'jpeg' ? 'jpg' : options.format
+    const { id, tempPath, before, after } = await this.dispatch<ImageStats>(
+      'optimize-image',
+      outExt,
+      { source, options }
+    )
     this.results.set(id, { tempPath, ownerId: sender.id })
     return { id, before, after }
   }
@@ -144,6 +181,14 @@ class OptimizeManager {
     if (!record) throw new Error('That optimized result is no longer available.')
     const dest = join(dir, name)
     await copyFile(record.tempPath, dest)
+    return dest
+  }
+
+  /** Write caller-supplied bytes straight into `<dir>/<name>` — for exporting
+   *  original (un-optimized) assets the renderer already holds, with no temp result. */
+  async writeBytes(dir: string, name: string, base64: string): Promise<string> {
+    const dest = join(dir, name)
+    await writeFile(dest, Buffer.from(base64, 'base64'))
     return dest
   }
 

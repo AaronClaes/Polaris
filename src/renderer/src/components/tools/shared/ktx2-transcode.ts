@@ -1,5 +1,5 @@
 // Decode KTX2 (Basis ETC1S/UASTC) textures to plain RGBA in the renderer, so the
-// inspector can preview them and a dropped .ktx2 can be swapped in like any image.
+// asset tools can preview them and a dropped .ktx2 can be swapped in like any image.
 // three's KTX2Loader (for rendering) transcodes to a GPU-compressed format, which
 // can't be read back as pixels — so we run the self-hosted Basis transcoder
 // (public/basis, the same files KTX2Loader uses) directly and transcode to RGBA32.
@@ -61,7 +61,7 @@ export async function transcodeKtx2(bytes: Uint8Array): Promise<Rgba> {
   }
 }
 
-function toImageData(rgba: Rgba): ImageData {
+export function toImageData(rgba: Rgba): ImageData {
   // Build with dimensions (allocates an ArrayBuffer-backed buffer) then copy the
   // transcoded bytes in — avoids the ArrayBufferLike/ArrayBuffer type mismatch.
   const image = new ImageData(rgba.width, rgba.height)

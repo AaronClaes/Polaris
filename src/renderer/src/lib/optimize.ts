@@ -16,6 +16,14 @@ export type OptimizeStats = Outputs['optimize']['run']['before']
 /** A completed optimize/export: a result id (bytes live in main) plus stats. */
 export type OptimizeResult = Outputs['optimize']['run']
 
+// --- Standalone image (texture) optimize, same inference pattern ---------------
+export type ImageOptimizeOptions = Inputs['optimize']['runImage']['options']
+export type ImageFormat = ImageOptimizeOptions['format']
+/** What the image worker reads from: a disk path (preferred) or base64 bytes. */
+export type ImageInput = Inputs['optimize']['runImage']['source']
+export type ImageStats = Outputs['optimize']['runImage']['before']
+export type ImageOptimizeResult = Outputs['optimize']['runImage']
+
 export const DRACO_DEFAULTS: OptimizeOptions['draco'] = {
   quantizePosition: 14,
   quantizeNormal: 10,

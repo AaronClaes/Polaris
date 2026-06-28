@@ -1,3 +1,5 @@
+import { KHR_DF_MODEL_UASTC, read as readKtx2Container } from 'ktx-parse'
+
 // Estimate GPU memory (VRAM) for textures — the cost the file-size stats hide.
 // PNG/JPEG/WebP/AVIF all decode to raw RGBA8 (4 B/px) on the GPU, so on-disk size
 // says nothing about VRAM. Only GPU-compressed (Basis/KTX2) textures stay small:
@@ -5,7 +7,7 @@
 // chain adds ~1/3. These are estimates — the exact transcode target is
 // device-dependent — but the 4–8× compressed-vs-RGBA8 gap holds everywhere.
 //
-// The bytes-per-pixel constants are mirrored in the main process (optimize/core.ts,
+// The bytes-per-pixel constants are mirrored in the main process (optimize/vram.ts,
 // which estimates the optimize before/after) so both surfaces report the same scale.
 
 const BPP_RGBA8 = 4
@@ -57,4 +59,32 @@ export function liveTextureVram(
     return estimateVramBytes(width, height, bpp, (texture.mipmaps?.length ?? 1) > 1)
   }
   return estimateVramBytes(width, height, BPP_RGBA8, texture?.generateMipmaps ?? true)
+}
+
+/** VRAM for a standalone encoded image: KTX2 is read from its container (true
+ *  ETC1S/UASTC + mip count, needs `bytes`); any other image decodes to RGBA8 with
+ *  a full runtime mip chain (dimensions are enough — no `bytes` needed). Used by the
+ *  texture viewer, where there's no live THREE.Texture to read. */
+export function sourceImageVram(args: {
+  bytes?: Uint8Array
+  mime?: string
+  width: number | null
+  height: number | null
+}): number {
+  if (args.mime?.includes('ktx2')) {
+    if (!args.bytes) return 0
+    try {
+      const container = readKtx2Container(args.bytes)
+      const uastc = container.dataFormatDescriptor[0]?.colorModel === KHR_DF_MODEL_UASTC
+      return estimateVramBytes(
+        container.pixelWidth,
+        container.pixelHeight,
+        uastc ? BPP_UASTC : BPP_ETC1S,
+        container.levels.length > 1
+      )
+    } catch {
+      return 0
+    }
+  }
+  return estimateVramBytes(args.width, args.height, BPP_RGBA8, true)
 }

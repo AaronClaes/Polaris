@@ -17,6 +17,10 @@ import { Spinner } from '@/components/ui/spinner'
 import type { ModelInput, OptimizeOptions, OptimizeStats } from '@/lib/optimize'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
+import { type AssetEntry, AssetRail, type EntryStatus } from '../shared/asset-rail'
+import { base64ToBytes, bytesToBase64 } from '../shared/bytes'
+import { formatBytes } from '../shared/format'
+import { mimeFromName } from '../shared/image-format'
 import {
   applyTextureReplacement,
   type LoadedModel,
@@ -25,11 +29,17 @@ import {
   type TextureInfo,
   type TextureOverride
 } from './load-model'
-import { base64ToBytes, bytesToBase64, glbName, mimeFromName } from './model-files'
-import { type EntryStatus, type ModelEntry, ModelRail } from './model-rail'
+import { glbName } from './model-files'
 import { OptimizePanel, type OptimizeRow } from './optimize-panel'
 import { LIGHTING_PRESETS, type LightingPreset, ViewerScene } from './scene'
 import { TexturePanel } from './texture-panel'
+
+/** One model in the rail: the files needed to load it plus display meta. */
+interface ModelEntry extends AssetEntry {
+  kind: 'glb' | 'gltf' | 'obj'
+  /** Main file first, then sidecars (.bin / textures / .mtl). */
+  files: File[]
+}
 
 const ACCEPT = '.glb,.gltf,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.ktx2,.hdr'
 const MAIN_EXTENSIONS = ['glb', 'gltf', 'obj']
@@ -40,12 +50,6 @@ interface OptimizeResultRecord {
   resultId: string
   before: OptimizeStats
   after: OptimizeStats
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function fileExt(name: string): string {
@@ -580,7 +584,8 @@ export function ModelViewer(): ReactElement {
   return (
     <div className="flex h-full w-full">
       {entries.length > 0 && (
-        <ModelRail
+        <AssetRail
+          noun="model"
           entries={entries}
           activeId={activeId}
           status={status}
