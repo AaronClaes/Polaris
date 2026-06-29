@@ -7,7 +7,7 @@ import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import { extFromMime, imageFormatLabel } from '../shared/image-format'
 import { getKtx2Loader } from '../shared/ktx2-loader'
-import { isKtx2File, ktx2PreviewUrl, ktx2ToBitmap } from '../shared/ktx2-transcode'
+import { isKtx2File, ktx2PreviewUrl } from '../shared/ktx2-transcode'
 import { liveTextureVram } from '../shared/vram'
 
 export interface ModelStats {
@@ -263,29 +263,56 @@ export async function applyTextureReplacement(
   texture: TextureInfo,
   file: File
 ): Promise<TextureOverride> {
-  // KTX2 can't be decoded by the browser, so transcode it to an ImageBitmap +
-  // PNG preview; everything downstream then treats it like a normal image.
-  const ktx2 = isKtx2File(file)
-  const decoded = ktx2
-    ? await ktx2ToBitmap(new Uint8Array(await file.arrayBuffer()))
-    : { bitmap: await createImageBitmap(file), url: URL.createObjectURL(file), width: 0, height: 0 }
-  const bitmap = decoded.bitmap
-  const replacement = new THREE.Texture(bitmap)
   const reference = texture.slots[0]?.original
+  const ktx2 = isKtx2File(file)
+
+  // Build the live replacement texture and a 2D preview the panel can <img>. A
+  // KTX2 loads through the worker KTX2Loader to a GPU-compressed texture (so a
+  // swapped-in .ktx2 keeps KTX2's VRAM advantage instead of decoding to RGBA8); its
+  // thumbnail still comes from a Basis transcode. Any other image decodes off-thread
+  // to a bitmap.
+  let replacement: THREE.Texture
+  let previewUrl: string
+  let width: number
+  let height: number
+  if (ktx2) {
+    const url = URL.createObjectURL(file)
+    try {
+      replacement = await getKtx2Loader().loadAsync(url)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+    const preview = await ktx2PreviewUrl(new Uint8Array(await file.arrayBuffer()))
+    previewUrl = preview.url
+    width = preview.width
+    height = preview.height
+  } else {
+    const bitmap = await createImageBitmap(file)
+    replacement = new THREE.Texture(bitmap)
+    previewUrl = URL.createObjectURL(file)
+    width = bitmap.width
+    height = bitmap.height
+  }
+
+  // Copy the original's mapping so the replacement sits identically on the mesh. For
+  // a raster texture we also copy filtering/mips/flipY; for a compressed (KTX2) one
+  // those are intrinsic to the file and already set by KTX2Loader, so we leave them.
   if (reference) {
     replacement.colorSpace = reference.colorSpace
     replacement.wrapS = reference.wrapS
     replacement.wrapT = reference.wrapT
-    replacement.flipY = reference.flipY
     replacement.channel = reference.channel
     replacement.offset.copy(reference.offset)
     replacement.repeat.copy(reference.repeat)
     replacement.center.copy(reference.center)
     replacement.rotation = reference.rotation
-    replacement.magFilter = reference.magFilter
-    replacement.minFilter = reference.minFilter
     replacement.anisotropy = reference.anisotropy
-    replacement.generateMipmaps = reference.generateMipmaps
+    if (!ktx2) {
+      replacement.flipY = reference.flipY
+      replacement.magFilter = reference.magFilter
+      replacement.minFilter = reference.minFilter
+      replacement.generateMipmaps = reference.generateMipmaps
+    }
   }
   replacement.needsUpdate = true
 
@@ -298,14 +325,14 @@ export async function applyTextureReplacement(
 
   return {
     blob: file,
-    previewUrl: decoded.url,
+    previewUrl,
     format: ktx2 ? 'KTX2' : imageFormatLabel(file.type || `image/${extOf(file.name)}`, file.name),
-    width: bitmap.width,
-    height: bitmap.height,
+    width,
+    height,
     byteSize: file.size,
-    // A swapped-in image (KTX2 included) is transcoded to a plain RGBA bitmap for
-    // the live viewer, so its actual GPU cost is RGBA8 — read it off the new texture.
-    vramBytes: liveTextureVram(bitmap.width, bitmap.height, replacement),
+    // KTX2 stays GPU-compressed (read off the CompressedTexture); other images
+    // decode to RGBA8.
+    vramBytes: liveTextureVram(width, height, replacement),
     filename: file.name
   }
 }

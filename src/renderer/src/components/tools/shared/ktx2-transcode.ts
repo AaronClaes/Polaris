@@ -1,8 +1,9 @@
 // Decode KTX2 (Basis ETC1S/UASTC) textures to plain RGBA in the renderer, so the
-// asset tools can preview them and a dropped .ktx2 can be swapped in like any image.
-// three's KTX2Loader (for rendering) transcodes to a GPU-compressed format, which
-// can't be read back as pixels — so we run the self-hosted Basis transcoder
-// (public/basis, the same files KTX2Loader uses) directly and transcode to RGBA32.
+// model inspector can show a 2D thumbnail of a compressed texture. Rendering and
+// texture swaps instead go through KTX2Loader (see shared/ktx2-loader), which
+// transcodes off-thread to a GPU-compressed format that can't be read back as
+// pixels — so for a thumbnail we run the self-hosted Basis transcoder directly
+// (public/basis, the same files KTX2Loader uses) and transcode to RGBA32.
 //
 // The transcoder is three's Emscripten build, a UMD script (not an ES module), so
 // it's fetched and evaluated in a CommonJS shim to get its factory — exactly the
@@ -87,16 +88,6 @@ export async function ktx2PreviewUrl(
 ): Promise<{ url: string; width: number; height: number }> {
   const rgba = await transcodeKtx2(bytes)
   return { url: await toPngUrl(rgba), width: rgba.width, height: rgba.height }
-}
-
-/** Decode a KTX2 file into an ImageBitmap (for a live THREE.Texture) plus a PNG
- *  preview URL — so a dropped .ktx2 flows through the same replace path as a PNG. */
-export async function ktx2ToBitmap(
-  bytes: Uint8Array
-): Promise<{ bitmap: ImageBitmap; url: string; width: number; height: number }> {
-  const rgba = await transcodeKtx2(bytes)
-  const [bitmap, url] = await Promise.all([createImageBitmap(toImageData(rgba)), toPngUrl(rgba)])
-  return { bitmap, url, width: rgba.width, height: rgba.height }
 }
 
 export function isKtx2File(file: File): boolean {
