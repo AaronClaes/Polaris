@@ -35,6 +35,7 @@ import { useListFilters } from '@/components/list-filter-bar'
 import { ListSort } from '@/components/list-sort-bar'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
+import { WorktreeGlyph } from '@/components/worktree-glyph'
 import { useRepoIssues } from '@/lib/github-queries'
 import {
   type ActiveFilter,
@@ -156,17 +157,24 @@ const LinkedPrLink = memo(function LinkedPrLink({
  * the moment one is opened — the branch link is consumed, so the two never
  * coexist in the normal flow. We mirror that as a single column: the state-
  * colored PR icon once a PR exists, otherwise the neutral branch icon for a
- * branch that's been created but has no PR yet. */
+ * branch that's been created but has no PR yet. The worktree glyph sits
+ * alongside either — a local worktree on one of the linked branches is
+ * orthogonal to how far the GitHub side has progressed. */
 const DevelopmentCell = memo(function DevelopmentCell({
   pr,
-  branches
+  branches,
+  repo
 }: {
   pr: IssueRow['linkedPr']
   branches: IssueRow['linkedBranches']
+  repo: IssueRow['repo']
 }): ReactElement | null {
-  if (pr) return <LinkedPrLink pr={pr} />
-  if (branches.length > 0) return <BranchLink branches={branches} />
-  return null
+  return (
+    <div className="flex items-center gap-1.5">
+      {pr ? <LinkedPrLink pr={pr} /> : branches.length > 0 && <BranchLink branches={branches} />}
+      <WorktreeGlyph repo={repo} branches={branches} />
+    </div>
+  )
 })
 
 const columnHelper = createColumnHelper<IssueRow>()
@@ -213,6 +221,7 @@ export const ISSUE_COLUMNS = [
       <DevelopmentCell
         pr={cell.row.original.linkedPr}
         branches={cell.row.original.linkedBranches}
+        repo={cell.row.original.repo}
       />
     )
   }),

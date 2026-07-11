@@ -17,6 +17,7 @@ import { tagsRouter } from './routers/tags'
 import { todosRouter } from './routers/todos'
 import { toolsRouter } from './routers/tools'
 import { trackedItemsRouter } from './routers/tracked-items'
+import { worktreesRouter } from './routers/worktrees'
 
 export const appRouter = router({
   projects: projectsRouter,
@@ -36,7 +37,8 @@ export const appRouter = router({
   emailBlocklist: emailBlocklistRouter,
   trackedItems: trackedItemsRouter,
   tools: toolsRouter,
-  optimize: optimizeRouter
+  optimize: optimizeRouter,
+  worktrees: worktreesRouter
 })
 
 // Consumed type-only by the renderer for a fully typed IPC client.
