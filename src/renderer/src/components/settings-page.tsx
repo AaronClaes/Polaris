@@ -14,6 +14,7 @@ import { EmailBlocklist } from '@/components/email-blocklist'
 import { EmailContacts } from '@/components/email-contacts'
 import { GitHubIntegration } from '@/components/github-integration'
 import { GoogleIntegration } from '@/components/google-integration'
+import { PathInput } from '@/components/path-input'
 import { TagsSettings } from '@/components/tags-settings'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
@@ -149,6 +150,57 @@ function DefaultAppsSection(): ReactElement {
   )
 }
 
+/** Where new worktrees are created (`<root>/<owner>/<repo>/<branch>`). Edits
+ *  stage locally and commit on Save; a cleared field reverts to the default —
+ *  the query always returns the effective path, so the field never reads empty. */
+function WorktreesSection(): ReactElement {
+  const utils = trpc.useUtils()
+  const { data } = trpc.settings.worktreesRoot.useQuery()
+  const [draft, setDraft] = useState<string | null>(null)
+  const setRoot = trpc.settings.setWorktreesRoot.useMutation({
+    onSuccess: () => {
+      utils.settings.worktreesRoot.invalidate()
+      setDraft(null)
+    }
+  })
+
+  const value = draft ?? data?.root ?? ''
+  const dirty = draft !== null && draft !== data?.root
+
+  return (
+    <section className="grid gap-3">
+      <h3 className="font-medium text-sm">Worktrees</h3>
+      <Card>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-0.5">
+            <CardTitle className="text-sm">Worktrees root</CardTitle>
+            <CardDescription>
+              New worktrees are created under this folder, grouped by repository.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <PathInput value={value} onChange={setDraft} />
+            </div>
+            {dirty && (
+              <Button
+                size="sm"
+                loading={setRoot.isPending}
+                onClick={() => setRoot.mutate({ path: draft ?? '' })}
+              >
+                Save
+              </Button>
+            )}
+          </div>
+          {setRoot.error && (
+            <p className="text-destructive-foreground text-sm">{setRoot.error.message}</p>
+          )}
+        </CardContent>
+      </Card>
+    </section>
+  )
+}
+
 function GeneralPanel(): ReactElement {
   return (
     <PanelPlaceholder title="General" description="App-wide preferences.">
@@ -165,6 +217,7 @@ function GeneralPanel(): ReactElement {
         </Card>
       </section>
       <DefaultAppsSection />
+      <WorktreesSection />
     </PanelPlaceholder>
   )
 }

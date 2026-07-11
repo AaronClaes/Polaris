@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { settings } from '../../db/schema'
 import {
@@ -8,6 +8,7 @@ import {
   readDefaultApps,
   TERMINALS
 } from '../../services/default-apps'
+import { readWorktreesRoot, WORKTREES_ROOT_SETTING_KEY } from '../../services/worktrees'
 import { publicProcedure, router } from '..'
 
 export const settingsRouter = router({
@@ -49,5 +50,31 @@ export const settingsRouter = router({
   // query for the same pattern.
   appIcon: publicProcedure
     .input(z.object({ key: z.string().trim().min(1) }))
-    .query(({ input }) => readAppIcon(input.key))
+    .query(({ input }) => readAppIcon(input.key)),
+
+  // The effective worktrees root (stored value or the ~/polaris/worktrees
+  // default) — always a concrete path, so the settings field and the creation
+  // dialog's path preview render the real destination.
+  worktreesRoot: publicProcedure.query(({ ctx }) => ({ root: readWorktreesRoot(ctx.db) })),
+
+  // Persist the worktrees root. A blank path clears the row, reverting to the
+  // default (the query above never surfaces "unset").
+  setWorktreesRoot: publicProcedure
+    .input(z.object({ path: z.string() }))
+    .mutation(({ ctx, input }) => {
+      const path = input.path.trim()
+      if (!path) {
+        ctx.db.delete(settings).where(eq(settings.key, WORKTREES_ROOT_SETTING_KEY)).run()
+      } else {
+        ctx.db
+          .insert(settings)
+          .values({ key: WORKTREES_ROOT_SETTING_KEY, value: path })
+          .onConflictDoUpdate({
+            target: settings.key,
+            set: { value: path, updatedAt: sql`(unixepoch())` }
+          })
+          .run()
+      }
+      return { root: readWorktreesRoot(ctx.db) }
+    })
 })

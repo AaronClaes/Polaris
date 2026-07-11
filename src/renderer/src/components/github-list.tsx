@@ -215,8 +215,10 @@ export function DataTable<T>({
         ))}
       </TableHeader>
       <TableBody>
+        {/* `group/row` lets cells reveal actions on row hover (e.g. the
+            worktree create button). */}
         {table.getRowModel().rows.map((row) => (
-          <TableRow key={row.id}>
+          <TableRow key={row.id} className="group/row">
             {row.getVisibleCells().map((cell) => (
               <TableCell key={cell.id}>
                 {flexRender(cell.column.columnDef.cell, cell.getContext())}

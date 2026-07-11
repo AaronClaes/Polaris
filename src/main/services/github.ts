@@ -622,3 +622,87 @@ export async function listPullRequestsForRepo(
 
   return out
 }
+
+/** What worktree creation needs from GitHub at dialog time. */
+export interface WorktreeCreationLookup {
+  /** The repo's branches with their tip OIDs — base-branch options. Capped at
+   *  the first 100 refs; plenty for the repos this targets. */
+  branches: { name: string; oid: string }[]
+  defaultBranch: string | null
+  /** GraphQL node id of the issue — what createLinkedBranch keys on. */
+  issueId: string
+}
+
+// The issues list query deliberately carries no GraphQL node ids (nothing
+// persisted needs them), so creation runs this small lookup on demand: the
+// base-branch candidates with OIDs, the default branch, and the issue's node id.
+const WORKTREE_CREATION_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    defaultBranchRef { name }
+    refs(refPrefix: "refs/heads/", first: 100) { nodes { name target { oid } } }
+    issue(number: $number) { id }
+  }
+}`
+
+interface WorktreeCreationResponse {
+  repository: {
+    defaultBranchRef: { name: string } | null
+    refs: { nodes: { name: string; target: { oid: string } | null }[] }
+    issue: { id: string } | null
+  } | null
+}
+
+export async function fetchWorktreeCreationLookup(
+  owner: string,
+  name: string,
+  issueNumber: number,
+  token: string
+): Promise<WorktreeCreationLookup> {
+  const data = await graphql<WorktreeCreationResponse>(token, WORKTREE_CREATION_QUERY, {
+    owner,
+    name,
+    number: issueNumber
+  })
+  if (!data.repository) {
+    throw new Error(`Can't access ${owner}/${name} with the linked token.`)
+  }
+  if (!data.repository.issue) {
+    throw new Error(`Issue #${issueNumber} not found in ${owner}/${name}.`)
+  }
+  return {
+    branches: data.repository.refs.nodes.flatMap((node) =>
+      node.target ? [{ name: node.name, oid: node.target.oid }] : []
+    ),
+    defaultBranch: data.repository.defaultBranchRef?.name ?? null,
+    issueId: data.repository.issue.id
+  }
+}
+
+// Creates the branch *linked to the issue* (its Development panel), so the
+// existing linkedBranches sync picks it up — GitHub stays the source of truth
+// for issue ↔ branch. Requires the owner's PAT to have Contents: write.
+const CREATE_LINKED_BRANCH_MUTATION = `mutation($issueId: ID!, $oid: GitObjectID!, $name: String!) {
+  createLinkedBranch(input: { issueId: $issueId, oid: $oid, name: $name }) {
+    linkedBranch { ref { name } }
+  }
+}`
+
+interface CreateLinkedBranchResponse {
+  createLinkedBranch: {
+    linkedBranch: { ref: { name: string } | null } | null
+  } | null
+}
+
+/** Create a branch at `oid` linked to an issue. Returns the created ref name
+ *  (GitHub may normalize it). Throws on missing write scope or a name collision. */
+export async function createLinkedBranch(
+  token: string,
+  input: { issueId: string; oid: string; name: string }
+): Promise<string> {
+  const data = await graphql<CreateLinkedBranchResponse>(
+    token,
+    CREATE_LINKED_BRANCH_MUTATION,
+    input
+  )
+  return data.createLinkedBranch?.linkedBranch?.ref?.name ?? input.name
+}

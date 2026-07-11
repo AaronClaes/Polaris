@@ -163,16 +163,20 @@ const LinkedPrLink = memo(function LinkedPrLink({
 const DevelopmentCell = memo(function DevelopmentCell({
   pr,
   branches,
-  repo
+  repo,
+  issue
 }: {
   pr: IssueRow['linkedPr']
   branches: IssueRow['linkedBranches']
   repo: IssueRow['repo']
+  // The row itself — a stable reference (unlike an inline `{ number, title }`,
+  // which would defeat the memo), narrowed to what the create dialog needs.
+  issue: Pick<IssueRow, 'number' | 'title'>
 }): ReactElement | null {
   return (
     <div className="flex items-center gap-1.5">
       {pr ? <LinkedPrLink pr={pr} /> : branches.length > 0 && <BranchLink branches={branches} />}
-      <WorktreeGlyph repo={repo} branches={branches} />
+      <WorktreeGlyph repo={repo} branches={branches} issue={issue} />
     </div>
   )
 })
@@ -222,6 +226,7 @@ export const ISSUE_COLUMNS = [
         pr={cell.row.original.linkedPr}
         branches={cell.row.original.linkedBranches}
         repo={cell.row.original.repo}
+        issue={cell.row.original}
       />
     )
   }),

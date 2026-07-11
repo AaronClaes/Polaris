@@ -37,8 +37,9 @@ export type PullRow = GitHubPullRequest & {
 // Match a repo's owner to a linked account by owner OR login, case-insensitively,
 // and return that account's token. GitHub reports a repo's owner in canonical
 // casing (e.g. "AaronClaes"), which may differ from the string the token was
-// stored under (e.g. "aaronclaes"), so an exact lookup would miss.
-function resolveRepoToken(accounts: GithubAccount[], repoOwner: string): string | null {
+// stored under (e.g. "aaronclaes"), so an exact lookup would miss. Exported for
+// the worktrees router, which routes its GitHub calls the same way.
+export function resolveRepoToken(accounts: GithubAccount[], repoOwner: string): string | null {
   const lc = repoOwner.toLowerCase()
   const account = accounts.find((a) => a.owner.toLowerCase() === lc || a.login.toLowerCase() === lc)
   return account ? getToken(account.owner) : null

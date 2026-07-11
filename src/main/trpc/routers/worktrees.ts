@@ -1,27 +1,155 @@
+import { join } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
-import { projectRepos, projects } from '../../db/schema'
-import { listWorktrees } from '../../services/worktrees'
+import type { DB } from '../../db/client'
+import { githubAccounts, projectRepos, projects } from '../../db/schema'
+import { createLinkedBranch, fetchWorktreeCreationLookup } from '../../services/github'
+import {
+  addWorktree,
+  deriveBranchName,
+  deriveWorktreePath,
+  listWorktrees,
+  readWorktreesRoot
+} from '../../services/worktrees'
 import { publicProcedure, router } from '..'
+import { resolveRepoToken } from './github'
 
 const repoInput = z.object({ owner: z.string().min(1), name: z.string().min(1) })
 
+// The clone path git commands run against: the linked repo's `path` falling
+// back to its project's default `path`. Several projects can link the same
+// repo — the first row with a usable path wins. Null just means "no clone
+// linked", which reads as "no worktrees" on the read path and a blocker on the
+// write path.
+function resolveClonePath(db: DB, owner: string, name: string): string | null {
+  const rows = db
+    .select({ repoPath: projectRepos.path, projectPath: projects.path })
+    .from(projectRepos)
+    .innerJoin(projects, eq(projectRepos.projectId, projects.id))
+    .where(and(eq(projectRepos.owner, owner), eq(projectRepos.name, name)))
+    .all()
+  return rows.map((row) => row.repoPath ?? row.projectPath).find(Boolean) ?? null
+}
+
+function resolveToken(db: DB, owner: string): string | null {
+  const accounts = db.select().from(githubAccounts).all()
+  return resolveRepoToken(accounts, owner)
+}
+
 export const worktreesRouter = router({
   // The added worktrees of a repo's local clone. Owner/name is the renderer's
-  // repo identity (same casing as the stored rows); the clone path is the
-  // linked repo's `path` falling back to its project's default `path`. Several
-  // projects can link the same repo — the first row with a usable path wins.
-  // No usable path just means no worktrees, never an error (listWorktrees
-  // itself is forgiving about missing directories).
+  // repo identity (same casing as the stored rows). No usable path just means
+  // no worktrees, never an error (listWorktrees itself is forgiving about
+  // missing directories).
   forRepo: publicProcedure.input(repoInput).query(async ({ ctx, input }) => {
-    const rows = ctx.db
-      .select({ repoPath: projectRepos.path, projectPath: projects.path })
-      .from(projectRepos)
-      .innerJoin(projects, eq(projectRepos.projectId, projects.id))
-      .where(and(eq(projectRepos.owner, input.owner), eq(projectRepos.name, input.name)))
-      .all()
+    return { worktrees: await listWorktrees(resolveClonePath(ctx.db, input.owner, input.name)) }
+  }),
 
-    const clonePath = rows.map((row) => row.repoPath ?? row.projectPath).find(Boolean) ?? null
-    return { worktrees: await listWorktrees(clonePath) }
-  })
+  // Everything the creation dialog needs up front: base-branch options
+  // (default first), a suggested branch name, where the worktree would land,
+  // and the blockers that should disable the form entirely. With
+  // `existingBranch` (a row whose branch already exists — linked on GitHub, or
+  // left over from a half-failed create) the GitHub side is irrelevant: no
+  // token blocker, no lookup — creation is purely local.
+  creationInfo: publicProcedure
+    .input(
+      repoInput.extend({
+        number: z.number().int().positive(),
+        title: z.string(),
+        existingBranch: z.string().optional()
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const blockers: string[] = []
+      if (!resolveClonePath(ctx.db, input.owner, input.name)) {
+        blockers.push(
+          `No local clone linked for ${input.owner}/${input.name} — set its path in the repo's settings.`
+        )
+      }
+      const token = input.existingBranch ? null : resolveToken(ctx.db, input.owner)
+      if (!input.existingBranch && !token) {
+        blockers.push(`No linked GitHub token for ${input.owner}.`)
+      }
+
+      const root = readWorktreesRoot(ctx.db)
+      const suggestedBranch = input.existingBranch ?? deriveBranchName(input.number, input.title)
+      const base = {
+        suggestedBranch,
+        // The dialog re-derives `<repoDir>/<sanitized-branch>` live as the
+        // branch name is edited; the mutation derives the real path main-side.
+        repoDir: join(root, input.owner, input.name),
+        blockers
+      }
+      if (blockers.length > 0 || !token) return { ...base, branches: [], defaultBranch: null }
+
+      const lookup = await fetchWorktreeCreationLookup(input.owner, input.name, input.number, token)
+      // Default branch first — it's the preselected base.
+      const branches = lookup.branches
+        .map((branch) => branch.name)
+        .sort((a, b) =>
+          a === lookup.defaultBranch ? -1 : b === lookup.defaultBranch ? 1 : a.localeCompare(b)
+        )
+      return { ...base, branches, defaultBranch: lookup.defaultBranch }
+    }),
+
+  // The full creation write path: linked branch on GitHub (its Development
+  // panel), then fetch + worktree add locally. Re-runs the lookup at submit
+  // time so the base OID is fresh. A local failure after the GitHub write
+  // throws — the branch deliberately stays (a legitimate, retryable state).
+  create: publicProcedure
+    .input(
+      repoInput.extend({
+        number: z.number().int().positive(),
+        branch: z.string().trim().min(1),
+        base: z.string().trim().min(1)
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
+      if (!repoPath) {
+        throw new Error(
+          `No local clone linked for ${input.owner}/${input.name} — set its path in the repo's settings.`
+        )
+      }
+      const token = resolveToken(ctx.db, input.owner)
+      if (!token) throw new Error(`No linked GitHub token for ${input.owner}.`)
+
+      const lookup = await fetchWorktreeCreationLookup(input.owner, input.name, input.number, token)
+      const baseBranch = lookup.branches.find((branch) => branch.name === input.base)
+      if (!baseBranch) {
+        throw new Error(`Base branch ${input.base} not found on ${input.owner}/${input.name}.`)
+      }
+
+      const branch = await createLinkedBranch(token, {
+        issueId: lookup.issueId,
+        oid: baseBranch.oid,
+        name: input.branch
+      })
+
+      const root = readWorktreesRoot(ctx.db)
+      const worktreePath = deriveWorktreePath(root, input.owner, input.name, branch)
+      await addWorktree({ repoPath, branch, worktreePath })
+
+      return { branch, path: worktreePath }
+    }),
+
+  // Materialize an *existing* branch (fetch + worktree add, no GitHub write) —
+  // for rows whose branch already exists, and the retry path when a create
+  // half-failed after the GitHub branch was made.
+  createFromBranch: publicProcedure
+    .input(repoInput.extend({ branch: z.string().trim().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
+      if (!repoPath) {
+        throw new Error(
+          `No local clone linked for ${input.owner}/${input.name} — set its path in the repo's settings.`
+        )
+      }
+
+      const root = readWorktreesRoot(ctx.db)
+      const worktreePath = deriveWorktreePath(root, input.owner, input.name, input.branch)
+      await addWorktree({ repoPath, branch: input.branch, worktreePath })
+
+      return { branch: input.branch, path: worktreePath }
+    })
 })
