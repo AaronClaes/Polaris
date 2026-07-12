@@ -8,11 +8,14 @@ import { readDefaultApps } from '../../services/default-apps'
 import { createLinkedBranch, fetchWorktreeCreationLookup } from '../../services/github'
 import {
   addWorktree,
+  appendCreationLog,
   deriveBranchName,
   deriveWorktreePath,
   listWorktrees,
+  readCreationLog,
   readWorktreesRoot,
-  removeWorktree
+  removeWorktree,
+  runSetupCommand
 } from '../../services/worktrees'
 import { publicProcedure, router } from '..'
 import { resolveRepoToken } from './github'
@@ -37,6 +40,76 @@ function resolveClonePath(db: DB, owner: string, name: string): string | null {
 function resolveToken(db: DB, owner: string): string | null {
   const accounts = db.select().from(githubAccounts).all()
   return resolveRepoToken(accounts, owner)
+}
+
+// The project_repos row whose setup recipes govern this repo's worktrees.
+// Several projects can link the same repo, so (mirroring resolveClonePath)
+// the first row that actually has recipes wins; with none configured anywhere
+// the first row still anchors the last-used bookkeeping.
+function resolveRecipeRow(db: DB, owner: string, name: string) {
+  const rows = db
+    .select()
+    .from(projectRepos)
+    .where(and(eq(projectRepos.owner, owner), eq(projectRepos.name, name)))
+    .all()
+  return rows.find((row) => row.setupCommands.length > 0) ?? rows[0] ?? null
+}
+
+/**
+ * Post-create hook shared by both create paths: remember the recipe choice —
+ * including "None" — as the repo's last-used, then run the selected recipe in
+ * the new worktree. Returns the failure message (for the dialog's banner)
+ * rather than throwing: the worktree already exists and is usable, so a failed
+ * recipe must never fail the mutation.
+ */
+async function runSetupRecipe(
+  db: DB,
+  {
+    owner,
+    name,
+    label,
+    repoPath,
+    worktreePath,
+    branch,
+    issueNumber,
+    onLog
+  }: {
+    owner: string
+    name: string
+    label: string | undefined
+    repoPath: string
+    worktreePath: string
+    branch: string
+    issueNumber?: number
+    onLog?: (chunk: string) => void
+  }
+): Promise<string | undefined> {
+  const row = resolveRecipeRow(db, owner, name)
+  if (row) {
+    db.update(projectRepos)
+      .set({ lastSetupCommand: label ?? null })
+      .where(eq(projectRepos.id, row.id))
+      .run()
+  }
+  if (!label) return undefined
+
+  const recipe = row?.setupCommands.find((entry) => entry.label === label)
+  if (!recipe) return `Setup recipe “${label}” no longer exists — nothing was run.`
+  const error = await runSetupCommand({
+    command: recipe.command,
+    repoPath,
+    worktreePath,
+    branch,
+    issueNumber,
+    onLog
+  })
+  return error ?? undefined
+}
+
+// The mutation-side half of the live log: a chunk-appender bound to the
+// renderer-generated run id, or undefined when the caller didn't ask for logs.
+function logWriter(runId: string | undefined): ((chunk: string) => void) | undefined {
+  return runId ? (chunk) => appendCreationLog(runId, chunk) : undefined
 }
 
 export const worktreesRouter = router({
@@ -76,11 +149,16 @@ export const worktreesRouter = router({
 
       const root = readWorktreesRoot(ctx.db)
       const suggestedBranch = input.existingBranch ?? deriveBranchName(input.number, input.title)
+      const recipeRow = resolveRecipeRow(ctx.db, input.owner, input.name)
       const base = {
         suggestedBranch,
         // The dialog re-derives `<repoDir>/<sanitized-branch>` live as the
         // branch name is edited; the mutation derives the real path main-side.
         repoDir: join(root, input.owner, input.name),
+        // Setup recipes + the label last used, for the dialog's setup select.
+        // The dialog treats a last-used label that no longer exists as None.
+        setupCommands: recipeRow?.setupCommands ?? [],
+        lastSetupCommand: recipeRow?.lastSetupCommand ?? null,
         blockers
       }
       if (blockers.length > 0 || !token) return { ...base, branches: [], defaultBranch: null }
@@ -104,10 +182,17 @@ export const worktreesRouter = router({
       repoInput.extend({
         number: z.number().int().positive(),
         branch: z.string().trim().min(1),
-        base: z.string().trim().min(1)
+        base: z.string().trim().min(1),
+        // Label of the setup recipe to run after the worktree is added;
+        // omitted = None. Runs post-create, so its failure never fails this.
+        setupCommand: z.string().optional(),
+        // When set, git/setup output streams into the creation log the dialog
+        // polls (see creationLog below).
+        runId: z.string().optional()
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const onLog = logWriter(input.runId)
       const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
       if (!repoPath) {
         throw new Error(
@@ -123,6 +208,7 @@ export const worktreesRouter = router({
         throw new Error(`Base branch ${input.base} not found on ${input.owner}/${input.name}.`)
       }
 
+      onLog?.(`Creating branch ${input.branch} on GitHub (linked to #${input.number})…\n`)
       const branch = await createLinkedBranch(token, {
         issueId: lookup.issueId,
         oid: baseBranch.oid,
@@ -131,17 +217,37 @@ export const worktreesRouter = router({
 
       const root = readWorktreesRoot(ctx.db)
       const worktreePath = deriveWorktreePath(root, input.owner, input.name, branch)
-      await addWorktree({ repoPath, branch, worktreePath })
+      await addWorktree({ repoPath, branch, worktreePath, onLog })
 
-      return { branch, path: worktreePath }
+      const setupError = await runSetupRecipe(ctx.db, {
+        owner: input.owner,
+        name: input.name,
+        label: input.setupCommand,
+        repoPath,
+        worktreePath,
+        branch,
+        issueNumber: input.number,
+        onLog
+      })
+      return { branch, path: worktreePath, setupError }
     }),
 
   // Materialize an *existing* branch (fetch + worktree add, no GitHub write) —
   // for rows whose branch already exists, and the retry path when a create
   // half-failed after the GitHub branch was made.
   createFromBranch: publicProcedure
-    .input(repoInput.extend({ branch: z.string().trim().min(1) }))
+    .input(
+      repoInput.extend({
+        branch: z.string().trim().min(1),
+        // Same post-create recipe hook as `create`; the issue number is only
+        // context for the recipe's ISSUE_NUMBER env var, so it's optional.
+        setupCommand: z.string().optional(),
+        number: z.number().int().positive().optional(),
+        runId: z.string().optional()
+      })
+    )
     .mutation(async ({ ctx, input }) => {
+      const onLog = logWriter(input.runId)
       const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
       if (!repoPath) {
         throw new Error(
@@ -151,10 +257,27 @@ export const worktreesRouter = router({
 
       const root = readWorktreesRoot(ctx.db)
       const worktreePath = deriveWorktreePath(root, input.owner, input.name, input.branch)
-      await addWorktree({ repoPath, branch: input.branch, worktreePath })
+      await addWorktree({ repoPath, branch: input.branch, worktreePath, onLog })
 
-      return { branch: input.branch, path: worktreePath }
+      const setupError = await runSetupRecipe(ctx.db, {
+        owner: input.owner,
+        name: input.name,
+        label: input.setupCommand,
+        repoPath,
+        worktreePath,
+        branch: input.branch,
+        issueNumber: input.number,
+        onLog
+      })
+      return { branch: input.branch, path: worktreePath, setupError }
     }),
+
+  // The live output of an in-flight creation (git + setup command), polled by
+  // the dialog while its create mutation runs. Reading an unknown run id is
+  // just an empty log, never an error.
+  creationLog: publicProcedure
+    .input(z.object({ runId: z.string().min(1) }))
+    .query(({ input }) => ({ log: readCreationLog(input.runId) })),
 
   // Open a worktree directory in the user's default IDE / terminal, or reveal
   // it in Finder — the same launchers as project actions, minus the per-project

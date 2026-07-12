@@ -1,10 +1,13 @@
 import {
   IconBrandGithub,
   IconCheck,
+  IconChevronDown,
+  IconChevronUp,
   IconExternalLink,
   IconLock,
   IconPencil,
   IconPlus,
+  IconScript,
   IconTrash
 } from '@tabler/icons-react'
 import { useNavigate } from '@tanstack/react-router'
@@ -42,6 +45,7 @@ import {
   DialogPopup,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
 import type { GithubRepoRow, ProjectRepoRow, ProjectWithActions } from '@/lib/project-types'
@@ -62,6 +66,7 @@ function LinkedRepoRow({
   onUnlink: () => void
 }): ReactElement {
   const [editOpen, setEditOpen] = useState(false)
+  const [recipesOpen, setRecipesOpen] = useState(false)
   const Icon = repo.private ? IconLock : IconBrandGithub
   // The repo's own path wins; otherwise fall back to the project default.
   const displayPath = repo.path ?? projectPath
@@ -97,6 +102,15 @@ function LinkedRepoRow({
       <Button
         variant="outline"
         size="icon-sm"
+        aria-label={`Edit setup recipes for ${repo.owner}/${repo.name}`}
+        title="Edit worktree setup recipes"
+        onClick={() => setRecipesOpen(true)}
+      >
+        <IconScript />
+      </Button>
+      <Button
+        variant="outline"
+        size="icon-sm"
         aria-label={`Edit local directory for ${repo.owner}/${repo.name}`}
         title="Edit local directory"
         onClick={() => setEditOpen(true)}
@@ -119,6 +133,7 @@ function LinkedRepoRow({
         open={editOpen}
         onOpenChange={setEditOpen}
       />
+      <RepoSetupCommandsDialog repo={repo} open={recipesOpen} onOpenChange={setRecipesOpen} />
     </li>
   )
 }
@@ -189,6 +204,183 @@ function RepoPathDialog({
           <DialogFooter>
             <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
             <Button type="submit" loading={setRepoPath.isPending}>
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogPopup>
+    </Dialog>
+  )
+}
+
+/** An editable recipe row. `id` is a per-dialog counter so reordering keeps
+ * React keys (and thus input focus) stable — labels aren't unique while typing. */
+interface RecipeDraft {
+  id: number
+  label: string
+  command: string
+}
+
+/**
+ * Dialog to edit a linked repo's worktree setup recipes: an ordered list of
+ * label + command pairs, saved wholesale. Each recipe is a complete,
+ * self-contained script (never composed with others) that the worktree
+ * creation dialog offers as a single choice — anything beyond a one-liner
+ * belongs in a script inside the repo that the command just calls.
+ */
+function RepoSetupCommandsDialog({
+  repo,
+  open,
+  onOpenChange
+}: {
+  repo: ProjectRepoRow
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}): ReactElement {
+  const utils = trpc.useUtils()
+  const nextId = useRef(0)
+  const [recipes, setRecipes] = useState<RecipeDraft[]>([])
+
+  // Seed the drafts from the repo each time the dialog opens.
+  const wasOpen = useRef(false)
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setRecipes(repo.setupCommands.map((recipe) => ({ id: nextId.current++, ...recipe })))
+    }
+    wasOpen.current = open
+  }, [open, repo.setupCommands])
+
+  const save = trpc.github.setRepoSetupCommands.useMutation({
+    onSuccess: () => {
+      utils.projects.list.invalidate()
+      onOpenChange(false)
+    }
+  })
+
+  const update = (id: number, patch: Partial<Omit<RecipeDraft, 'id'>>): void => {
+    setRecipes((list) => list.map((row) => (row.id === id ? { ...row, ...patch } : row)))
+  }
+  const move = (index: number, delta: -1 | 1): void => {
+    setRecipes((list) => {
+      const next = [...list]
+      const [row] = next.splice(index, 1)
+      next.splice(index + delta, 0, row)
+      return next
+    })
+  }
+
+  // Rows left fully empty are dropped silently; a half-filled row blocks save.
+  const cleaned = recipes
+    .map((row) => ({ label: row.label.trim(), command: row.command.trim() }))
+    .filter((row) => row.label || row.command)
+  const incomplete = cleaned.some((row) => !row.label || !row.command)
+  const duplicated = new Set(cleaned.map((row) => row.label)).size !== cleaned.length
+
+  const handleSubmit = (event: FormEvent): void => {
+    event.preventDefault()
+    if (incomplete || duplicated) return
+    save.mutate({ id: repo.id, setupCommands: cleaned })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Setup recipes</DialogTitle>
+          <DialogDescription>
+            Commands offered when creating a worktree of{' '}
+            <span className="font-medium text-foreground">
+              {repo.owner}/{repo.name}
+            </span>
+            . The selected one runs in the new worktree through your shell, with{' '}
+            <span className="font-mono text-xs">REPO_PATH</span>,{' '}
+            <span className="font-mono text-xs">WORKTREE_PATH</span>,{' '}
+            <span className="font-mono text-xs">BRANCH</span> and{' '}
+            <span className="font-mono text-xs">ISSUE_NUMBER</span> set.
+          </DialogDescription>
+        </DialogHeader>
+        <form className="contents" onSubmit={handleSubmit}>
+          <DialogPanel className="grid gap-3">
+            {recipes.length === 0 && (
+              <p className="text-muted-foreground text-sm">
+                No recipes yet — add one, like copying the main clone’s env file:{' '}
+                <span className="font-mono text-xs">cp "$REPO_PATH/.env" .</span>
+              </p>
+            )}
+            {recipes.map((recipe, index) => (
+              <div key={recipe.id} className="grid grid-cols-[7rem_1fr_auto] items-center gap-2">
+                <Input
+                  value={recipe.label}
+                  onChange={(event) => update(recipe.id, { label: event.currentTarget.value })}
+                  placeholder="Label"
+                  aria-label="Recipe label"
+                  autoComplete="off"
+                />
+                <Input
+                  value={recipe.command}
+                  onChange={(event) => update(recipe.id, { command: event.currentTarget.value })}
+                  placeholder="./scripts/setup-worktree.sh"
+                  aria-label="Recipe command"
+                  className="font-mono"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <div className="flex gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Move recipe up"
+                    disabled={index === 0}
+                    onClick={() => move(index, -1)}
+                  >
+                    <IconChevronUp />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="Move recipe down"
+                    disabled={index === recipes.length - 1}
+                    onClick={() => move(index, 1)}
+                  >
+                    <IconChevronDown />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-destructive-foreground hover:bg-destructive/8"
+                    aria-label="Remove recipe"
+                    onClick={() => setRecipes((list) => list.filter((row) => row.id !== recipe.id))}
+                  >
+                    <IconTrash />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="justify-self-start"
+              onClick={() =>
+                setRecipes((list) => [...list, { id: nextId.current++, label: '', command: '' }])
+              }
+            >
+              <IconPlus />
+              Add recipe
+            </Button>
+            {duplicated && (
+              <p className="text-destructive-foreground text-sm">Recipe labels must be unique.</p>
+            )}
+            {save.error && (
+              <p className="text-destructive-foreground text-sm">{save.error.message}</p>
+            )}
+          </DialogPanel>
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
+            <Button type="submit" disabled={incomplete || duplicated} loading={save.isPending}>
               Save
             </Button>
           </DialogFooter>

@@ -16,6 +16,10 @@ import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/
 import { Spinner } from '@/components/ui/spinner'
 import { trpc } from '@/lib/trpc'
 
+/** Select value for "run no setup recipe" — a sentinel because base-ui select
+ *  values are strings and recipe labels are user-defined. */
+const NO_RECIPE = '__none__'
+
 /** Client-side mirror of the main-side path rule (services/worktrees.ts
  *  sanitizeBranchForPath) so the preview tracks the branch input live without a
  *  round-trip per keystroke. The mutation derives the real path main-side; a
@@ -76,12 +80,32 @@ export function WorktreeCreateDialog({
   const branch = existingBranch ?? branchDraft ?? info.data?.suggestedBranch ?? ''
   const base = baseDraft ?? info.data?.defaultBranch ?? info.data?.branches[0] ?? ''
 
+  // The setup-recipe choice follows the same draft pattern, except an explicit
+  // "None" is a real choice — so undefined means "follow the data" and null
+  // means None. Defaults to the repo's last-used recipe when it still exists.
+  const [recipeDraft, setRecipeDraft] = useState<string | null | undefined>(undefined)
+  const recipes = info.data?.setupCommands ?? []
+  const lastUsed = info.data?.lastSetupCommand ?? null
+  const defaultRecipe = recipes.some((entry) => entry.label === lastUsed) ? lastUsed : null
+  const recipe = recipeDraft === undefined ? defaultRecipe : recipeDraft
+
+  // A recipe failure after a successful creation — shown as a banner while the
+  // dialog sticks around (the worktree itself is live).
+  const [setupError, setSetupError] = useState<string | null>(null)
+
+  // Identifies this submission's output in the main-side creation log, so the
+  // dialog can show the git/setup output live instead of just a spinner.
+  const [runId, setRunId] = useState<string | null>(null)
+
   // Reset the drafts each time the dialog opens for a fresh derivation.
   const wasOpen = useRef(false)
   useEffect(() => {
     if (open && !wasOpen.current) {
       setBranchDraft(null)
       setBaseDraft(null)
+      setRecipeDraft(undefined)
+      setSetupError(null)
+      setRunId(null)
     }
     wasOpen.current = open
   }, [open])
@@ -89,8 +113,9 @@ export function WorktreeCreateDialog({
   // Write the new worktree straight into the query cache so the row's glyph
   // flips instantly, then invalidate to reconcile with `git worktree list` in
   // the background (the refetch pays a login-shell spawn — too slow to gate the
-  // UI on).
-  const onCreated = (created: { branch: string; path: string }): void => {
+  // UI on). A setup failure doesn't change any of that — the worktree exists —
+  // but it keeps the dialog open to show the banner instead of closing.
+  const onCreated = (created: { branch: string; path: string; setupError?: string }): void => {
     utils.worktrees.forRepo.setData({ owner: repo.owner, name: repo.name }, (old) => ({
       worktrees: [
         ...(old?.worktrees ?? []).filter((worktree) => worktree.path !== created.path),
@@ -98,12 +123,62 @@ export function WorktreeCreateDialog({
       ]
     }))
     utils.worktrees.forRepo.invalidate({ owner: repo.owner, name: repo.name })
-    onOpenChange(false)
+    if (created.setupError) setSetupError(created.setupError)
+    else onOpenChange(false)
   }
-  const create = trpc.worktrees.create.useMutation({ onSuccess: onCreated })
-  const createFromBranch = trpc.worktrees.createFromBranch.useMutation({ onSuccess: onCreated })
+  // The final invalidate fetches the log's tail once more after the mutation
+  // settles — the interval polling below stops the moment pending flips false.
+  const onSettled = (): void => {
+    utils.worktrees.creationLog.invalidate()
+  }
+  const create = trpc.worktrees.create.useMutation({ onSuccess: onCreated, onSettled })
+  const createFromBranch = trpc.worktrees.createFromBranch.useMutation({
+    onSuccess: onCreated,
+    onSettled
+  })
   const pending = create.isPending || createFromBranch.isPending
   const error = create.error ?? createFromBranch.error
+
+  // Live output of the in-flight creation (git fetch/worktree add + the setup
+  // command), polled from the main-side buffer while the mutation runs.
+  const creationLog = trpc.worktrees.creationLog.useQuery(
+    { runId: runId ?? '' },
+    { enabled: runId !== null, refetchInterval: pending ? 250 : false }
+  )
+  const logText = runId ? (creationLog.data?.log ?? '') : ''
+
+  // Trickle new output into the pane instead of jumping a whole poll batch at
+  // once: reveal the backlog a few lines per tick, taking a bigger bite the
+  // further behind it is so a chatty burst catches up instead of lagging.
+  const [displayedLog, setDisplayedLog] = useState('')
+  useEffect(() => {
+    if (logText === displayedLog) return
+    // The buffer is trimmed from the front (and reset per run) — when the
+    // displayed text is no longer a prefix of the target, snap instead.
+    if (!logText.startsWith(displayedLog)) {
+      setDisplayedLog(logText)
+      return
+    }
+    const timer = setTimeout(() => {
+      setDisplayedLog((current) => {
+        if (!logText.startsWith(current)) return logText
+        const pending = logText.slice(current.length)
+        const lines = pending.split('\n')
+        const take = Math.max(1, Math.ceil(lines.length / 10))
+        const cut = lines.slice(0, take).join('\n').length + 1
+        return current + pending.slice(0, Math.min(cut, pending.length))
+      })
+    }, 50)
+    return () => clearTimeout(timer)
+  }, [logText, displayedLog])
+
+  // Keep the log pane pinned to the bottom as output streams in.
+  const logRef = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    if (!displayedLog) return
+    const pane = logRef.current
+    if (pane) pane.scrollTop = pane.scrollHeight
+  }, [displayedLog])
 
   const blockers = info.data?.blockers ?? []
   const preview = info.data ? `${info.data.repoDir}/${sanitizeBranchForPath(branch)}` : null
@@ -116,15 +191,28 @@ export function WorktreeCreateDialog({
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault()
     if (!canSubmit) return
+    const setupCommand = recipe ?? undefined
+    // Fresh id per attempt so a retry's log doesn't append to the failed one's.
+    const nextRunId = crypto.randomUUID()
+    setRunId(nextRunId)
     if (existingBranch) {
-      createFromBranch.mutate({ owner: repo.owner, name: repo.name, branch: existingBranch })
+      createFromBranch.mutate({
+        owner: repo.owner,
+        name: repo.name,
+        branch: existingBranch,
+        number: issue.number,
+        setupCommand,
+        runId: nextRunId
+      })
     } else {
       create.mutate({
         owner: repo.owner,
         name: repo.name,
         number: issue.number,
         branch: branch.trim(),
-        base
+        base,
+        setupCommand,
+        runId: nextRunId
       })
     }
   }
@@ -154,7 +242,18 @@ export function WorktreeCreateDialog({
         </DialogHeader>
         <form className="contents" onSubmit={handleSubmit}>
           <DialogPanel className="grid gap-4">
-            {info.isLoading && (
+            {setupError && (
+              <div className="grid gap-1.5 rounded-md bg-destructive/8 px-3 py-2.5">
+                <p className="text-destructive-foreground text-sm">
+                  The worktree was created, but its setup command failed. Finish the setup in your
+                  terminal.
+                </p>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-destructive-foreground/80 text-xs">
+                  {setupError}
+                </pre>
+              </div>
+            )}
+            {!setupError && info.isLoading && (
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Spinner className="size-4" /> Loading branch info…
               </div>
@@ -167,7 +266,7 @@ export function WorktreeCreateDialog({
                 {blocker}
               </p>
             ))}
-            {info.data && blockers.length === 0 && (
+            {!setupError && info.data && blockers.length === 0 && (
               <>
                 {!existingBranch && (
                   <>
@@ -201,6 +300,29 @@ export function WorktreeCreateDialog({
                     </div>
                   </>
                 )}
+                {recipes.length > 0 && (
+                  <div className="grid gap-1.5">
+                    <Label>Setup command</Label>
+                    <Select
+                      value={recipe ?? NO_RECIPE}
+                      onValueChange={(next) =>
+                        next && setRecipeDraft(next === NO_RECIPE ? null : next)
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <span className="truncate">{recipe ?? 'None'}</span>
+                      </SelectTrigger>
+                      <SelectPopup>
+                        <SelectItem value={NO_RECIPE}>None</SelectItem>
+                        {recipes.map((entry) => (
+                          <SelectItem key={entry.label} value={entry.label}>
+                            {entry.label}
+                          </SelectItem>
+                        ))}
+                      </SelectPopup>
+                    </Select>
+                  </div>
+                )}
                 {preview && (
                   <p className="break-all text-muted-foreground text-xs">
                     Worktree at <span className="font-medium">{preview}</span>
@@ -209,12 +331,27 @@ export function WorktreeCreateDialog({
               </>
             )}
             {error && <p className="text-destructive-foreground text-sm">{error.message}</p>}
+            {(pending || error) && !setupError && displayedLog && (
+              <pre
+                ref={logRef}
+                className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 px-3 py-2 font-mono text-muted-foreground text-xs"
+              >
+                {displayedLog}
+              </pre>
+            )}
           </DialogPanel>
           <DialogFooter>
-            <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={!canSubmit} loading={pending}>
-              Create worktree
-            </Button>
+            {setupError ? (
+              // The creation itself succeeded — nothing left to submit or cancel.
+              <DialogClose render={<Button type="button" />}>Close</DialogClose>
+            ) : (
+              <>
+                <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
+                <Button type="submit" disabled={!canSubmit} loading={pending}>
+                  Create worktree
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </form>
       </DialogPopup>

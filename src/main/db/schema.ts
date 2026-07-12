@@ -291,6 +291,18 @@ export const emailThreadState = sqliteTable(
 )
 
 /**
+ * A worktree setup recipe: a label + a complete, self-contained shell script
+ * run after a worktree is created (cwd = the new worktree, with REPO_PATH /
+ * WORKTREE_PATH / BRANCH / ISSUE_NUMBER in the environment). Recipes are never
+ * composed — each one does the whole job, typically by calling a script that
+ * lives in the repo itself.
+ */
+export interface SetupCommand {
+  label: string
+  command: string
+}
+
+/**
  * A GitHub repository linked to a project. A project can link several (e.g. a
  * frontend and a backend repo). We keep a small display snapshot — the GitHub
  * numeric `repoId` for stable identity, plus name/description/visibility/url —
@@ -319,6 +331,17 @@ export const projectRepos = sqliteTable(
     // clone). Null falls back to the project's default `path` — so a repo only
     // stores a path when it diverges from the project default.
     path: text('path'),
+    // Ordered worktree setup recipes (see {@link SetupCommand}). A JSON column,
+    // not a table — mirrors how action `config` stores JSON, and recipes are
+    // only ever read as a whole list.
+    setupCommands: text('setup_commands', { mode: 'json' })
+      .notNull()
+      .$type<SetupCommand[]>()
+      .default(sql`'[]'`),
+    // Label of the recipe last used when creating a worktree of this repo;
+    // null = None. Label-keyed on purpose: a renamed/removed recipe just falls
+    // back to None in the creation dialog.
+    lastSetupCommand: text('last_setup_command'),
     createdAt: integer('created_at', { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`)
   },
   (table) => [

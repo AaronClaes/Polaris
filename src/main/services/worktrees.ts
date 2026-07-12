@@ -19,18 +19,51 @@ export interface Worktree {
 }
 
 /**
+ * In-memory output logs of in-flight worktree creations, keyed by a renderer-
+ * generated run id. The creation dialog polls `worktrees.creationLog` while its
+ * mutation runs, so the user watches the git/setup output live instead of a
+ * spinner. Bounded both ways (runs kept + bytes per run) — it's a live peek,
+ * not a persistent log.
+ */
+const creationLogs = new Map<string, string>()
+const MAX_LOG_RUNS = 20
+const MAX_LOG_LENGTH = 20_000
+
+export function appendCreationLog(runId: string, chunk: string): void {
+  if (!creationLogs.has(runId) && creationLogs.size >= MAX_LOG_RUNS) {
+    // Maps iterate in insertion order, so the first key is the oldest run.
+    const oldest = creationLogs.keys().next().value
+    if (oldest !== undefined) creationLogs.delete(oldest)
+  }
+  creationLogs.set(runId, ((creationLogs.get(runId) ?? '') + chunk).slice(-MAX_LOG_LENGTH))
+}
+
+export function readCreationLog(runId: string): string {
+  return creationLogs.get(runId) ?? ''
+}
+
+/**
  * Run a git command in `repoPath` through a login + interactive shell
  * (`$SHELL -ilc`, same trap as action-runner's runCommand) so the packaged app
  * resolves the user's git; cwd carries the repo path so the command string
- * itself stays quoting-free for the common case.
+ * itself stays quoting-free for the common case. `onLog` streams the combined
+ * output as it arrives (on top of the buffered result).
  */
 async function runGit(
   repoPath: string,
   command: string,
-  timeout: number
+  timeout: number,
+  onLog?: (chunk: string) => void
 ): Promise<{ exitCode?: number; stdout: string; stderr: string }> {
   const userShell = process.env.SHELL || '/bin/zsh'
-  return execa(userShell, ['-ilc', command], { cwd: repoPath, reject: false, timeout })
+  const subprocess = execa(userShell, ['-ilc', command], {
+    cwd: repoPath,
+    reject: false,
+    timeout,
+    all: onLog !== undefined
+  })
+  subprocess.all?.on('data', (chunk: Buffer | string) => onLog?.(chunk.toString()))
+  return subprocess
 }
 
 /** Single-quote a value for embedding in the `-ilc` command string (paths and
@@ -139,27 +172,80 @@ export function deriveBranchName(number: number, title: string): string {
 export async function addWorktree({
   repoPath,
   branch,
-  worktreePath
+  worktreePath,
+  onLog
 }: {
   repoPath: string
   branch: string
   worktreePath: string
+  onLog?: (chunk: string) => void
 }): Promise<void> {
   await mkdir(dirname(worktreePath), { recursive: true })
 
-  const fetch = await runGit(repoPath, 'git fetch origin', 120_000)
+  onLog?.('$ git fetch origin\n')
+  const fetch = await runGit(repoPath, 'git fetch origin', 120_000, onLog)
   if (fetch.exitCode !== 0) {
     throw new Error(`git fetch failed: ${fetch.stderr || `exit code ${fetch.exitCode}`}`)
   }
 
-  const add = await runGit(
-    repoPath,
-    `git worktree add ${shellQuote(worktreePath)} ${shellQuote(branch)}`,
-    30_000
-  )
+  const addCommand = `git worktree add ${shellQuote(worktreePath)} ${shellQuote(branch)}`
+  onLog?.(`$ ${addCommand}\n`)
+  const add = await runGit(repoPath, addCommand, 30_000, onLog)
   if (add.exitCode !== 0) {
     throw new Error(`git worktree add failed: ${add.stderr || `exit code ${add.exitCode}`}`)
   }
+}
+
+/**
+ * Run a setup recipe in a freshly created worktree — `$SHELL -ilc` like every
+ * other user command, cwd = the worktree, with the creation context layered
+ * into the environment (execa merges it over process.env) so a recipe/script
+ * can reach back to the main clone (`cp "$REPO_PATH/.env" .`).
+ *
+ * Returns an error message (with a tail of the captured output) instead of
+ * throwing: by the time setup runs the worktree already exists, so a failed
+ * recipe is a warning on a successful creation, never a failed mutation.
+ */
+export async function runSetupCommand({
+  command,
+  repoPath,
+  worktreePath,
+  branch,
+  issueNumber,
+  onLog
+}: {
+  command: string
+  repoPath: string
+  worktreePath: string
+  branch: string
+  issueNumber?: number
+  onLog?: (chunk: string) => void
+}): Promise<string | null> {
+  const userShell = process.env.SHELL || '/bin/zsh'
+  onLog?.(`$ ${command}\n`)
+  const subprocess = execa(userShell, ['-ilc', command], {
+    cwd: worktreePath,
+    reject: false,
+    // Bounded so a hung recipe can't wedge the create mutation indefinitely.
+    timeout: 120_000,
+    // Interleaved stdout+stderr, both for live streaming and the failure tail.
+    all: true,
+    env: {
+      REPO_PATH: repoPath,
+      WORKTREE_PATH: worktreePath,
+      BRANCH: branch,
+      ...(issueNumber === undefined ? {} : { ISSUE_NUMBER: String(issueNumber) })
+    }
+  })
+  subprocess.all?.on('data', (chunk: Buffer | string) => onLog?.(chunk.toString()))
+  const result = await subprocess
+  if (!result.timedOut && result.exitCode === 0) return null
+
+  const reason = result.timedOut
+    ? 'timed out after 2 minutes'
+    : `exited with code ${result.exitCode}`
+  const tail = (result.all ?? '').trim().slice(-2_000)
+  return `Setup command ${reason}.${tail ? `\n${tail}` : ''}`
 }
 
 /**

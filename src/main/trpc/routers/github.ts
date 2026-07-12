@@ -165,6 +165,34 @@ export const githubRouter = router({
         .get()
     }),
 
+  // Replace a linked repo's worktree setup recipes wholesale (the editor
+  // always saves the full ordered list). Labels must be unique — they're the
+  // key `lastSetupCommand` remembers a choice by.
+  setRepoSetupCommands: publicProcedure
+    .input(
+      z.object({
+        id: z.number().int(),
+        setupCommands: z.array(
+          z.object({
+            label: z.string().trim().min(1, 'Every recipe needs a label'),
+            command: z.string().trim().min(1, 'Every recipe needs a command')
+          })
+        )
+      })
+    )
+    .mutation(({ ctx, input }) => {
+      const labels = new Set(input.setupCommands.map((recipe) => recipe.label))
+      if (labels.size !== input.setupCommands.length) {
+        throw new Error('Recipe labels must be unique.')
+      }
+      return ctx.db
+        .update(projectRepos)
+        .set({ setupCommands: input.setupCommands })
+        .where(eq(projectRepos.id, input.id))
+        .returning()
+        .get()
+    }),
+
   // Unlink a repo from a project by its GitHub id (what the picker toggles off).
   unlinkRepo: publicProcedure
     .input(z.object({ projectId: z.number().int(), repoId: z.number().int() }))
