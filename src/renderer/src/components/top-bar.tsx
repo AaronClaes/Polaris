@@ -2,6 +2,7 @@ import { IconRefresh, IconSettings } from '@tabler/icons-react'
 import { useIsFetching } from '@tanstack/react-query'
 import { useNavigate, useParams } from '@tanstack/react-router'
 import type { ReactElement } from 'react'
+import { JobsButton } from '@/components/jobs-button'
 import { ProjectIcon } from '@/components/project-icon'
 import { TagFilterButton } from '@/components/tag-filter'
 import { Button } from '@/components/ui/button'
@@ -68,6 +69,7 @@ export function TopBar(): ReactElement {
       )}
       <div className="no-drag absolute right-2 flex items-center gap-1">
         <TagFilterButton />
+        <JobsButton />
         <Button
           variant="outline"
           size="icon-sm"

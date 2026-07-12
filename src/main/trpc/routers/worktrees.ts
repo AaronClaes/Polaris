@@ -10,8 +10,8 @@ import {
   CLAUDE_MODELS,
   CLAUDE_PERMISSION_MODES,
   readClaudeLaunchDefaults,
-  startClaudeInTerminal,
-  writeClaudeLaunchDefaults
+  resolveClaudeLaunchFlags,
+  startClaudeInTerminal
 } from '../../services/claude-launch'
 import { readDefaultApps } from '../../services/default-apps'
 import {
@@ -19,14 +19,13 @@ import {
   fetchWorktreeCreationLookup,
   GitHubGraphQLError
 } from '../../services/github'
+import { startJob } from '../../services/jobs'
 import {
   addWorktree,
-  appendCreationLog,
   deriveBranchName,
   deriveWorktreePath,
   listOccupiedSegments,
   listWorktrees,
-  readCreationLog,
   readWorktreesRoot,
   removeWorktree,
   runSetupCommand
@@ -75,6 +74,17 @@ function resolveUsableClone(
     }
   }
   return { ok: true, path }
+}
+
+// The project a repo's jobs display under (its icon in the jobs list). Same
+// posture as resolveClonePath when several projects link the repo: the first
+// row wins. Purely cosmetic — never gates any behavior.
+function resolveProjectId(db: DB, owner: string, name: string): number | undefined {
+  return db
+    .select({ projectId: projectRepos.projectId })
+    .from(projectRepos)
+    .where(and(eq(projectRepos.owner, owner), eq(projectRepos.name, name)))
+    .get()?.projectId
 }
 
 function resolveToken(db: DB, owner: string): string | null {
@@ -146,11 +156,79 @@ async function runSetupRecipe(
   return error ?? undefined
 }
 
-// The mutation-side half of the live log: a chunk-appender bound to the
-// renderer-generated run id, or undefined when the caller didn't ask for logs.
-function logWriter(runId: string | undefined): ((chunk: string) => void) | undefined {
-  return runId ? (chunk) => appendCreationLog(runId, chunk) : undefined
+/**
+ * The tail of every create job, after the worktree exists: setup recipe, then
+ * the Claude handoff when requested. Both failures *throw* — the job reports
+ * failed — but the worktree is live either way, so the messages must say so
+ * (and a failed recipe deliberately skips the Claude launch: fix the setup
+ * first, launch from the row's popover).
+ */
+async function runPostCreateSteps(
+  db: DB,
+  {
+    owner,
+    name,
+    setupCommand,
+    repoPath,
+    worktreePath,
+    branch,
+    issueNumber,
+    claude,
+    log
+  }: {
+    owner: string
+    name: string
+    setupCommand: string | undefined
+    repoPath: string
+    worktreePath: string
+    branch: string
+    issueNumber?: number
+    claude?: { prompt: string; model: string; permissionMode: string }
+    log: (chunk: string) => void
+  }
+): Promise<void> {
+  const setupError = await runSetupRecipe(db, {
+    owner,
+    name,
+    label: setupCommand,
+    repoPath,
+    worktreePath,
+    branch,
+    issueNumber,
+    onLog: log
+  })
+  if (setupError) {
+    throw new Error(
+      `The worktree was created and is usable, but its setup command failed — finish the setup in your terminal. ${setupError}`
+    )
+  }
+  if (claude) {
+    const terminal = readDefaultApps(db).terminal
+    log(`Starting Claude in ${terminal.name}…\n`)
+    try {
+      await startClaudeInTerminal({
+        terminal,
+        cwd: worktreePath,
+        command: buildClaudeCommand(claude)
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(
+        `The worktree was created, but Claude couldn't start — open it and run claude yourself. (${message})`
+      )
+    }
+  }
 }
+
+/** The optional Claude handoff riding a create mutation: the prompt plus the
+ *  launch flags (resolved/remembered exactly like `startClaude`). */
+const claudeInput = z
+  .object({
+    prompt: z.string(),
+    model: z.string().optional(),
+    permissionMode: z.string().optional()
+  })
+  .optional()
 
 export const worktreesRouter = router({
   // The added worktrees of a repo's local clone. Owner/name is the renderer's
@@ -224,9 +302,12 @@ export const worktreesRouter = router({
     }),
 
   // The full creation write path: linked branch on GitHub (its Development
-  // panel), then fetch + worktree add locally. Re-runs the lookup at submit
-  // time so the base OID is fresh. A local failure after the GitHub write
-  // throws — the branch deliberately stays (a legitimate, retryable state).
+  // panel), then fetch + worktree add locally, as a background *job* — the
+  // mutation returns the job id the moment the cheap preflight passes, and the
+  // dialog closes; progress lives in the jobs UI. Re-runs the lookup inside the
+  // job so the base OID is fresh at execution time. A local failure after the
+  // GitHub write fails the job — the branch deliberately stays (a legitimate,
+  // retryable state).
   create: publicProcedure
     .input(
       repoInput.extend({
@@ -234,83 +315,115 @@ export const worktreesRouter = router({
         branch: z.string().trim().min(1),
         base: z.string().trim().min(1),
         // Label of the setup recipe to run after the worktree is added;
-        // omitted = None. Runs post-create, so its failure never fails this.
+        // omitted = None.
         setupCommand: z.string().optional(),
-        // When set, git/setup output streams into the creation log the dialog
-        // polls (see creationLog below).
-        runId: z.string().optional()
+        claude: claudeInput
       })
     )
-    .mutation(async ({ ctx, input }) => {
-      const onLog = logWriter(input.runId)
+    .mutation(({ ctx, input }) => {
       const clone = resolveUsableClone(ctx.db, input.owner, input.name)
       if (!clone.ok) throw new Error(clone.blocker)
       const repoPath = clone.path
       const token = resolveToken(ctx.db, input.owner)
       if (!token) throw new Error(`No linked GitHub token for ${input.owner}.`)
-
-      const lookup = await fetchWorktreeCreationLookup(input.owner, input.name, input.number, token)
-      const baseBranch = lookup.branches.find((branch) => branch.name === input.base)
-      if (!baseBranch) {
-        throw new Error(`Base branch ${input.base} not found on ${input.owner}/${input.name}.`)
-      }
-
-      onLog?.(`Creating branch ${input.branch} on GitHub (linked to #${input.number})…\n`)
-      let branch: string
-      try {
-        branch = await createLinkedBranch(token, {
-          issueId: lookup.issueId,
-          oid: baseBranch.oid,
-          name: input.branch
-        })
-      } catch (error) {
-        // The one failure users actually hit here: a fine-grained PAT without
-        // Contents: write. GitHub reports it as FORBIDDEN — name the owner and
-        // the fix instead of parroting "Resource not accessible…".
-        if (error instanceof GitHubGraphQLError && error.type === 'FORBIDDEN') {
-          throw new Error(
-            `The token for ${input.owner} can't create branches — give it Contents: read & write in its GitHub settings, then try again.`
-          )
-        }
-        throw error
-      }
+      // Flags resolve (and are remembered) synchronously so a bad value fails
+      // the submit in the dialog, never the background job.
+      const claude = input.claude
+        ? { prompt: input.claude.prompt, ...resolveClaudeLaunchFlags(ctx.db, input.claude) }
+        : undefined
 
       const root = readWorktreesRoot(ctx.db)
-      const worktreePath = deriveWorktreePath(
-        root,
-        input.owner,
-        input.name,
-        branch,
-        `issue-${input.number}`
-      )
-      try {
-        await addWorktree({ repoPath, branch, worktreePath, onLog })
-      } catch (error) {
-        // The GitHub half succeeded, so this is a recoverable state, not a
-        // rollback: the branch stays, and once the row picks it up its create
-        // affordance offers the existing branch (local-only mode) as the retry.
-        const message = error instanceof Error ? error.message : String(error)
-        throw new Error(
-          `The branch ${branch} was created on GitHub, but the local checkout failed: ${message} — the branch stays, so fix the cause and retry from the row's create button (it will offer the existing branch).`
-        )
-      }
+      const job = startJob(
+        {
+          kind: 'worktree-create',
+          title: `Create worktree ${input.branch}`,
+          detail: `${input.owner}/${input.name}`,
+          meta: {
+            owner: input.owner,
+            name: input.name,
+            branch: input.branch,
+            projectId: resolveProjectId(ctx.db, input.owner, input.name),
+            // Derived from the *requested* name; the job re-derives from what
+            // GitHub actually returns. Only UI keying, never the git target.
+            path: deriveWorktreePath(
+              root,
+              input.owner,
+              input.name,
+              input.branch,
+              `issue-${input.number}`
+            )
+          }
+        },
+        async (log) => {
+          const lookup = await fetchWorktreeCreationLookup(
+            input.owner,
+            input.name,
+            input.number,
+            token
+          )
+          const baseBranch = lookup.branches.find((branch) => branch.name === input.base)
+          if (!baseBranch) {
+            throw new Error(`Base branch ${input.base} not found on ${input.owner}/${input.name}.`)
+          }
 
-      const setupError = await runSetupRecipe(ctx.db, {
-        owner: input.owner,
-        name: input.name,
-        label: input.setupCommand,
-        repoPath,
-        worktreePath,
-        branch,
-        issueNumber: input.number,
-        onLog
-      })
-      return { branch, path: worktreePath, setupError }
+          log(`Creating branch ${input.branch} on GitHub (linked to #${input.number})…\n`)
+          let branch: string
+          try {
+            branch = await createLinkedBranch(token, {
+              issueId: lookup.issueId,
+              oid: baseBranch.oid,
+              name: input.branch
+            })
+          } catch (error) {
+            // The one failure users actually hit here: a fine-grained PAT
+            // without Contents: write. GitHub reports it as FORBIDDEN — name
+            // the owner and the fix instead of "Resource not accessible…".
+            if (error instanceof GitHubGraphQLError && error.type === 'FORBIDDEN') {
+              throw new Error(
+                `The token for ${input.owner} can't create branches — give it Contents: read & write in its GitHub settings, then try again.`
+              )
+            }
+            throw error
+          }
+
+          const worktreePath = deriveWorktreePath(
+            root,
+            input.owner,
+            input.name,
+            branch,
+            `issue-${input.number}`
+          )
+          try {
+            await addWorktree({ repoPath, branch, worktreePath, onLog: log })
+          } catch (error) {
+            // The GitHub half succeeded, so this is a recoverable state, not a
+            // rollback: the branch stays, and once the row picks it up its
+            // create affordance offers the existing branch as the retry.
+            const message = error instanceof Error ? error.message : String(error)
+            throw new Error(
+              `The branch ${branch} was created on GitHub, but the local checkout failed: ${message} — the branch stays, so fix the cause and retry from the row's create button (it will offer the existing branch).`
+            )
+          }
+
+          await runPostCreateSteps(ctx.db, {
+            owner: input.owner,
+            name: input.name,
+            setupCommand: input.setupCommand,
+            repoPath,
+            worktreePath,
+            branch,
+            issueNumber: input.number,
+            claude,
+            log
+          })
+        }
+      )
+      return { jobId: job.id }
     }),
 
   // Materialize an *existing* branch (fetch + worktree add, no GitHub write) —
   // for rows whose branch already exists, and the retry path when a create
-  // half-failed after the GitHub branch was made.
+  // half-failed after the GitHub branch was made. Backgrounded like `create`.
   createFromBranch: publicProcedure
     .input(
       repoInput.extend({
@@ -319,14 +432,16 @@ export const worktreesRouter = router({
         // context for the recipe's ISSUE_NUMBER env var, so it's optional.
         setupCommand: z.string().optional(),
         number: z.number().int().positive().optional(),
-        runId: z.string().optional()
+        claude: claudeInput
       })
     )
-    .mutation(async ({ ctx, input }) => {
-      const onLog = logWriter(input.runId)
+    .mutation(({ ctx, input }) => {
       const clone = resolveUsableClone(ctx.db, input.owner, input.name)
       if (!clone.ok) throw new Error(clone.blocker)
       const repoPath = clone.path
+      const claude = input.claude
+        ? { prompt: input.claude.prompt, ...resolveClaudeLaunchFlags(ctx.db, input.claude) }
+        : undefined
 
       const root = readWorktreesRoot(ctx.db)
       const worktreePath = deriveWorktreePath(
@@ -336,27 +451,36 @@ export const worktreesRouter = router({
         input.branch,
         input.number === undefined ? undefined : `issue-${input.number}`
       )
-      await addWorktree({ repoPath, branch: input.branch, worktreePath, onLog })
-
-      const setupError = await runSetupRecipe(ctx.db, {
-        owner: input.owner,
-        name: input.name,
-        label: input.setupCommand,
-        repoPath,
-        worktreePath,
-        branch: input.branch,
-        issueNumber: input.number,
-        onLog
-      })
-      return { branch: input.branch, path: worktreePath, setupError }
+      const job = startJob(
+        {
+          kind: 'worktree-create',
+          title: `Create worktree ${input.branch}`,
+          detail: `${input.owner}/${input.name}`,
+          meta: {
+            owner: input.owner,
+            name: input.name,
+            branch: input.branch,
+            projectId: resolveProjectId(ctx.db, input.owner, input.name),
+            path: worktreePath
+          }
+        },
+        async (log) => {
+          await addWorktree({ repoPath, branch: input.branch, worktreePath, onLog: log })
+          await runPostCreateSteps(ctx.db, {
+            owner: input.owner,
+            name: input.name,
+            setupCommand: input.setupCommand,
+            repoPath,
+            worktreePath,
+            branch: input.branch,
+            issueNumber: input.number,
+            claude,
+            log
+          })
+        }
+      )
+      return { jobId: job.id }
     }),
-
-  // The live output of an in-flight creation (git + setup command), polled by
-  // the dialog while its create mutation runs. Reading an unknown run id is
-  // just an empty log, never an error.
-  creationLog: publicProcedure
-    .input(z.object({ runId: z.string().min(1) }))
-    .query(({ input }) => ({ log: readCreationLog(input.runId) })),
 
   // Everything the standalone "Start Claude" dialog needs: the terminal it
   // would open, the flag registries for its selects, and the remembered
@@ -382,18 +506,7 @@ export const worktreesRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const stored = readClaudeLaunchDefaults(ctx.db)
-      const model = input.model ?? stored.model
-      const permissionMode = input.permissionMode ?? stored.permissionMode
-      if (!CLAUDE_MODELS.some((entry) => entry.value === model)) {
-        throw new Error(`Unknown Claude model: ${model}`)
-      }
-      if (!CLAUDE_PERMISSION_MODES.some((entry) => entry.value === permissionMode)) {
-        throw new Error(`Unknown permission mode: ${permissionMode}`)
-      }
-      if (input.model !== undefined || input.permissionMode !== undefined) {
-        writeClaudeLaunchDefaults(ctx.db, { model, permissionMode })
-      }
+      const { model, permissionMode } = resolveClaudeLaunchFlags(ctx.db, input)
       await startClaudeInTerminal({
         terminal: readDefaultApps(ctx.db).terminal,
         cwd: input.path,

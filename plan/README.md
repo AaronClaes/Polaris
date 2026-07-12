@@ -1,45 +1,62 @@
-# Worktrees from issues — implementation plan
+# Background jobs — implementation plan
 
-Polaris creates git worktrees from GitHub issues/PRs and hands off: you open the
-worktree in your terminal/IDE and start Claude yourself. Polaris never runs the
-work — it is the dispatcher, not the workspace.
+Long-running worktree operations (create — especially with a setup recipe that
+runs an install — and remove, which deletes `node_modules`-sized trees) move
+out of blocking dialogs into a main-side **job registry** with a top-bar jobs
+UI. Submit → dialog closes immediately → the job runs in the background → the
+worktree glyph appears/disappears when it's done.
 
-Full design rationale was settled in the 2026-07-11 grill session. The decisions
-that shape everything:
+Design settled in the 2026-07-12 conversation. The decisions that shape
+everything:
 
-- **State is fully derived — no worktree tables.** Issue → branches comes from
-  GitHub (`linkedBranches`, already synced); branch → worktree comes from
-  `git worktree list` on the repo's local clone. Everything keys on **branches**,
-  not items, so fused issue/PR rows, duplicate prevention and externally created
-  worktrees all fall out for free. Only *config* persists: the global worktrees
-  root and per-repo setup recipes.
-- **GitHub is the source of truth for issue↔branch.** Creation goes through the
-  `createLinkedBranch` mutation (shows in the issue's Development panel; the
-  existing sync picks it up). PATs need Contents: write; no local-only fallback.
-- **Disk layout:** `<root>/<owner>/<repo>/<branch-sanitized>`, root a global
-  setting defaulting to `~/polaris/worktrees`.
-- **Creation dialog:** pre-derived editable branch name (`123-slug`), base branch
-  (default preselected), resulting-path preview, setup-recipe select (single
-  choice + None, last-used preselected). Designed to later grow "open IDE" /
-  "launch Claude" checkboxes — not in v1.
-- **Setup recipes:** ordered list of named `{label, command}` per linked repo.
-  Chosen recipe runs after creation via the login-shell pattern
-  (`$SHELL -ilc`, cwd = new worktree, env `REPO_PATH` / `WORKTREE_PATH` /
-  `BRANCH` / `ISSUE_NUMBER`). A failing recipe still counts as created.
-- **Surfacing:** per-row only — issues table + tasks feed (issues/PRs). No
-  worktree → hover "Create worktree…"; exists → persistent glyph opening a
-  popover (branch, path, Open in IDE / Terminal / Finder via the global default
-  apps, Remove). Remove blocks on dirty state and only ever deletes the folder —
-  branches always survive.
-- **PR rows:** create = fetch + worktree the existing head branch (no GitHub
-  write). Fork PRs get no worktree option.
-- **Failure posture:** half-failure (GitHub branch created, local add failed)
-  keeps the branch — the derived model renders "branch without worktree" as a
-  legitimate state and creation from an existing branch is the retry. Missing
-  token scope or missing local clone path block with clear errors (no
-  auto-clone).
-- **Deferred (post-v1):** worktrees overview tab, stale-worktree nudges,
-  post-create checkboxes, running project actions inside worktrees.
+- **In-memory, session-scoped — no DB table.** If the app quits mid-job the
+  child process dies with it, so a persisted "running" row would be a lie on
+  restart; and worktree state is derived from git, so the glyphs always show
+  truth regardless. A jobs table is an easy later add if week-old logs ever
+  matter.
+- **The registry absorbs the creation-log machinery.** `creationLogs` /
+  `appendCreationLog` / `readCreationLog` and the `creationLog` query (plus the
+  renderer-generated `runId` plumbing) fold into jobs — each job carries its
+  own bounded log. One system, not two.
+- **Polling, not subscriptions.** The renderer polls `jobs.list` (~1s) only
+  while something is running, matching how the rest of the codebase works. A
+  `useJobs` hook watches running → finished transitions and invalidates the
+  derived queries (`worktrees.forRepo`, github) — that's how glyphs update
+  without any dialog involved.
+- **Preflight stays synchronous.** Cheap checks (usable clone, token, occupied
+  path / branch collision) still throw straight into the dialog before a job
+  is created. Only the slow work (GitHub branch, `worktree add`, setup recipe,
+  Claude launch, remove) runs inside the job.
+- **Remove is fully backgrounded** — including its safety checks. A refusal
+  (dirty / unpushed / never pushed) surfaces as a failed job in the popover,
+  not in the confirm dialog.
+- **Archive until cleared.** Finished jobs stay listed — running → finished,
+  never running → gone — so there's no "wait, did I run it?", and logs stay
+  readable after the fact. Explicit per-row dismiss + "Clear finished";
+  bounded (oldest finished evicted past a cap).
+- **Badge, not spinner-icon.** The top-bar jobs button is always visible (empty
+  state: "No jobs yet"). A small badge carries state: count of running +
+  unseen-finished jobs, destructive color when an unseen job failed. Opening
+  the popover marks jobs seen and clears the badge; the jobs themselves stay.
+- **Job detail dialog.** Clicking a job row opens a status dialog — status,
+  title/repo, timing, the error prominently when failed, live log underneath
+  (250ms poll while running). This replaces the create dialog's inline log
+  panel; it's rendered as a popover *sibling* (same pattern as
+  StartClaudeDialog / RemoveWorktreeDialog).
+- **Toasts on completion** — success ("Worktree 123-fix-login ready") and
+  failure — using the vendored `ui/toast.tsx` (first use). Failures also
+  persist in the popover; a toast alone is too easy to miss.
+- **Duplicate guard.** Starting a create while a job for the same repo+branch
+  is running throws (the dialog no longer blocks you, so the registry must);
+  same for a remove of the same path.
+- **A failed step after the worktree exists still fails the job** (setup
+  recipe, Claude launch) — two statuses only, but the error text says the
+  worktree was created and is usable. The Task 6 half-failure copy (branch on
+  GitHub, local checkout failed → retry from the row) moves into job errors
+  verbatim.
+- **Deferred (post-v1):** persisting jobs to the DB, adopting jobs for the 3D
+  tool's optimize/export, remove-speed optimization (explicitly left out),
+  cancel/kill a running job.
 
 ## Tracer-bullet tasks
 
@@ -48,12 +65,9 @@ in the running dev app before the next slice starts.
 
 | # | Task | Validates |
 |---|------|-----------|
-| 1 | [Derived read path](tasks/01-derived-read-path.md) | The whole state model, before any write code exists |
-| 2 | [Creation happy path](tasks/02-creation-happy-path.md) | GitHub-linked branch → local worktree, end to end |
-| 3 | [Popover launchers + remove](tasks/03-launchers-and-remove.md) | The daily-driver loop: open in IDE/terminal, clean up |
-| 4 | [Setup recipes](tasks/04-setup-recipes.md) | Config storage/UI + post-create environment prep |
-| 5 | [Tasks feed + PR rows](tasks/05-feed-and-prs.md) | Branch-keyed resolution across both surfaces |
-| 6 | [Failure modes + polish](tasks/06-failure-modes.md) | Every blocked/half-failed path reads clearly |
+| 1 | [Jobs core + backgrounded create](tasks/01-jobs-core-create.md) | Registry → router → top-bar list; create returns instantly, glyph appears on its own |
+| 2 | [Backgrounded remove + guards](tasks/02-remove-and-guards.md) | Remove via job (refusals as failed jobs), duplicate guard, removing-state glyph |
+| 3 | [Jobs UX polish](tasks/03-jobs-ux.md) | Detail dialog with live log, badge seen-semantics, toasts, dismiss/clear |
 
 ## Working agreement
 

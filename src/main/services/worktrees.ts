@@ -19,30 +19,6 @@ export interface Worktree {
 }
 
 /**
- * In-memory output logs of in-flight worktree creations, keyed by a renderer-
- * generated run id. The creation dialog polls `worktrees.creationLog` while its
- * mutation runs, so the user watches the git/setup output live instead of a
- * spinner. Bounded both ways (runs kept + bytes per run) — it's a live peek,
- * not a persistent log.
- */
-const creationLogs = new Map<string, string>()
-const MAX_LOG_RUNS = 20
-const MAX_LOG_LENGTH = 20_000
-
-export function appendCreationLog(runId: string, chunk: string): void {
-  if (!creationLogs.has(runId) && creationLogs.size >= MAX_LOG_RUNS) {
-    // Maps iterate in insertion order, so the first key is the oldest run.
-    const oldest = creationLogs.keys().next().value
-    if (oldest !== undefined) creationLogs.delete(oldest)
-  }
-  creationLogs.set(runId, ((creationLogs.get(runId) ?? '') + chunk).slice(-MAX_LOG_LENGTH))
-}
-
-export function readCreationLog(runId: string): string {
-  return creationLogs.get(runId) ?? ''
-}
-
-/**
  * Run a git command in `repoPath` through a login + interactive shell
  * (`$SHELL -ilc`, same trap as action-runner's runCommand) so the packaged app
  * resolves the user's git; cwd carries the repo path so the command string

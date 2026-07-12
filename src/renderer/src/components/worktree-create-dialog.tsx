@@ -48,6 +48,11 @@ function sanitizeBranchForPath(branch: string): string {
  * Both show a live preview of where the worktree will land, and can hand off
  * post-create: the "Start Claude" checkbox opens the default terminal in the
  * new worktree with an interactive `claude` session running.
+ *
+ * Submitting starts a background *job* and closes the dialog immediately —
+ * progress, output, and failures live in the top-bar jobs UI, and the row's
+ * glyph appears on its own when the job finishes. Only preflight problems
+ * (blockers, occupied path, branch collision, a rejected submit) surface here.
  */
 export function WorktreeCreateDialog({
   repo,
@@ -94,8 +99,8 @@ export function WorktreeCreateDialog({
 
   // The "Start Claude" handoff: checking the box reveals an editable kickoff
   // prompt plus model / permission-mode selects (drafts over the remembered
-  // last-used flags from creationInfo). The launch fires after the worktree is
-  // created — never on a setup failure, where the banner takes precedence.
+  // last-used flags from creationInfo). The launch rides the create input and
+  // fires main-side as the job's last step — never after a setup failure.
   const [launchClaude, setLaunchClaude] = useState(false)
   const [promptDraft, setPromptDraft] = useState<string | null>(null)
   const [modelDraft, setModelDraft] = useState<string | null>(null)
@@ -105,18 +110,6 @@ export function WorktreeCreateDialog({
   const claudeModel = modelDraft ?? claudeInfo?.model ?? ''
   const claudeMode = modeDraft ?? claudeInfo?.permissionMode ?? ''
 
-  // A launch failure after a successful creation — same shape as setupError:
-  // the worktree is live, so it's a warning banner, not a failed submit.
-  const [launchError, setLaunchError] = useState<string | null>(null)
-
-  // A recipe failure after a successful creation — shown as a banner while the
-  // dialog sticks around (the worktree itself is live).
-  const [setupError, setSetupError] = useState<string | null>(null)
-
-  // Identifies this submission's output in the main-side creation log, so the
-  // dialog can show the git/setup output live instead of just a spinner.
-  const [runId, setRunId] = useState<string | null>(null)
-
   // Reset the drafts each time the dialog opens for a fresh derivation.
   const wasOpen = useRef(false)
   useEffect(() => {
@@ -124,103 +117,25 @@ export function WorktreeCreateDialog({
       setBranchDraft(null)
       setBaseDraft(null)
       setRecipeDraft(undefined)
-      setSetupError(null)
       setLaunchClaude(false)
       setPromptDraft(null)
       setModelDraft(null)
       setModeDraft(null)
-      setLaunchError(null)
-      setRunId(null)
     }
     wasOpen.current = open
   }, [open])
 
-  const startClaude = trpc.worktrees.startClaude.useMutation()
-
-  // Write the new worktree straight into the query cache so the row's glyph
-  // flips instantly, then invalidate to reconcile with `git worktree list` in
-  // the background (the refetch pays a login-shell spawn — too slow to gate the
-  // UI on). A setup failure doesn't change any of that — the worktree exists —
-  // but it keeps the dialog open to show the banner instead of closing (and
-  // skips the Claude handoff: fix the setup first, launch from the popover).
-  const onCreated = (created: { branch: string; path: string; setupError?: string }): void => {
-    utils.worktrees.forRepo.setData({ owner: repo.owner, name: repo.name }, (old) => ({
-      worktrees: [
-        ...(old?.worktrees ?? []).filter((worktree) => worktree.path !== created.path),
-        { path: created.path, branch: created.branch }
-      ]
-    }))
-    utils.worktrees.forRepo.invalidate({ owner: repo.owner, name: repo.name })
-    if (created.setupError) setSetupError(created.setupError)
-    else if (launchClaude) {
-      // Sending model/mode explicitly also makes them the remembered defaults.
-      startClaude.mutate(
-        {
-          path: created.path,
-          prompt: claudePrompt,
-          model: claudeModel,
-          permissionMode: claudeMode
-        },
-        {
-          onSuccess: () => onOpenChange(false),
-          onError: (mutationError) => setLaunchError(mutationError.message)
-        }
-      )
-    } else onOpenChange(false)
+  // The mutations return a job id the moment preflight passes — invalidating
+  // jobs.list is what kicks the top-bar polling off, and the dialog's part is
+  // over. The glyph appears later, when useJobs sees the job finish.
+  const onStarted = (): void => {
+    utils.jobs.list.invalidate()
+    onOpenChange(false)
   }
-  // The final invalidate fetches the log's tail once more after the mutation
-  // settles — the interval polling below stops the moment pending flips false.
-  const onSettled = (): void => {
-    utils.worktrees.creationLog.invalidate()
-  }
-  const create = trpc.worktrees.create.useMutation({ onSuccess: onCreated, onSettled })
-  const createFromBranch = trpc.worktrees.createFromBranch.useMutation({
-    onSuccess: onCreated,
-    onSettled
-  })
-  const pending = create.isPending || createFromBranch.isPending || startClaude.isPending
+  const create = trpc.worktrees.create.useMutation({ onSuccess: onStarted })
+  const createFromBranch = trpc.worktrees.createFromBranch.useMutation({ onSuccess: onStarted })
+  const pending = create.isPending || createFromBranch.isPending
   const error = create.error ?? createFromBranch.error
-
-  // Live output of the in-flight creation (git fetch/worktree add + the setup
-  // command), polled from the main-side buffer while the mutation runs.
-  const creationLog = trpc.worktrees.creationLog.useQuery(
-    { runId: runId ?? '' },
-    { enabled: runId !== null, refetchInterval: pending ? 250 : false }
-  )
-  const logText = runId ? (creationLog.data?.log ?? '') : ''
-
-  // Trickle new output into the pane instead of jumping a whole poll batch at
-  // once: reveal the backlog a few lines per tick, taking a bigger bite the
-  // further behind it is so a chatty burst catches up instead of lagging.
-  const [displayedLog, setDisplayedLog] = useState('')
-  useEffect(() => {
-    if (logText === displayedLog) return
-    // The buffer is trimmed from the front (and reset per run) — when the
-    // displayed text is no longer a prefix of the target, snap instead.
-    if (!logText.startsWith(displayedLog)) {
-      setDisplayedLog(logText)
-      return
-    }
-    const timer = setTimeout(() => {
-      setDisplayedLog((current) => {
-        if (!logText.startsWith(current)) return logText
-        const pending = logText.slice(current.length)
-        const lines = pending.split('\n')
-        const take = Math.max(1, Math.ceil(lines.length / 10))
-        const cut = lines.slice(0, take).join('\n').length + 1
-        return current + pending.slice(0, Math.min(cut, pending.length))
-      })
-    }, 50)
-    return () => clearTimeout(timer)
-  }, [logText, displayedLog])
-
-  // Keep the log pane pinned to the bottom as output streams in.
-  const logRef = useRef<HTMLPreElement>(null)
-  useEffect(() => {
-    if (!displayedLog) return
-    const pane = logRef.current
-    if (pane) pane.scrollTop = pane.scrollHeight
-  }, [displayedLog])
 
   const blockers = info.data?.blockers ?? []
   // Same fallback as main-side deriveWorktreePath: a name that sanitizes to
@@ -244,11 +159,12 @@ export function WorktreeCreateDialog({
 
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault()
-    if (!canSubmit) return
+    if (!canSubmit || pending) return
     const setupCommand = recipe ?? undefined
-    // Fresh id per attempt so a retry's log doesn't append to the failed one's.
-    const nextRunId = crypto.randomUUID()
-    setRunId(nextRunId)
+    // Sending model/mode explicitly also makes them the remembered defaults.
+    const claude = launchClaude
+      ? { prompt: claudePrompt, model: claudeModel, permissionMode: claudeMode }
+      : undefined
     if (existingBranch) {
       createFromBranch.mutate({
         owner: repo.owner,
@@ -256,7 +172,7 @@ export function WorktreeCreateDialog({
         branch: existingBranch,
         number: issue.number,
         setupCommand,
-        runId: nextRunId
+        claude
       })
     } else {
       create.mutate({
@@ -266,7 +182,7 @@ export function WorktreeCreateDialog({
         branch: branch.trim(),
         base,
         setupCommand,
-        runId: nextRunId
+        claude
       })
     }
   }
@@ -296,29 +212,7 @@ export function WorktreeCreateDialog({
         </DialogHeader>
         <form className="contents" onSubmit={handleSubmit}>
           <DialogPanel className="grid gap-4">
-            {setupError && (
-              <div className="grid gap-1.5 rounded-md bg-destructive/8 px-3 py-2.5">
-                <p className="text-destructive-foreground text-sm">
-                  The worktree was created, but its setup command failed. Finish the setup in your
-                  terminal.
-                </p>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-destructive-foreground/80 text-xs">
-                  {setupError}
-                </pre>
-              </div>
-            )}
-            {launchError && (
-              <div className="grid gap-1.5 rounded-md bg-destructive/8 px-3 py-2.5">
-                <p className="text-destructive-foreground text-sm">
-                  The worktree was created, but Claude couldn't start. Open the worktree and run it
-                  yourself.
-                </p>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-destructive-foreground/80 text-xs">
-                  {launchError}
-                </pre>
-              </div>
-            )}
-            {!setupError && !launchError && info.isLoading && (
+            {info.isLoading && (
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Spinner className="size-4" /> Loading branch info…
               </div>
@@ -331,7 +225,7 @@ export function WorktreeCreateDialog({
                 {blocker}
               </p>
             ))}
-            {!setupError && !launchError && info.data && blockers.length === 0 && (
+            {info.data && blockers.length === 0 && (
               <>
                 {!existingBranch && (
                   <section className="grid gap-3">
@@ -449,27 +343,12 @@ export function WorktreeCreateDialog({
               </>
             )}
             {error && <p className="text-destructive-foreground text-sm">{error.message}</p>}
-            {(pending || error) && !setupError && !launchError && displayedLog && (
-              <pre
-                ref={logRef}
-                className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 px-3 py-2 font-mono text-muted-foreground text-xs"
-              >
-                {displayedLog}
-              </pre>
-            )}
           </DialogPanel>
           <DialogFooter>
-            {setupError || launchError ? (
-              // The creation itself succeeded — nothing left to submit or cancel.
-              <DialogClose render={<Button type="button" />}>Close</DialogClose>
-            ) : (
-              <>
-                <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
-                <Button type="submit" disabled={!canSubmit} loading={pending}>
-                  Create worktree
-                </Button>
-              </>
-            )}
+            <DialogClose render={<Button type="button" variant="ghost" />}>Cancel</DialogClose>
+            <Button type="submit" disabled={!canSubmit} loading={pending}>
+              Create worktree
+            </Button>
           </DialogFooter>
         </form>
       </DialogPopup>

@@ -73,6 +73,33 @@ export function writeClaudeLaunchDefaults(
   writeSetting(db, PERMISSION_MODE_SETTING_KEY, permissionMode)
 }
 
+/**
+ * Resolve launch flags for a mutation: omitted values fall back to the
+ * remembered defaults, present values are validated against the registries and
+ * become the new remembered defaults. Shared by `worktrees.startClaude` and the
+ * create job's Claude handoff so every caller behaves identically. Throws on
+ * unknown values — callers run this synchronously so bad input fails the
+ * mutation, never a background job.
+ */
+export function resolveClaudeLaunchFlags(
+  db: DB,
+  input: { model?: string; permissionMode?: string }
+): { model: string; permissionMode: string } {
+  const stored = readClaudeLaunchDefaults(db)
+  const model = input.model ?? stored.model
+  const permissionMode = input.permissionMode ?? stored.permissionMode
+  if (!CLAUDE_MODELS.some((entry) => entry.value === model)) {
+    throw new Error(`Unknown Claude model: ${model}`)
+  }
+  if (!CLAUDE_PERMISSION_MODES.some((entry) => entry.value === permissionMode)) {
+    throw new Error(`Unknown permission mode: ${permissionMode}`)
+  }
+  if (input.model !== undefined || input.permissionMode !== undefined) {
+    writeClaudeLaunchDefaults(db, { model, permissionMode })
+  }
+  return { model, permissionMode }
+}
+
 /** The shell command that starts the session. Model/mode values come from the
  *  registries above (validated at the router), so only the free-text prompt
  *  needs quoting. */
