@@ -66,9 +66,9 @@ async function runGit(
   return subprocess
 }
 
-/** Single-quote a value for embedding in the `-ilc` command string (paths and
- *  branch names reach the shell verbatim). */
-function shellQuote(value: string): string {
+/** Single-quote a value for embedding in a shell command string (paths, branch
+ *  names, and Claude prompts reach the shell verbatim). */
+export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 

@@ -5,6 +5,14 @@ import { z } from 'zod'
 import type { DB } from '../../db/client'
 import { githubAccounts, projectRepos, projects } from '../../db/schema'
 import { runOpenApp } from '../../services/action-runner'
+import {
+  buildClaudeCommand,
+  CLAUDE_MODELS,
+  CLAUDE_PERMISSION_MODES,
+  readClaudeLaunchDefaults,
+  startClaudeInTerminal,
+  writeClaudeLaunchDefaults
+} from '../../services/claude-launch'
 import { readDefaultApps } from '../../services/default-apps'
 import {
   createLinkedBranch,
@@ -192,6 +200,15 @@ export const worktreesRouter = router({
         // The dialog treats a last-used label that no longer exists as None.
         setupCommands: recipeRow?.setupCommands ?? [],
         lastSetupCommand: recipeRow?.lastSetupCommand ?? null,
+        // Everything the "Start Claude" checkbox needs: the terminal it would
+        // open in, the flag registries for its selects, and the remembered
+        // last-used flags as initial values.
+        claude: {
+          terminal: readDefaultApps(ctx.db).terminal.name,
+          models: CLAUDE_MODELS,
+          permissionModes: CLAUDE_PERMISSION_MODES,
+          ...readClaudeLaunchDefaults(ctx.db)
+        },
         blockers
       }
       if (blockers.length > 0 || !token) return { ...base, branches: [], defaultBranch: null }
@@ -340,6 +357,49 @@ export const worktreesRouter = router({
   creationLog: publicProcedure
     .input(z.object({ runId: z.string().min(1) }))
     .query(({ input }) => ({ log: readCreationLog(input.runId) })),
+
+  // Everything the standalone "Start Claude" dialog needs: the terminal it
+  // would open, the flag registries for its selects, and the remembered
+  // last-used flags as initial values (same shape as creationInfo's `claude`).
+  claudeLaunchInfo: publicProcedure.query(({ ctx }) => ({
+    terminal: readDefaultApps(ctx.db).terminal.name,
+    models: CLAUDE_MODELS,
+    permissionModes: CLAUDE_PERMISSION_MODES,
+    ...readClaudeLaunchDefaults(ctx.db)
+  })),
+
+  // Open the default terminal at a worktree with an interactive `claude`
+  // session running — the actual handoff. Model/mode omitted fall back to the
+  // remembered last-used values; when a dialog sends them explicitly they
+  // become the new remembered values.
+  startClaude: publicProcedure
+    .input(
+      z.object({
+        path: z.string().min(1),
+        prompt: z.string().optional(),
+        model: z.string().optional(),
+        permissionMode: z.string().optional()
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const stored = readClaudeLaunchDefaults(ctx.db)
+      const model = input.model ?? stored.model
+      const permissionMode = input.permissionMode ?? stored.permissionMode
+      if (!CLAUDE_MODELS.some((entry) => entry.value === model)) {
+        throw new Error(`Unknown Claude model: ${model}`)
+      }
+      if (!CLAUDE_PERMISSION_MODES.some((entry) => entry.value === permissionMode)) {
+        throw new Error(`Unknown permission mode: ${permissionMode}`)
+      }
+      if (input.model !== undefined || input.permissionMode !== undefined) {
+        writeClaudeLaunchDefaults(ctx.db, { model, permissionMode })
+      }
+      await startClaudeInTerminal({
+        terminal: readDefaultApps(ctx.db).terminal,
+        cwd: input.path,
+        command: buildClaudeCommand({ prompt: input.prompt, model, permissionMode })
+      })
+    }),
 
   // Open a worktree directory in the user's default IDE / terminal, or reveal
   // it in Finder — the same launchers as project actions, minus the per-project

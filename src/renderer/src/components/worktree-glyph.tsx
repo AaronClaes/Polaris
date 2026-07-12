@@ -3,11 +3,13 @@ import {
   IconFolder,
   IconFolderCode,
   IconFolderPlus,
+  IconSparkles,
   IconTerminal2,
   IconTrash
 } from '@tabler/icons-react'
 import { memo, type ReactElement, useState } from 'react'
 import { AppIconImg } from '@/components/action-icon'
+import { claudePromptSeed, StartClaudeDialog } from '@/components/claude-launch-dialog'
 import {
   AlertDialog,
   AlertDialogClose,
@@ -96,10 +98,18 @@ const ROW_CLASS =
 /**
  * The launchers for one worktree: open in the default IDE / terminal (the
  * global default apps — worktrees deliberately don't use per-project actions)
- * or reveal in Finder, each with cwd = the worktree. Launch errors surface
- * inline; the popover stays open so they're visible.
+ * or reveal in Finder, each with cwd = the worktree — plus "Start Claude",
+ * which closes the popover and opens the StartClaudeDialog (a popover sibling,
+ * see the glyph). Launch errors surface inline; the popover stays open so
+ * they're visible.
  */
-function WorktreeLaunchers({ path }: { path: string }): ReactElement {
+function WorktreeLaunchers({
+  path,
+  onStartClaude
+}: {
+  path: string
+  onStartClaude: () => void
+}): ReactElement {
   const { data: apps } = trpc.settings.defaultApps.useQuery()
   const open = trpc.worktrees.open.useMutation()
 
@@ -137,6 +147,14 @@ function WorktreeLaunchers({ path }: { path: string }): ReactElement {
         <AppIconImg appKey={FINDER_APP_KEY} className={iconClass} Fallback={IconFolder} />
         <span className="truncate">Reveal in Finder</span>
       </button>
+      <PopoverClose
+        render={
+          <button type="button" className={ROW_CLASS} onClick={onStartClaude}>
+            <IconSparkles className={iconClass} />
+            <span className="truncate">Start Claude</span>
+          </button>
+        }
+      />
       {open.error && <p className="text-destructive-foreground text-xs">{open.error.message}</p>}
     </div>
   )
@@ -229,6 +247,9 @@ export const WorktreeGlyph = memo(function WorktreeGlyph({
     { enabled: branches.length > 0, staleTime: 30_000 }
   )
   const [removeTarget, setRemoveTarget] = useState<{ path: string; branch: string } | null>(null)
+  // The worktree path a StartClaudeDialog is open for — a popover sibling,
+  // like the remove dialog, so the popover's light dismiss can't unmount it.
+  const [claudeTarget, setClaudeTarget] = useState<string | null>(null)
 
   const names = new Set(branches.map((branch) => branch.name))
   const matches = data?.worktrees.filter((worktree) => names.has(worktree.branch)) ?? []
@@ -266,7 +287,10 @@ export const WorktreeGlyph = memo(function WorktreeGlyph({
                     {worktree.path}
                   </span>
                 </div>
-                <WorktreeLaunchers path={worktree.path} />
+                <WorktreeLaunchers
+                  path={worktree.path}
+                  onStartClaude={() => setClaudeTarget(worktree.path)}
+                />
                 <Separator className="-mx-2" />
                 <PopoverClose
                   render={
@@ -291,6 +315,17 @@ export const WorktreeGlyph = memo(function WorktreeGlyph({
           worktree={removeTarget}
           onOpenChange={(open) => {
             if (!open) setRemoveTarget(null)
+          }}
+        />
+      )}
+      {claudeTarget && (
+        <StartClaudeDialog
+          path={claudeTarget}
+          // Rows without item context (issue prop unset) start unseeded — the
+          // prompt field is just empty.
+          seed={issue ? claudePromptSeed(repo, issue) : undefined}
+          onOpenChange={(open) => {
+            if (!open) setClaudeTarget(null)
           }}
         />
       )}

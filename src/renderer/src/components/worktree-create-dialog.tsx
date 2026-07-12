@@ -1,5 +1,7 @@
 import { type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from 'react'
+import { ClaudeLaunchFields, claudePromptSeed } from '@/components/claude-launch-dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogClose,
@@ -13,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectItem, SelectPopup, SelectTrigger } from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { trpc } from '@/lib/trpc'
 
@@ -42,9 +45,9 @@ function sanitizeBranchForPath(branch: string): string {
  *   submitting just fetches and adds the worktree. This is also the retry path
  *   when a previous create made the branch but the local half failed.
  *
- * Both show a live preview of where the worktree will land. Designed to later
- * grow post-create actions (open IDE, launch Claude) and the setup-recipe
- * select.
+ * Both show a live preview of where the worktree will land, and can hand off
+ * post-create: the "Start Claude" checkbox opens the default terminal in the
+ * new worktree with an interactive `claude` session running.
  */
 export function WorktreeCreateDialog({
   repo,
@@ -89,6 +92,23 @@ export function WorktreeCreateDialog({
   const defaultRecipe = recipes.some((entry) => entry.label === lastUsed) ? lastUsed : null
   const recipe = recipeDraft === undefined ? defaultRecipe : recipeDraft
 
+  // The "Start Claude" handoff: checking the box reveals an editable kickoff
+  // prompt plus model / permission-mode selects (drafts over the remembered
+  // last-used flags from creationInfo). The launch fires after the worktree is
+  // created — never on a setup failure, where the banner takes precedence.
+  const [launchClaude, setLaunchClaude] = useState(false)
+  const [promptDraft, setPromptDraft] = useState<string | null>(null)
+  const [modelDraft, setModelDraft] = useState<string | null>(null)
+  const [modeDraft, setModeDraft] = useState<string | null>(null)
+  const claudeInfo = info.data?.claude
+  const claudePrompt = promptDraft ?? claudePromptSeed(repo, issue)
+  const claudeModel = modelDraft ?? claudeInfo?.model ?? ''
+  const claudeMode = modeDraft ?? claudeInfo?.permissionMode ?? ''
+
+  // A launch failure after a successful creation — same shape as setupError:
+  // the worktree is live, so it's a warning banner, not a failed submit.
+  const [launchError, setLaunchError] = useState<string | null>(null)
+
   // A recipe failure after a successful creation — shown as a banner while the
   // dialog sticks around (the worktree itself is live).
   const [setupError, setSetupError] = useState<string | null>(null)
@@ -105,16 +125,24 @@ export function WorktreeCreateDialog({
       setBaseDraft(null)
       setRecipeDraft(undefined)
       setSetupError(null)
+      setLaunchClaude(false)
+      setPromptDraft(null)
+      setModelDraft(null)
+      setModeDraft(null)
+      setLaunchError(null)
       setRunId(null)
     }
     wasOpen.current = open
   }, [open])
 
+  const startClaude = trpc.worktrees.startClaude.useMutation()
+
   // Write the new worktree straight into the query cache so the row's glyph
   // flips instantly, then invalidate to reconcile with `git worktree list` in
   // the background (the refetch pays a login-shell spawn — too slow to gate the
   // UI on). A setup failure doesn't change any of that — the worktree exists —
-  // but it keeps the dialog open to show the banner instead of closing.
+  // but it keeps the dialog open to show the banner instead of closing (and
+  // skips the Claude handoff: fix the setup first, launch from the popover).
   const onCreated = (created: { branch: string; path: string; setupError?: string }): void => {
     utils.worktrees.forRepo.setData({ owner: repo.owner, name: repo.name }, (old) => ({
       worktrees: [
@@ -124,7 +152,21 @@ export function WorktreeCreateDialog({
     }))
     utils.worktrees.forRepo.invalidate({ owner: repo.owner, name: repo.name })
     if (created.setupError) setSetupError(created.setupError)
-    else onOpenChange(false)
+    else if (launchClaude) {
+      // Sending model/mode explicitly also makes them the remembered defaults.
+      startClaude.mutate(
+        {
+          path: created.path,
+          prompt: claudePrompt,
+          model: claudeModel,
+          permissionMode: claudeMode
+        },
+        {
+          onSuccess: () => onOpenChange(false),
+          onError: (mutationError) => setLaunchError(mutationError.message)
+        }
+      )
+    } else onOpenChange(false)
   }
   // The final invalidate fetches the log's tail once more after the mutation
   // settles — the interval polling below stops the moment pending flips false.
@@ -136,7 +178,7 @@ export function WorktreeCreateDialog({
     onSuccess: onCreated,
     onSettled
   })
-  const pending = create.isPending || createFromBranch.isPending
+  const pending = create.isPending || createFromBranch.isPending || startClaude.isPending
   const error = create.error ?? createFromBranch.error
 
   // Live output of the in-flight creation (git fetch/worktree add + the setup
@@ -265,7 +307,18 @@ export function WorktreeCreateDialog({
                 </pre>
               </div>
             )}
-            {!setupError && info.isLoading && (
+            {launchError && (
+              <div className="grid gap-1.5 rounded-md bg-destructive/8 px-3 py-2.5">
+                <p className="text-destructive-foreground text-sm">
+                  The worktree was created, but Claude couldn't start. Open the worktree and run it
+                  yourself.
+                </p>
+                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-destructive-foreground/80 text-xs">
+                  {launchError}
+                </pre>
+              </div>
+            )}
+            {!setupError && !launchError && info.isLoading && (
               <div className="flex items-center gap-2 text-muted-foreground text-sm">
                 <Spinner className="size-4" /> Loading branch info…
               </div>
@@ -278,10 +331,11 @@ export function WorktreeCreateDialog({
                 {blocker}
               </p>
             ))}
-            {!setupError && info.data && blockers.length === 0 && (
+            {!setupError && !launchError && info.data && blockers.length === 0 && (
               <>
                 {!existingBranch && (
-                  <>
+                  <section className="grid gap-3">
+                    <h3 className="font-medium text-sm">Branch</h3>
                     <div className="grid gap-1.5">
                       <Label htmlFor={branchId}>Branch name</Label>
                       <Input
@@ -321,7 +375,12 @@ export function WorktreeCreateDialog({
                         </SelectPopup>
                       </Select>
                     </div>
-                  </>
+                    {preview && (
+                      <p className="break-all text-muted-foreground text-xs">
+                        Worktree at <span className="font-medium">{preview}</span>
+                      </p>
+                    )}
+                  </section>
                 )}
                 {existingBranch && pathTaken && (
                   // The branch is fixed in this mode, so an occupied path can't
@@ -331,38 +390,66 @@ export function WorktreeCreateDialog({
                     remove that folder first, then try again.
                   </p>
                 )}
-                {recipes.length > 0 && (
-                  <div className="grid gap-1.5">
-                    <Label>Setup command</Label>
-                    <Select
-                      value={recipe ?? NO_RECIPE}
-                      onValueChange={(next) =>
-                        next && setRecipeDraft(next === NO_RECIPE ? null : next)
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <span className="truncate">{recipe ?? 'None'}</span>
-                      </SelectTrigger>
-                      <SelectPopup>
-                        <SelectItem value={NO_RECIPE}>None</SelectItem>
-                        {recipes.map((entry) => (
-                          <SelectItem key={entry.label} value={entry.label}>
-                            {entry.label}
-                          </SelectItem>
-                        ))}
-                      </SelectPopup>
-                    </Select>
-                  </div>
-                )}
-                {preview && (
+                {existingBranch && preview && (
                   <p className="break-all text-muted-foreground text-xs">
                     Worktree at <span className="font-medium">{preview}</span>
                   </p>
                 )}
+                <Separator />
+                <section className="grid gap-3">
+                  {recipes.length > 0 && (
+                    <div className="grid gap-1.5">
+                      <Label>Setup command</Label>
+                      <Select
+                        value={recipe ?? NO_RECIPE}
+                        onValueChange={(next) =>
+                          next && setRecipeDraft(next === NO_RECIPE ? null : next)
+                        }
+                      >
+                        <SelectTrigger className="w-full">
+                          <span className="truncate">{recipe ?? 'None'}</span>
+                        </SelectTrigger>
+                        <SelectPopup>
+                          <SelectItem value={NO_RECIPE}>None</SelectItem>
+                          {recipes.map((entry) => (
+                            <SelectItem key={entry.label} value={entry.label}>
+                              {entry.label}
+                            </SelectItem>
+                          ))}
+                        </SelectPopup>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="grid gap-3">
+                    <Label className="flex w-fit items-center gap-2 font-normal">
+                      <Checkbox
+                        checked={launchClaude}
+                        onCheckedChange={(checked) => setLaunchClaude(checked === true)}
+                      />
+                      Start Claude in {claudeInfo?.terminal ?? 'your terminal'}
+                    </Label>
+                    {launchClaude && claudeInfo && (
+                      // Indented behind the checkbox so the revealed fields read
+                      // as its children, not more top-level form.
+                      <div className="ml-2 grid gap-3 border-border border-l-2 pl-4">
+                        <ClaudeLaunchFields
+                          models={claudeInfo.models}
+                          permissionModes={claudeInfo.permissionModes}
+                          prompt={claudePrompt}
+                          onPromptChange={setPromptDraft}
+                          model={claudeModel}
+                          onModelChange={setModelDraft}
+                          permissionMode={claudeMode}
+                          onPermissionModeChange={setModeDraft}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </section>
               </>
             )}
             {error && <p className="text-destructive-foreground text-sm">{error.message}</p>}
-            {(pending || error) && !setupError && displayedLog && (
+            {(pending || error) && !setupError && !launchError && displayedLog && (
               <pre
                 ref={logRef}
                 className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 px-3 py-2 font-mono text-muted-foreground text-xs"
@@ -372,7 +459,7 @@ export function WorktreeCreateDialog({
             )}
           </DialogPanel>
           <DialogFooter>
-            {setupError ? (
+            {setupError || launchError ? (
               // The creation itself succeeded — nothing left to submit or cancel.
               <DialogClose render={<Button type="button" />}>Close</DialogClose>
             ) : (
