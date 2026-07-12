@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { clearFinishedJobs, dismissJob, listJobs, readJobLog } from '../../services/jobs'
+import {
+  clearFinishedJobs,
+  dismissJob,
+  listJobs,
+  markJobsSeen,
+  readJobLog
+} from '../../services/jobs'
 import { publicProcedure, router } from '..'
 
 /**
@@ -14,6 +20,10 @@ export const jobsRouter = router({
   log: publicProcedure
     .input(z.object({ id: z.string().min(1) }))
     .query(({ input }) => ({ log: readJobLog(input.id) })),
+
+  markSeen: publicProcedure.mutation(() => {
+    markJobsSeen()
+  }),
 
   dismiss: publicProcedure.input(z.object({ id: z.string().min(1) })).mutation(({ input }) => {
     dismissJob(input.id)

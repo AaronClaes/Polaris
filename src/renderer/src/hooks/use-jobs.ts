@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { toastManager } from '@/components/ui/toast'
 import { trpc } from '@/lib/trpc'
 
 /**
@@ -6,7 +7,9 @@ import { trpc } from '@/lib/trpc'
  * only while something is running (mutation callers invalidate the query when
  * they start a job, which kicks the polling off), and watches for jobs
  * *finishing* to invalidate the derived worktree state — that's how a row's
- * glyph appears/disappears with no dialog involved.
+ * glyph appears/disappears with no dialog involved — and to fire a toast.
+ * Toasts are deliberately dumb notifications; the jobs popover and detail
+ * dialog are the durable record.
  *
  * Mounted once, by the top-bar jobs button; everything else reads the same
  * query from the cache.
@@ -32,6 +35,15 @@ export function useJobs() {
         if (job.status === 'running' || previous.current.get(job.id) === job.status) continue
         if (job.meta.owner && job.meta.name) {
           void utils.worktrees.forRepo.invalidate({ owner: job.meta.owner, name: job.meta.name })
+        }
+        if (job.status === 'succeeded') {
+          toastManager.add({ type: 'success', title: `${job.title} finished` })
+        } else {
+          toastManager.add({
+            type: 'error',
+            title: `${job.title} failed`,
+            description: 'Open Jobs for details.'
+          })
         }
       }
     }

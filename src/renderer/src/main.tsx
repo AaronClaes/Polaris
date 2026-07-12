@@ -4,6 +4,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { RouterProvider } from '@tanstack/react-router'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { ToastProvider } from '@/components/ui/toast'
 import { persister, queryClient } from '@/lib/query-client'
 import { router } from '@/lib/router'
 import { initTheme } from '@/lib/theme'
@@ -55,7 +56,10 @@ createRoot(rootElement).render(
           }
         }}
       >
-        <RouterProvider router={router} />
+        {/* Mounts the toast viewport; jobs finishing fire into it (use-jobs). */}
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
       </PersistQueryClientProvider>
     </trpc.Provider>
   </StrictMode>

@@ -111,6 +111,16 @@ export function findActiveJob(predicate: (job: Job) => boolean): Job | undefined
   return undefined
 }
 
+/** Stamp every finished job as seen — the popover was opened, so nothing
+ *  listed is news anymore. Running jobs are deliberately skipped: they finish
+ *  *after* the popover closed, and their ending should count as new again. */
+export function markJobsSeen(): void {
+  const now = new Date()
+  for (const job of jobs.values()) {
+    if (job.status !== 'running' && !job.seenAt) job.seenAt = now
+  }
+}
+
 /** A job's captured output; an unknown id is just an empty log, never an error
  *  (same posture as the creation log this replaces). */
 export function readJobLog(id: string): string {
