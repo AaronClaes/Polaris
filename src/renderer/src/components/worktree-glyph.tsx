@@ -24,6 +24,34 @@ import { WorktreeCreateDialog } from '@/components/worktree-create-dialog'
 import { FINDER_APP_KEY } from '@/lib/app-icons'
 import { trpc } from '@/lib/trpc'
 
+/**
+ * The one rule for which branches a row's worktree could live on — shared by
+ * the issues table and the work-item feed so an issue and its fused PR row
+ * resolve to the *same* worktree:
+ *
+ * - an issue row → its linked branches;
+ * - a PR row (incl. fused with its issue) → the head branch first, then the
+ *   issue's linked branches (GitHub consumes the branch link when a PR opens,
+ *   so the head usually only survives on the PR side);
+ * - a fork PR → null: its head branch lives in the fork, not in the clone's
+ *   origin, so the row gets no worktree affordance at all. (Store snapshots
+ *   persisted before `isCrossRepository` existed lack the field and read as
+ *   same-repo until the next reconcile refreshes them.)
+ */
+export function worktreeCandidates({
+  pr,
+  issue
+}: {
+  pr?: { headBranch: { name: string } | null; isCrossRepository: boolean } | null
+  issue?: { linkedBranches: { name: string }[] } | null
+}): { name: string }[] | null {
+  if (pr?.isCrossRepository) return null
+  const names = new Set<string>()
+  if (pr?.headBranch) names.add(pr.headBranch.name)
+  for (const branch of issue?.linkedBranches ?? []) names.add(branch.name)
+  return [...names].map((name) => ({ name }))
+}
+
 /** Hover-revealed "Create worktree…" affordance (rows without a worktree stay
  *  calm). Relies on the row carrying the `group/row` class (see DataTable). */
 function CreateWorktreeButton({

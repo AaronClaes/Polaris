@@ -386,6 +386,9 @@ export interface GitHubPullRequest {
   // The PR's head (source) branch as a ready-to-open GitHub tree URL — points
   // into the fork for a cross-repo PR. Null only if the head repository is gone.
   headBranch: { name: string; url: string } | null
+  // True when the head branch lives in a fork. It doesn't exist on origin then,
+  // so no local worktree can be made from it.
+  isCrossRepository: boolean
   // GitHub Actions status, fetched separately via the Actions REST API.
   checks: CheckSummary | null
 }
@@ -410,6 +413,7 @@ const PULLS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
         headRefOid
         headRefName
         headRepository { url }
+        isCrossRepository
         author { login avatarUrl }
         assignees(first: 10) { nodes { login avatarUrl } }
         reviewRequests(first: 10) {
@@ -440,6 +444,7 @@ interface RawPull {
   // The repo the head branch lives in — the fork, for a cross-repo PR. Null only
   // if that repository is gone.
   headRepository: { url: string } | null
+  isCrossRepository: boolean
   author: { login: string; avatarUrl: string } | null
   assignees: { nodes: { login: string; avatarUrl: string }[] }
   reviewRequests: {
@@ -504,6 +509,7 @@ function mapPull(owner: string, name: string, raw: RawPull): GitHubPullRequest {
     headBranch: raw.headRepository
       ? { name: raw.headRefName, url: `${raw.headRepository.url}/tree/${raw.headRefName}` }
       : null,
+    isCrossRepository: raw.isCrossRepository,
     // Filled in by listPullRequestsForRepo after the head SHAs are known.
     checks: null
   }

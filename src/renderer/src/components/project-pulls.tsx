@@ -25,6 +25,7 @@ import {
 import { useListFilters } from '@/components/list-filter-bar'
 import { ListSort } from '@/components/list-sort-bar'
 import { Badge } from '@/components/ui/badge'
+import { WorktreeGlyph, worktreeCandidates } from '@/components/worktree-glyph'
 import { useRepoPulls } from '@/lib/github-queries'
 import {
   type ActiveFilter,
@@ -126,6 +127,33 @@ const ReviewSummary = memo(function ReviewSummary({
   )
 })
 
+/** The Dev slot for a PR row: the head-branch link plus the worktree glyph,
+ * resolved by the shared candidate-branch rule (worktreeCandidates) — the PR
+ * table doesn't know about issues, so candidates are just the head branch.
+ * Creation checks out that existing branch (nothing is minted on GitHub); a
+ * fork PR gets no glyph at all — its head branch doesn't exist in origin. */
+const PullDevelopmentCell = memo(function PullDevelopmentCell({
+  pull
+}: {
+  pull: PullRequestRow
+}): ReactElement {
+  const branches = worktreeCandidates({ pr: pull })
+  return (
+    <div className="flex items-center gap-1.5">
+      <BranchLink branches={pull.headBranch ? [pull.headBranch] : []} />
+      {branches && (
+        <WorktreeGlyph
+          repo={pull.repo}
+          branches={branches}
+          // PRs share the issue number space, so the PR itself labels the
+          // dialog and feeds the recipe's ISSUE_NUMBER.
+          issue={branches.length > 0 ? pull : undefined}
+        />
+      )}
+    </div>
+  )
+})
+
 const columnHelper = createColumnHelper<PullRequestRow>()
 
 // Exported so the global pull requests view can prepend a Project column.
@@ -167,14 +195,11 @@ export const PULL_COLUMNS = [
     meta: { width: '6rem' },
     cell: (cell) => <UserAvatars users={cell.getValue()} />
   }),
-  columnHelper.accessor((row) => row.headBranch, {
+  columnHelper.display({
     id: 'dev',
     header: 'Dev',
     meta: { width: '3.5rem' },
-    cell: (cell) => {
-      const branch = cell.getValue()
-      return <BranchLink branches={branch ? [branch] : []} />
-    }
+    cell: (cell) => <PullDevelopmentCell pull={cell.row.original} />
   }),
   columnHelper.display({
     id: 'open',

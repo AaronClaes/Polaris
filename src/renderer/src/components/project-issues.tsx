@@ -35,7 +35,7 @@ import { useListFilters } from '@/components/list-filter-bar'
 import { ListSort } from '@/components/list-sort-bar'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
-import { WorktreeGlyph } from '@/components/worktree-glyph'
+import { WorktreeGlyph, worktreeCandidates } from '@/components/worktree-glyph'
 import { useRepoIssues } from '@/lib/github-queries'
 import {
   type ActiveFilter,
@@ -176,7 +176,15 @@ const DevelopmentCell = memo(function DevelopmentCell({
   return (
     <div className="flex items-center gap-1.5">
       {pr ? <LinkedPrLink pr={pr} /> : branches.length > 0 && <BranchLink branches={branches} />}
-      <WorktreeGlyph repo={repo} branches={branches} issue={issue} />
+      <WorktreeGlyph
+        repo={repo}
+        // An issue row's candidates are just its linked branches (`linkedPr`
+        // here is display metadata, not the full PR — the feed's fused rows
+        // are where the head branch joins in), but routed through the shared
+        // rule so both surfaces resolve a row the same way.
+        branches={worktreeCandidates({ issue: { linkedBranches: branches } }) ?? []}
+        issue={issue}
+      />
     </div>
   )
 })

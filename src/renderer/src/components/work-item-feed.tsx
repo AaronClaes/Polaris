@@ -21,6 +21,7 @@ import { Badge, type BadgeProps } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipPopup, TooltipTrigger } from '@/components/ui/tooltip'
+import { WorktreeGlyph, worktreeCandidates } from '@/components/worktree-glyph'
 import type { ProjectWithActions, PullRequestRow } from '@/lib/project-types'
 import { formatRelative } from '@/lib/relative-time'
 import { cn } from '@/lib/utils'
@@ -281,6 +282,36 @@ function EmailTitle({
   )
 }
 
+/** The worktree slot for an issue/PR feed row — the same glyph + create
+ * affordance as the issues table, resolved by the same candidate-branch rule
+ * (worktreeCandidates), so an issue and its fused PR row land on the same
+ * worktree. An issue row can always create (minting a linked branch when it has
+ * none); a PR row only creates from a branch it already has — its head, or a
+ * fused issue's — so nothing is ever minted on GitHub from a PR. A fork PR gets
+ * no affordance at all: its head branch doesn't exist in the clone's origin. */
+function WorktreeSlot({
+  item
+}: {
+  item: Extract<WorkItem, { kind: 'pr' | 'issue' }>
+}): ReactElement | null {
+  const pr = item.kind === 'pr' ? item.pr : null
+  const branches = worktreeCandidates({ pr, issue: item.issue })
+  if (!branches) return null
+
+  // What the create dialog is about: the issue when there is one (standalone or
+  // fused — its number feeds the recipe's ISSUE_NUMBER), else the PR itself
+  // (PRs share the issue number space).
+  const subject = item.kind === 'pr' ? (item.issue ?? item.pr) : item.issue
+  const createFor = item.kind === 'issue' || branches.length > 0 ? subject : undefined
+  return (
+    <WorktreeGlyph
+      repo={item.kind === 'pr' ? item.pr.repo : item.issue.repo}
+      branches={branches}
+      issue={createFor}
+    />
+  )
+}
+
 /** One work item as a row: kind glyph, title + project/time, PR health + status,
  * pending reviewers, and a trailing control — open on GitHub for an issue/PR, or
  * jump to the project's Todos tab for a todo. The project chip is shown only when
@@ -303,7 +334,9 @@ function WorkItemRow({
   const badge = statusBadge(item)
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2">
+    // group/row powers the hover-revealed "Create worktree…" affordance in the
+    // worktree slot (same convention as DataTable rows).
+    <div className="group/row flex items-center gap-3 px-3 py-2">
       {item.kind === 'todo' ? (
         <CompleteButton onComplete={() => onCompleteTodo(item.todo.id)} />
       ) : item.kind === 'email' ? (
@@ -350,6 +383,9 @@ function WorkItemRow({
           )}
         </div>
       </div>
+      {/* First trailing control, so the badges after it stay right-aligned
+          across rows with and without a worktree slot. */}
+      {(item.kind === 'pr' || item.kind === 'issue') && <WorktreeSlot item={item} />}
       {item.kind === 'pr' && item.pr.reviewers.length > 0 && (
         <UserAvatars users={item.pr.reviewers} />
       )}
