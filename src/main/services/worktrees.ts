@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { eq } from 'drizzle-orm'
@@ -54,7 +54,7 @@ async function runGit(
   command: string,
   timeout: number,
   onLog?: (chunk: string) => void
-): Promise<{ exitCode?: number; stdout: string; stderr: string }> {
+): Promise<{ exitCode?: number; stdout: string; stderr: string; timedOut: boolean }> {
   const userShell = process.env.SHELL || '/bin/zsh'
   const subprocess = execa(userShell, ['-ilc', command], {
     cwd: repoPath,
@@ -70,6 +70,18 @@ async function runGit(
  *  branch names reach the shell verbatim). */
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
+}
+
+/** The one-line reason a git call failed — stderr when there is any, otherwise
+ *  what actually happened (timeout, or the shell never ran git at all). Never
+ *  "exit code undefined". */
+function describeGitFailure(result: {
+  exitCode?: number
+  stderr: string
+  timedOut: boolean
+}): string {
+  if (result.timedOut) return 'timed out'
+  return result.stderr.trim() || `exit code ${result.exitCode ?? 'unknown (git did not run)'}`
 }
 
 /**
@@ -134,14 +146,37 @@ export function sanitizeBranchForPath(branch: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
-/** Where a branch's worktree lives: `<root>/<owner>/<repo>/<sanitized-branch>`. */
+/** Where a branch's worktree lives: `<root>/<owner>/<repo>/<sanitized-branch>`.
+ *  A branch name that sanitizes to nothing (emoji/CJK-only) takes the fallback
+ *  segment instead, so the path never collapses into the repo dir itself. The
+ *  dialog's client-side preview mirrors this rule — keep the two in sync. */
 export function deriveWorktreePath(
   root: string,
   owner: string,
   repo: string,
-  branch: string
+  branch: string,
+  fallbackSegment = 'worktree'
 ): string {
-  return join(root, owner, repo, sanitizeBranchForPath(branch))
+  return join(root, owner, repo, sanitizeBranchForPath(branch) || fallbackSegment)
+}
+
+/**
+ * The entries already on disk in the repo's worktree directory
+ * (`<root>/<owner>/<repo>`). The creation dialog checks the live-derived path
+ * segment against these, so an occupied target blocks submit *before* any
+ * GitHub write instead of failing at `git worktree add`. A missing directory
+ * just means nothing is occupied.
+ */
+export async function listOccupiedSegments(
+  root: string,
+  owner: string,
+  repo: string
+): Promise<string[]> {
+  try {
+    return await readdir(join(root, owner, repo))
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -185,14 +220,14 @@ export async function addWorktree({
   onLog?.('$ git fetch origin\n')
   const fetch = await runGit(repoPath, 'git fetch origin', 120_000, onLog)
   if (fetch.exitCode !== 0) {
-    throw new Error(`git fetch failed: ${fetch.stderr || `exit code ${fetch.exitCode}`}`)
+    throw new Error(`git fetch failed: ${describeGitFailure(fetch)}`)
   }
 
   const addCommand = `git worktree add ${shellQuote(worktreePath)} ${shellQuote(branch)}`
   onLog?.(`$ ${addCommand}\n`)
   const add = await runGit(repoPath, addCommand, 30_000, onLog)
   if (add.exitCode !== 0) {
-    throw new Error(`git worktree add failed: ${add.stderr || `exit code ${add.exitCode}`}`)
+    throw new Error(`git worktree add failed: ${describeGitFailure(add)}`)
   }
 }
 
@@ -265,7 +300,7 @@ export async function removeWorktree({
 }): Promise<void> {
   const status = await runGit(worktreePath, 'git status --porcelain', 15_000)
   if (status.exitCode !== 0) {
-    throw new Error(`git status failed: ${status.stderr || `exit code ${status.exitCode}`}`)
+    throw new Error(`git status failed: ${describeGitFailure(status)}`)
   }
   if (status.stdout.trim().length > 0) {
     throw new Error('The worktree has uncommitted changes — clean them up in your terminal first.')
@@ -283,8 +318,6 @@ export async function removeWorktree({
 
   const remove = await runGit(repoPath, `git worktree remove ${shellQuote(worktreePath)}`, 30_000)
   if (remove.exitCode !== 0) {
-    throw new Error(
-      `git worktree remove failed: ${remove.stderr || `exit code ${remove.exitCode}`}`
-    )
+    throw new Error(`git worktree remove failed: ${describeGitFailure(remove)}`)
   }
 }

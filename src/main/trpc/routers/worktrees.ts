@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
@@ -5,12 +6,17 @@ import type { DB } from '../../db/client'
 import { githubAccounts, projectRepos, projects } from '../../db/schema'
 import { runOpenApp } from '../../services/action-runner'
 import { readDefaultApps } from '../../services/default-apps'
-import { createLinkedBranch, fetchWorktreeCreationLookup } from '../../services/github'
+import {
+  createLinkedBranch,
+  fetchWorktreeCreationLookup,
+  GitHubGraphQLError
+} from '../../services/github'
 import {
   addWorktree,
   appendCreationLog,
   deriveBranchName,
   deriveWorktreePath,
+  listOccupiedSegments,
   listWorktrees,
   readCreationLog,
   readWorktreesRoot,
@@ -35,6 +41,32 @@ function resolveClonePath(db: DB, owner: string, name: string): string | null {
     .where(and(eq(projectRepos.owner, owner), eq(projectRepos.name, name)))
     .all()
   return rows.map((row) => row.repoPath ?? row.projectPath).find(Boolean) ?? null
+}
+
+// resolveClonePath plus the on-disk check, folded into one user-facing verdict:
+// a usable path, or the blocker explaining why git can't run — distinguishing
+// "no clone linked" from "linked path is gone from disk" (both fixed in the
+// repo's settings). Shared by creationInfo (blocker list) and the mutations
+// (thrown), so the two never drift apart.
+function resolveUsableClone(
+  db: DB,
+  owner: string,
+  name: string
+): { ok: true; path: string } | { ok: false; blocker: string } {
+  const path = resolveClonePath(db, owner, name)
+  if (!path) {
+    return {
+      ok: false,
+      blocker: `No local clone linked for ${owner}/${name} — set its path in the repo's settings.`
+    }
+  }
+  if (!existsSync(path)) {
+    return {
+      ok: false,
+      blocker: `The clone for ${owner}/${name} no longer exists at ${path} — update its path in the repo's settings.`
+    }
+  }
+  return { ok: true, path }
 }
 
 function resolveToken(db: DB, owner: string): string | null {
@@ -137,11 +169,8 @@ export const worktreesRouter = router({
     )
     .query(async ({ ctx, input }) => {
       const blockers: string[] = []
-      if (!resolveClonePath(ctx.db, input.owner, input.name)) {
-        blockers.push(
-          `No local clone linked for ${input.owner}/${input.name} — set its path in the repo's settings.`
-        )
-      }
+      const clone = resolveUsableClone(ctx.db, input.owner, input.name)
+      if (!clone.ok) blockers.push(clone.blocker)
       const token = input.existingBranch ? null : resolveToken(ctx.db, input.owner)
       if (!input.existingBranch && !token) {
         blockers.push(`No linked GitHub token for ${input.owner}.`)
@@ -155,6 +184,10 @@ export const worktreesRouter = router({
         // The dialog re-derives `<repoDir>/<sanitized-branch>` live as the
         // branch name is edited; the mutation derives the real path main-side.
         repoDir: join(root, input.owner, input.name),
+        // What's already on disk in that dir — the dialog checks the derived
+        // segment against these so an occupied path blocks submit up front,
+        // before anything is written on GitHub.
+        occupiedDirs: await listOccupiedSegments(root, input.owner, input.name),
         // Setup recipes + the label last used, for the dialog's setup select.
         // The dialog treats a last-used label that no longer exists as None.
         setupCommands: recipeRow?.setupCommands ?? [],
@@ -193,12 +226,9 @@ export const worktreesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const onLog = logWriter(input.runId)
-      const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
-      if (!repoPath) {
-        throw new Error(
-          `No local clone linked for ${input.owner}/${input.name} — set its path in the repo's settings.`
-        )
-      }
+      const clone = resolveUsableClone(ctx.db, input.owner, input.name)
+      if (!clone.ok) throw new Error(clone.blocker)
+      const repoPath = clone.path
       const token = resolveToken(ctx.db, input.owner)
       if (!token) throw new Error(`No linked GitHub token for ${input.owner}.`)
 
@@ -209,15 +239,44 @@ export const worktreesRouter = router({
       }
 
       onLog?.(`Creating branch ${input.branch} on GitHub (linked to #${input.number})…\n`)
-      const branch = await createLinkedBranch(token, {
-        issueId: lookup.issueId,
-        oid: baseBranch.oid,
-        name: input.branch
-      })
+      let branch: string
+      try {
+        branch = await createLinkedBranch(token, {
+          issueId: lookup.issueId,
+          oid: baseBranch.oid,
+          name: input.branch
+        })
+      } catch (error) {
+        // The one failure users actually hit here: a fine-grained PAT without
+        // Contents: write. GitHub reports it as FORBIDDEN — name the owner and
+        // the fix instead of parroting "Resource not accessible…".
+        if (error instanceof GitHubGraphQLError && error.type === 'FORBIDDEN') {
+          throw new Error(
+            `The token for ${input.owner} can't create branches — give it Contents: read & write in its GitHub settings, then try again.`
+          )
+        }
+        throw error
+      }
 
       const root = readWorktreesRoot(ctx.db)
-      const worktreePath = deriveWorktreePath(root, input.owner, input.name, branch)
-      await addWorktree({ repoPath, branch, worktreePath, onLog })
+      const worktreePath = deriveWorktreePath(
+        root,
+        input.owner,
+        input.name,
+        branch,
+        `issue-${input.number}`
+      )
+      try {
+        await addWorktree({ repoPath, branch, worktreePath, onLog })
+      } catch (error) {
+        // The GitHub half succeeded, so this is a recoverable state, not a
+        // rollback: the branch stays, and once the row picks it up its create
+        // affordance offers the existing branch (local-only mode) as the retry.
+        const message = error instanceof Error ? error.message : String(error)
+        throw new Error(
+          `The branch ${branch} was created on GitHub, but the local checkout failed: ${message} — the branch stays, so fix the cause and retry from the row's create button (it will offer the existing branch).`
+        )
+      }
 
       const setupError = await runSetupRecipe(ctx.db, {
         owner: input.owner,
@@ -248,15 +307,18 @@ export const worktreesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const onLog = logWriter(input.runId)
-      const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
-      if (!repoPath) {
-        throw new Error(
-          `No local clone linked for ${input.owner}/${input.name} — set its path in the repo's settings.`
-        )
-      }
+      const clone = resolveUsableClone(ctx.db, input.owner, input.name)
+      if (!clone.ok) throw new Error(clone.blocker)
+      const repoPath = clone.path
 
       const root = readWorktreesRoot(ctx.db)
-      const worktreePath = deriveWorktreePath(root, input.owner, input.name, input.branch)
+      const worktreePath = deriveWorktreePath(
+        root,
+        input.owner,
+        input.name,
+        input.branch,
+        input.number === undefined ? undefined : `issue-${input.number}`
+      )
       await addWorktree({ repoPath, branch: input.branch, worktreePath, onLog })
 
       const setupError = await runSetupRecipe(ctx.db, {
@@ -301,10 +363,8 @@ export const worktreesRouter = router({
   remove: publicProcedure
     .input(repoInput.extend({ path: z.string().min(1) }))
     .mutation(async ({ ctx, input }) => {
-      const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
-      if (!repoPath) {
-        throw new Error(`No local clone linked for ${input.owner}/${input.name}.`)
-      }
-      await removeWorktree({ repoPath, worktreePath: input.path })
+      const clone = resolveUsableClone(ctx.db, input.owner, input.name)
+      if (!clone.ok) throw new Error(clone.blocker)
+      await removeWorktree({ repoPath: clone.path, worktreePath: input.path })
     })
 })

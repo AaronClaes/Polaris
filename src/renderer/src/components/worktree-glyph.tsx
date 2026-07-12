@@ -91,7 +91,7 @@ function CreateWorktreeButton({
 /** One menu-like row in the worktree popover. Negative margin lets the hover
  *  background bleed past the popover viewport's built-in inline padding. */
 const ROW_CLASS =
-  '-mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent'
+  '-mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent disabled:opacity-50 disabled:hover:bg-transparent'
 
 /**
  * The launchers for one worktree: open in the default IDE / terminal (the
@@ -113,6 +113,7 @@ function WorktreeLaunchers({ path }: { path: string }): ReactElement {
       <button
         type="button"
         className={ROW_CLASS}
+        disabled={open.isPending}
         onClick={() => open.mutate({ path, target: 'ide' })}
       >
         <AppIconImg appKey={apps?.ide} className={iconClass} Fallback={IconCode} />
@@ -121,6 +122,7 @@ function WorktreeLaunchers({ path }: { path: string }): ReactElement {
       <button
         type="button"
         className={ROW_CLASS}
+        disabled={open.isPending}
         onClick={() => open.mutate({ path, target: 'terminal' })}
       >
         <AppIconImg appKey={apps?.terminal} className={iconClass} Fallback={IconTerminal2} />
@@ -129,6 +131,7 @@ function WorktreeLaunchers({ path }: { path: string }): ReactElement {
       <button
         type="button"
         className={ROW_CLASS}
+        disabled={open.isPending}
         onClick={() => open.mutate({ path, target: 'finder' })}
       >
         <AppIconImg appKey={FINDER_APP_KEY} className={iconClass} Fallback={IconFolder} />

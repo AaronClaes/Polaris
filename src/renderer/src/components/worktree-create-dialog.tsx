@@ -181,11 +181,23 @@ export function WorktreeCreateDialog({
   }, [displayedLog])
 
   const blockers = info.data?.blockers ?? []
-  const preview = info.data ? `${info.data.repoDir}/${sanitizeBranchForPath(branch)}` : null
+  // Same fallback as main-side deriveWorktreePath: a name that sanitizes to
+  // nothing takes `issue-<number>` instead of collapsing into the repo dir.
+  const segment = sanitizeBranchForPath(branch) || `issue-${issue.number}`
+  const preview = info.data ? `${info.data.repoDir}/${segment}` : null
+
+  // Preflight validation, so a doomed submit is blocked before anything is
+  // written on GitHub: the name against the refs list already fetched for the
+  // base-branch select (mint mode only — an existing branch is allowed to
+  // exist), and the derived path against what's already on disk.
+  const branchTaken = !existingBranch && (info.data?.branches.includes(branch.trim()) ?? false)
+  const pathTaken = info.data?.occupiedDirs.includes(segment) ?? false
   const canSubmit =
     !info.isLoading &&
     blockers.length === 0 &&
     branch.trim().length > 0 &&
+    !branchTaken &&
+    !pathTaken &&
     (existingBranch !== undefined || base.length > 0)
 
   const handleSubmit = (event: FormEvent): void => {
@@ -279,6 +291,17 @@ export function WorktreeCreateDialog({
                         spellCheck={false}
                         autoComplete="off"
                       />
+                      {branchTaken && (
+                        <p className="text-destructive-foreground text-xs">
+                          A branch named “{branch.trim()}” already exists on {repo.owner}/
+                          {repo.name} — pick another name.
+                        </p>
+                      )}
+                      {!branchTaken && pathTaken && (
+                        <p className="break-all text-destructive-foreground text-xs">
+                          Something already exists at {preview} — pick another name.
+                        </p>
+                      )}
                     </div>
                     <div className="grid gap-1.5">
                       <Label>Base branch</Label>
@@ -299,6 +322,14 @@ export function WorktreeCreateDialog({
                       </Select>
                     </div>
                   </>
+                )}
+                {existingBranch && pathTaken && (
+                  // The branch is fixed in this mode, so an occupied path can't
+                  // be typed away — it reads as a blocker instead.
+                  <p className="break-all text-destructive-foreground text-sm">
+                    Something already exists at <span className="font-medium">{preview}</span> —
+                    remove that folder first, then try again.
+                  </p>
                 )}
                 {recipes.length > 0 && (
                   <div className="grid gap-1.5">

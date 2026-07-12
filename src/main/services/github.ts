@@ -164,6 +164,18 @@ export async function listReposForOwner(owner: string, login: string): Promise<G
 
 const GRAPHQL_URL = 'https://api.github.com/graphql'
 
+/** A GraphQL-level failure (HTTP 200 with an `errors` array), keeping GitHub's
+ *  error `type` code (e.g. FORBIDDEN) so callers can swap specific failures —
+ *  like a token without write scope — for a friendlier message than GitHub's. */
+export class GitHubGraphQLError extends Error {
+  constructor(
+    message: string,
+    readonly type?: string
+  ) {
+    super(message)
+  }
+}
+
 /**
  * POST a GraphQL query and unwrap `data`, turning HTTP and GraphQL-level errors
  * into a single user-facing throw. The whole query fails if any field is
@@ -194,9 +206,11 @@ async function graphql<T>(
 
   const body = (await res.json()) as {
     data?: T
-    errors?: { message: string }[]
+    errors?: { message: string; type?: string }[]
   }
-  if (body.errors?.length) throw new Error(body.errors[0].message)
+  if (body.errors?.length) {
+    throw new GitHubGraphQLError(body.errors[0].message, body.errors[0].type)
+  }
   if (!body.data) throw new Error('GitHub returned no data.')
   return body.data
 }
