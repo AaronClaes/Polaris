@@ -22,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverClose, PopoverPopup, PopoverTrigger } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
+import { Spinner } from '@/components/ui/spinner'
 import { WorktreeCreateDialog } from '@/components/worktree-create-dialog'
 import { FINDER_APP_KEY } from '@/lib/app-icons'
 import { trpc } from '@/lib/trpc'
@@ -55,7 +56,9 @@ export function worktreeCandidates({
 }
 
 /** Hover-revealed "Create worktree…" affordance (rows without a worktree stay
- *  calm). Relies on the row carrying the `group/row` class (see DataTable). */
+ *  calm). While a create job for this issue runs it flips to a persistent
+ *  spinner instead — visible without hover, and not clickable. Relies on the
+ *  row carrying the `group/row` class (see DataTable). */
 function CreateWorktreeButton({
   repo,
   issue,
@@ -66,6 +69,30 @@ function CreateWorktreeButton({
   existingBranch?: string
 }): ReactElement {
   const [open, setOpen] = useState(false)
+  // Reads the same jobs.list cache the top-bar button polls — no extra timer.
+  const { data: jobsData } = trpc.jobs.list.useQuery()
+  const creating =
+    jobsData?.jobs.some(
+      (job) =>
+        job.status === 'running' &&
+        job.kind === 'worktree-create' &&
+        job.meta.owner === repo.owner &&
+        job.meta.name === repo.name &&
+        job.meta.issueNumber === issue.number
+    ) ?? false
+
+  if (creating) {
+    return (
+      <span
+        title="Creating worktree…"
+        role="status"
+        aria-label="Creating worktree"
+        className="inline-flex text-muted-foreground opacity-70"
+      >
+        <Spinner className="size-4" />
+      </span>
+    )
+  }
   return (
     <>
       <button
@@ -163,9 +190,11 @@ function WorktreeLaunchers({
 /**
  * The remove confirmation. Rendered as a *sibling* of the popover (which closes
  * when remove is chosen) — nested inside it, the popover's light dismiss would
- * unmount the dialog mid-interaction. Stays open on failure so the service's
- * refusal (uncommitted / unpushed work) is readable; the branch — local and on
- * GitHub — is never touched either way.
+ * unmount the dialog mid-interaction. Confirming starts a background job and
+ * closes immediately — the glyph shows a removing state while it runs, and a
+ * refusal (uncommitted / unpushed work) surfaces as a failed job in the jobs
+ * popover. Only a rejected submit (e.g. already being removed) shows here. The
+ * branch — local and on GitHub — is never touched either way.
  */
 function RemoveWorktreeDialog({
   repo,
@@ -179,12 +208,9 @@ function RemoveWorktreeDialog({
   const utils = trpc.useUtils()
   const remove = trpc.worktrees.remove.useMutation({
     onSuccess: () => {
-      // Drop it from the query cache immediately (the glyph flips without
-      // waiting on a git round-trip), then reconcile in the background.
-      utils.worktrees.forRepo.setData({ owner: repo.owner, name: repo.name }, (old) =>
-        old ? { worktrees: old.worktrees.filter((entry) => entry.path !== worktree.path) } : old
-      )
-      utils.worktrees.forRepo.invalidate({ owner: repo.owner, name: repo.name })
+      // Kicks the top-bar polling off; the glyph disappears when useJobs sees
+      // the job finish and invalidates worktrees.forRepo.
+      utils.jobs.list.invalidate()
       onOpenChange(false)
     }
   })
@@ -210,7 +236,12 @@ function RemoveWorktreeDialog({
             variant="destructive"
             loading={remove.isPending}
             onClick={() =>
-              remove.mutate({ owner: repo.owner, name: repo.name, path: worktree.path })
+              remove.mutate({
+                owner: repo.owner,
+                name: repo.name,
+                path: worktree.path,
+                branch: worktree.branch
+              })
             }
           >
             Remove worktree
@@ -251,6 +282,15 @@ export const WorktreeGlyph = memo(function WorktreeGlyph({
   // like the remove dialog, so the popover's light dismiss can't unmount it.
   const [claudeTarget, setClaudeTarget] = useState<string | null>(null)
 
+  // Worktrees mid-removal (running jobs, same cache the top bar polls): the
+  // glyph spins and the row's remove action is disabled until the job settles.
+  const { data: jobsData } = trpc.jobs.list.useQuery()
+  const removingPaths = new Set(
+    (jobsData?.jobs ?? [])
+      .filter((job) => job.status === 'running' && job.kind === 'worktree-remove')
+      .map((job) => job.meta.path)
+  )
+
   const names = new Set(branches.map((branch) => branch.name))
   const matches = data?.worktrees.filter((worktree) => names.has(worktree.branch)) ?? []
   if (matches.length === 0) {
@@ -270,7 +310,11 @@ export const WorktreeGlyph = memo(function WorktreeGlyph({
               aria-label="Worktree details"
               className="inline-flex text-muted-foreground transition-opacity hover:opacity-70"
             >
-              <IconFolderCode className="size-4" />
+              {matches.some((worktree) => removingPaths.has(worktree.path)) ? (
+                <Spinner className="size-4" />
+              ) : (
+                <IconFolderCode className="size-4" />
+              )}
             </button>
           }
         />
@@ -292,18 +336,25 @@ export const WorktreeGlyph = memo(function WorktreeGlyph({
                   onStartClaude={() => setClaudeTarget(worktree.path)}
                 />
                 <Separator className="-mx-2" />
-                <PopoverClose
-                  render={
-                    <button
-                      type="button"
-                      className={`${ROW_CLASS} text-destructive-foreground`}
-                      onClick={() => setRemoveTarget(worktree)}
-                    >
-                      <IconTrash className="size-4 shrink-0" />
-                      Remove worktree
-                    </button>
-                  }
-                />
+                {removingPaths.has(worktree.path) ? (
+                  <button type="button" className={ROW_CLASS} disabled>
+                    <Spinner className="size-4 shrink-0" />
+                    Removing worktree…
+                  </button>
+                ) : (
+                  <PopoverClose
+                    render={
+                      <button
+                        type="button"
+                        className={`${ROW_CLASS} text-destructive-foreground`}
+                        onClick={() => setRemoveTarget(worktree)}
+                      >
+                        <IconTrash className="size-4 shrink-0" />
+                        Remove worktree
+                      </button>
+                    }
+                  />
+                )}
               </div>
             ))}
           </div>

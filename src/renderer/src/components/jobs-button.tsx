@@ -1,5 +1,5 @@
 import { IconCheck, IconStack2, IconX } from '@tabler/icons-react'
-import type { ReactElement } from 'react'
+import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { ProjectIcon } from '@/components/project-icon'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,8 +24,22 @@ export function JobsButton(): ReactElement {
   // must still resolve when its tag is currently hidden.
   const projects = trpc.projects.list.useQuery()
 
+  // Pop open when a *new* job appears — submitting closes its dialog
+  // immediately, so without this it looks like nothing happened. The first
+  // dataset only seeds the set: those jobs predate this window (the registry
+  // is main-side, so it survives a renderer reload).
+  const [open, setOpen] = useState(false)
+  const knownIds = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    const current = data?.jobs
+    if (!current) return
+    const known = knownIds.current
+    if (known && current.some((job) => !known.has(job.id))) setOpen(true)
+    knownIds.current = new Set(current.map((job) => job.id))
+  }, [data])
+
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         render={
           <Button variant="outline" size="icon-sm" aria-label="Jobs" title="Jobs">

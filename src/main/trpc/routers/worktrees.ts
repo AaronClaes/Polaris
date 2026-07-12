@@ -19,7 +19,7 @@ import {
   fetchWorktreeCreationLookup,
   GitHubGraphQLError
 } from '../../services/github'
-import { startJob } from '../../services/jobs'
+import { findActiveJob, startJob } from '../../services/jobs'
 import {
   addWorktree,
   deriveBranchName,
@@ -220,6 +220,39 @@ async function runPostCreateSteps(
   }
 }
 
+/**
+ * The create mutations' duplicate guard, thrown synchronously so it lands in
+ * the dialog: refuse while the same worktree is already being created (same
+ * repo + branch) or while its target path is still being removed.
+ */
+function assertNoConflictingJob({
+  owner,
+  name,
+  branch,
+  path
+}: {
+  owner: string
+  name: string
+  branch: string
+  path: string
+}): void {
+  const creating = findActiveJob(
+    (job) =>
+      job.kind === 'worktree-create' &&
+      job.meta.owner === owner &&
+      job.meta.name === name &&
+      job.meta.branch === branch
+  )
+  if (creating) {
+    throw new Error('That worktree is already being created — check the jobs list.')
+  }
+  if (findActiveJob((job) => job.kind === 'worktree-remove' && job.meta.path === path)) {
+    throw new Error(
+      'That worktree is still being removed — wait for the job to finish, then try again.'
+    )
+  }
+}
+
 /** The optional Claude handoff riding a create mutation: the prompt plus the
  *  launch flags (resolved/remembered exactly like `startClaude`). */
 const claudeInput = z
@@ -333,6 +366,21 @@ export const worktreesRouter = router({
         : undefined
 
       const root = readWorktreesRoot(ctx.db)
+      // Derived from the *requested* name; the job re-derives from what GitHub
+      // actually returns. Only guard/UI keying, never the git target.
+      const requestedPath = deriveWorktreePath(
+        root,
+        input.owner,
+        input.name,
+        input.branch,
+        `issue-${input.number}`
+      )
+      assertNoConflictingJob({
+        owner: input.owner,
+        name: input.name,
+        branch: input.branch,
+        path: requestedPath
+      })
       const job = startJob(
         {
           kind: 'worktree-create',
@@ -342,16 +390,9 @@ export const worktreesRouter = router({
             owner: input.owner,
             name: input.name,
             branch: input.branch,
+            issueNumber: input.number,
             projectId: resolveProjectId(ctx.db, input.owner, input.name),
-            // Derived from the *requested* name; the job re-derives from what
-            // GitHub actually returns. Only UI keying, never the git target.
-            path: deriveWorktreePath(
-              root,
-              input.owner,
-              input.name,
-              input.branch,
-              `issue-${input.number}`
-            )
+            path: requestedPath
           }
         },
         async (log) => {
@@ -451,6 +492,12 @@ export const worktreesRouter = router({
         input.branch,
         input.number === undefined ? undefined : `issue-${input.number}`
       )
+      assertNoConflictingJob({
+        owner: input.owner,
+        name: input.name,
+        branch: input.branch,
+        path: worktreePath
+      })
       const job = startJob(
         {
           kind: 'worktree-create',
@@ -460,6 +507,7 @@ export const worktreesRouter = router({
             owner: input.owner,
             name: input.name,
             branch: input.branch,
+            issueNumber: input.number,
             projectId: resolveProjectId(ctx.db, input.owner, input.name),
             path: worktreePath
           }
@@ -531,13 +579,37 @@ export const worktreesRouter = router({
       if (!result.ok) throw new Error(result.error ?? `Could not open ${appName}.`)
     }),
 
-  // Remove a worktree (the service refuses when work would be lost — dirty,
-  // unpushed, or never-pushed). Branches are never touched.
+  // Remove a worktree as a background job — deleting a node_modules-sized
+  // checkout takes tens of seconds, so the confirm dialog closes immediately
+  // and the glyph shows a removing state instead. The safety checks run inside
+  // the job too: a refusal (dirty / unpushed / never-pushed — work would be
+  // lost) surfaces as a failed job in the jobs popover. Branches are never
+  // touched. `branch` is display-only (the job's title).
   remove: publicProcedure
-    .input(repoInput.extend({ path: z.string().min(1) }))
-    .mutation(async ({ ctx, input }) => {
+    .input(repoInput.extend({ path: z.string().min(1), branch: z.string().min(1) }))
+    .mutation(({ ctx, input }) => {
       const clone = resolveUsableClone(ctx.db, input.owner, input.name)
       if (!clone.ok) throw new Error(clone.blocker)
-      await removeWorktree({ repoPath: clone.path, worktreePath: input.path })
+      const repoPath = clone.path
+      if (findActiveJob((job) => job.kind === 'worktree-remove' && job.meta.path === input.path)) {
+        throw new Error('That worktree is already being removed — check the jobs list.')
+      }
+
+      const job = startJob(
+        {
+          kind: 'worktree-remove',
+          title: `Remove worktree ${input.branch}`,
+          detail: `${input.owner}/${input.name}`,
+          meta: {
+            owner: input.owner,
+            name: input.name,
+            branch: input.branch,
+            projectId: resolveProjectId(ctx.db, input.owner, input.name),
+            path: input.path
+          }
+        },
+        (log) => removeWorktree({ repoPath, worktreePath: input.path, onLog: log })
+      )
+      return { jobId: job.id }
     })
 })

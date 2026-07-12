@@ -269,12 +269,15 @@ export async function runSetupCommand({
  */
 export async function removeWorktree({
   repoPath,
-  worktreePath
+  worktreePath,
+  onLog
 }: {
   repoPath: string
   worktreePath: string
+  onLog?: (chunk: string) => void
 }): Promise<void> {
-  const status = await runGit(worktreePath, 'git status --porcelain', 15_000)
+  onLog?.('$ git status --porcelain\n')
+  const status = await runGit(worktreePath, 'git status --porcelain', 15_000, onLog)
   if (status.exitCode !== 0) {
     throw new Error(`git status failed: ${describeGitFailure(status)}`)
   }
@@ -284,7 +287,8 @@ export async function removeWorktree({
 
   // `@{u}..` lists commits the upstream doesn't have; it errors when no
   // upstream is configured, which we fold into the same refusal.
-  const unpushed = await runGit(worktreePath, 'git log @{u}.. --oneline', 15_000)
+  onLog?.('$ git log @{u}.. --oneline\n')
+  const unpushed = await runGit(worktreePath, 'git log @{u}.. --oneline', 15_000, onLog)
   if (unpushed.exitCode !== 0) {
     throw new Error('The branch has never been pushed — push it first so the work is safe.')
   }
@@ -292,7 +296,9 @@ export async function removeWorktree({
     throw new Error('The worktree has unpushed commits — push them first.')
   }
 
-  const remove = await runGit(repoPath, `git worktree remove ${shellQuote(worktreePath)}`, 30_000)
+  const removeCommand = `git worktree remove ${shellQuote(worktreePath)}`
+  onLog?.(`$ ${removeCommand}\n`)
+  const remove = await runGit(repoPath, removeCommand, 30_000, onLog)
   if (remove.exitCode !== 0) {
     throw new Error(`git worktree remove failed: ${describeGitFailure(remove)}`)
   }

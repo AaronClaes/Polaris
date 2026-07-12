@@ -31,7 +31,14 @@ export interface Job {
   seenAt?: Date
   /** What the job operates on, so the renderer can key UI state (row spinners,
    *  the project icon) and invalidations to it without parsing titles. */
-  meta: { owner?: string; name?: string; branch?: string; path?: string; projectId?: number }
+  meta: {
+    owner?: string
+    name?: string
+    branch?: string
+    path?: string
+    projectId?: number
+    issueNumber?: number
+  }
 }
 
 // Insertion order = start order, so values() iterates oldest-first. Logs live
@@ -93,6 +100,15 @@ export function startJob(
 /** All jobs, newest first (the popover's display order). */
 export function listJobs(): Job[] {
   return [...jobs.values()].reverse()
+}
+
+/** The first *running* job matching the predicate — the mutations' duplicate
+ *  guard (dialogs no longer block while work runs, so the registry must). */
+export function findActiveJob(predicate: (job: Job) => boolean): Job | undefined {
+  for (const job of jobs.values()) {
+    if (job.status === 'running' && predicate(job)) return job
+  }
+  return undefined
 }
 
 /** A job's captured output; an unknown id is just an empty log, never an error
