@@ -116,7 +116,10 @@ async function runCommand(command: string, cwd: string | null | undefined): Prom
  * the app to the front. `open` returns promptly (it only launches), so we await
  * it and surface its error — e.g. "Unable to find application named '…'".
  */
-async function runOpenApp(appName: string, cwd: string | null | undefined): Promise<RunResult> {
+export async function runOpenApp(
+  appName: string,
+  cwd: string | null | undefined
+): Promise<RunResult> {
   const args = cwd ? ['-a', appName, cwd] : ['-a', appName]
   const result = await execa('open', args, { reject: false })
   if (result.exitCode !== 0) {

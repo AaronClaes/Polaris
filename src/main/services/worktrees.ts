@@ -7,14 +7,15 @@ import { execa } from 'execa'
 import type { DB } from '../db/client'
 import { settings } from '../db/schema'
 
-/** An *added* worktree of a repo — the main clone itself is never included. */
+/** An *added* worktree of a repo — the main clone itself is never included.
+ *  Deliberately just path + branch: the renderer writes freshly created
+ *  worktrees straight into its query cache, so every field here must be known
+ *  at creation time without another git call. */
 export interface Worktree {
   /** Absolute path of the worktree directory. */
   path: string
   /** Branch name (without the refs/heads/ prefix) checked out in the worktree. */
   branch: string
-  /** The commit the worktree is on. */
-  head: string
 }
 
 /**
@@ -71,7 +72,8 @@ export async function listWorktrees(repoPath: string | null | undefined): Promis
       else if (line.startsWith('branch refs/heads/'))
         branch = line.slice('branch refs/heads/'.length)
     }
-    if (path && head && branch) worktrees.push({ path, head, branch })
+    // HEAD still gates the push — a stanza without it isn't a usable worktree.
+    if (path && head && branch) worktrees.push({ path, branch })
   }
   return worktrees
 }
@@ -157,5 +159,46 @@ export async function addWorktree({
   )
   if (add.exitCode !== 0) {
     throw new Error(`git worktree add failed: ${add.stderr || `exit code ${add.exitCode}`}`)
+  }
+}
+
+/**
+ * Remove a worktree — but only when nothing would be lost: refuses on
+ * uncommitted changes, unpushed commits, or a branch with no upstream (never
+ * pushed — same risk, so the same safe default). Never `--force`, and branches
+ * (local and remote) are never touched: removal is purely "this checkout is
+ * done", the work lives on in the branch. Refusals throw with a user-facing
+ * message; cleanup happens in the user's own terminal, not here.
+ */
+export async function removeWorktree({
+  repoPath,
+  worktreePath
+}: {
+  repoPath: string
+  worktreePath: string
+}): Promise<void> {
+  const status = await runGit(worktreePath, 'git status --porcelain', 15_000)
+  if (status.exitCode !== 0) {
+    throw new Error(`git status failed: ${status.stderr || `exit code ${status.exitCode}`}`)
+  }
+  if (status.stdout.trim().length > 0) {
+    throw new Error('The worktree has uncommitted changes — clean them up in your terminal first.')
+  }
+
+  // `@{u}..` lists commits the upstream doesn't have; it errors when no
+  // upstream is configured, which we fold into the same refusal.
+  const unpushed = await runGit(worktreePath, 'git log @{u}.. --oneline', 15_000)
+  if (unpushed.exitCode !== 0) {
+    throw new Error('The branch has never been pushed — push it first so the work is safe.')
+  }
+  if (unpushed.stdout.trim().length > 0) {
+    throw new Error('The worktree has unpushed commits — push them first.')
+  }
+
+  const remove = await runGit(repoPath, `git worktree remove ${shellQuote(worktreePath)}`, 30_000)
+  if (remove.exitCode !== 0) {
+    throw new Error(
+      `git worktree remove failed: ${remove.stderr || `exit code ${remove.exitCode}`}`
+    )
   }
 }

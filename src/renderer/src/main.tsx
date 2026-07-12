@@ -18,10 +18,11 @@ if (!rootElement) throw new Error('Root element #root not found')
 // A day-old snapshot is still worth showing instantly; anything older is dropped.
 const MAX_AGE = 1000 * 60 * 60 * 24
 
-// Version marker for the persisted cache (now just favicons + the app icon —
-// GitHub data lives in the SQLite tracked-items store and is no longer persisted
-// here). Bump to throw the persisted cache away on hydration if its shape changes.
-const CACHE_BUSTER = 'persist-3-icons-only'
+// Version marker for the persisted cache (favicons, the app icon, and per-repo
+// worktree lists — GitHub data lives in the SQLite tracked-items store and is
+// no longer persisted here). Bump to throw the persisted cache away on
+// hydration if its shape changes.
+const CACHE_BUSTER = 'persist-4-icons-worktrees'
 
 createRoot(rootElement).render(
   <StrictMode>
@@ -44,6 +45,11 @@ createRoot(rootElement).render(
               const [namespace, procedure] = group
               if (namespace === 'favicon') return procedure === 'get'
               if (namespace === 'settings') return procedure === 'appIcon'
+              // Worktree lists are derived from `git worktree list`, which
+              // costs a login-shell spawn per repo — persisting the last
+              // snapshot paints the glyphs instantly on launch while the
+              // real state revalidates behind it.
+              if (namespace === 'worktrees') return procedure === 'forRepo'
               return false
             }
           }

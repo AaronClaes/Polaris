@@ -86,7 +86,17 @@ export function WorktreeCreateDialog({
     wasOpen.current = open
   }, [open])
 
-  const onCreated = (): void => {
+  // Write the new worktree straight into the query cache so the row's glyph
+  // flips instantly, then invalidate to reconcile with `git worktree list` in
+  // the background (the refetch pays a login-shell spawn — too slow to gate the
+  // UI on).
+  const onCreated = (created: { branch: string; path: string }): void => {
+    utils.worktrees.forRepo.setData({ owner: repo.owner, name: repo.name }, (old) => ({
+      worktrees: [
+        ...(old?.worktrees ?? []).filter((worktree) => worktree.path !== created.path),
+        { path: created.path, branch: created.branch }
+      ]
+    }))
     utils.worktrees.forRepo.invalidate({ owner: repo.owner, name: repo.name })
     onOpenChange(false)
   }

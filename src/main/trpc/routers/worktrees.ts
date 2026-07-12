@@ -3,13 +3,16 @@ import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import type { DB } from '../../db/client'
 import { githubAccounts, projectRepos, projects } from '../../db/schema'
+import { runOpenApp } from '../../services/action-runner'
+import { readDefaultApps } from '../../services/default-apps'
 import { createLinkedBranch, fetchWorktreeCreationLookup } from '../../services/github'
 import {
   addWorktree,
   deriveBranchName,
   deriveWorktreePath,
   listWorktrees,
-  readWorktreesRoot
+  readWorktreesRoot,
+  removeWorktree
 } from '../../services/worktrees'
 import { publicProcedure, router } from '..'
 import { resolveRepoToken } from './github'
@@ -151,5 +154,34 @@ export const worktreesRouter = router({
       await addWorktree({ repoPath, branch: input.branch, worktreePath })
 
       return { branch: input.branch, path: worktreePath }
+    }),
+
+  // Open a worktree directory in the user's default IDE / terminal, or reveal
+  // it in Finder — the same launchers as project actions, minus the per-project
+  // config (worktree launchers always use the global defaults).
+  open: publicProcedure
+    .input(z.object({ path: z.string().min(1), target: z.enum(['terminal', 'ide', 'finder']) }))
+    .mutation(async ({ ctx, input }) => {
+      const apps = readDefaultApps(ctx.db)
+      const appName =
+        input.target === 'finder'
+          ? 'Finder'
+          : input.target === 'terminal'
+            ? apps.terminal.appName
+            : apps.ide.appName
+      const result = await runOpenApp(appName, input.path)
+      if (!result.ok) throw new Error(result.error ?? `Could not open ${appName}.`)
+    }),
+
+  // Remove a worktree (the service refuses when work would be lost — dirty,
+  // unpushed, or never-pushed). Branches are never touched.
+  remove: publicProcedure
+    .input(repoInput.extend({ path: z.string().min(1) }))
+    .mutation(async ({ ctx, input }) => {
+      const repoPath = resolveClonePath(ctx.db, input.owner, input.name)
+      if (!repoPath) {
+        throw new Error(`No local clone linked for ${input.owner}/${input.name}.`)
+      }
+      await removeWorktree({ repoPath, worktreePath: input.path })
     })
 })
