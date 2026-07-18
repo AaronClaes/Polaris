@@ -262,7 +262,16 @@ export const githubRouter = router({
       const mine =
         assigned ||
         (isAuthor && pull.assignees.every((a) => viewerLogins.has(a.login.toLowerCase())))
-      const needsReview = pull.reviewers.some((r) => viewerLogins.has(r.login.toLowerCase()))
+      // A pending review request only "needs you" while nobody else has
+      // approved: once another reviewer approves, your review is no longer
+      // what's blocking the merge, so the PR drops to 'other'. Your own login
+      // is excluded so a stale self-approval (review re-requested after you
+      // approved) doesn't hide a PR that genuinely awaits you again.
+      const approvedByOther = pull.approvedBy.some(
+        (login) => !viewerLogins.has(login.toLowerCase())
+      )
+      const needsReview =
+        !approvedByOther && pull.reviewers.some((r) => viewerLogins.has(r.login.toLowerCase()))
       const bucket: PullBucket = mine ? 'assigned' : needsReview ? 'review' : 'other'
       pulls.push({ ...pull, repo: { owner: input.owner, name: input.name }, bucket })
     }

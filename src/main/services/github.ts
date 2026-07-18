@@ -393,6 +393,9 @@ export interface GitHubPullRequest {
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
   // Counts from each reviewer's latest review (pending reviewers are `reviewers`).
   reviewSummary: { approved: number; changesRequested: number }
+  // Logins whose latest review is an approval (ghost accounts excluded) — lets
+  // the router tell "approved by someone else" from your own stale approval.
+  approvedBy: string[]
   // The PR author (null for a deleted/ghost account).
   author: { login: string; avatarUrl: string | null } | null
   assignees: { login: string; avatarUrl: string }[]
@@ -439,7 +442,7 @@ const PULLS_QUERY = `query($owner: String!, $name: String!, $cursor: String) {
             }
           }
         }
-        latestReviews(first: 20) { nodes { state } }
+        latestReviews(first: 20) { nodes { state author { login } } }
       }
     }
   }
@@ -470,7 +473,7 @@ interface RawPull {
       } | null
     }[]
   }
-  latestReviews: { nodes: { state: string }[] }
+  latestReviews: { nodes: { state: string; author: { login: string } | null }[] }
 }
 
 interface PullsResponse {
@@ -497,9 +500,12 @@ function mapPull(owner: string, name: string, raw: RawPull): GitHubPullRequest {
 
   let approved = 0
   let changesRequested = 0
+  const approvedBy: string[] = []
   for (const review of raw.latestReviews.nodes) {
-    if (review.state === 'APPROVED') approved++
-    else if (review.state === 'CHANGES_REQUESTED') changesRequested++
+    if (review.state === 'APPROVED') {
+      approved++
+      if (review.author) approvedBy.push(review.author.login)
+    } else if (review.state === 'CHANGES_REQUESTED') changesRequested++
   }
 
   return {
@@ -512,6 +518,7 @@ function mapPull(owner: string, name: string, raw: RawPull): GitHubPullRequest {
     isDraft: raw.isDraft,
     mergeable: raw.mergeable as GitHubPullRequest['mergeable'],
     reviewSummary: { approved, changesRequested },
+    approvedBy,
     author: raw.author
       ? { login: raw.author.login, avatarUrl: raw.author.avatarUrl ?? null }
       : null,
